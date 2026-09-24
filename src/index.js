@@ -2,7 +2,7 @@
 // and runs the scheduled job every minute.
 
 import { checkLogin, startSession, currentUser, endSession, endAllSessions, hashPassword, verifyPassword, passwordProblem, temporaryPassword } from './auth.js';
-import { dayInfo, getGraceMinutes, runEveryMinute, reportPeriod, sendReport } from './jobs.js';
+import { dayInfo, getGraceMinutes, runEveryMinute, reportPeriod, sendReport, getReportRecipients } from './jobs.js';
 import { syncFromZoho } from './zoho.js';
 import { postToSlack, sendEmail, slackSafe } from './notify.js';
 import { formatDate, formatTimeIn, addDays } from './time.js';
@@ -207,13 +207,15 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
       const row = await env.DB.prepare('SELECT * FROM attendance WHERE user_id = ? AND work_date = ?').bind(va.id, day.local.date).first();
       rows.push({
         name: va.name,
-        startLabel: day.startLabel,
+        exempt: day.exempt,
+        startLabel: day.exempt ? '' : day.startLabel,
         projects: day.projectNames,
         statusHtml: views.todayStatusHtml(row, day, now),
         checkedIn: row?.checked_in_at ? `${formatTimeIn(row.checked_in_at, day.zone)} ${day.zoneLabel}` : '',
         note: row?.callout_reason || '',
       });
     }
+    rows.sort((a, b) => a.exempt - b.exempt); // exempt VAs at the bottom; otherwise alphabetical
     return page(views.adminTodayPage({ user, rows, message }));
   }
 
@@ -243,9 +245,17 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
   if (path === '/admin/time-off' && method === 'GET') {
     const base = `SELECT r.*, u.name, d.name AS decided_by_name FROM time_off_requests r
       JOIN users u ON u.id = r.user_id LEFT JOIN users d ON d.id = r.decided_by`;
+    const today = now.toISOString().slice(0, 10);
     const { results: pending } = await env.DB.prepare(`${base} WHERE r.status = 'pending' ORDER BY r.start_date`).all();
-    const { results: recent } = await env.DB.prepare(`${base} WHERE r.status != 'pending' ORDER BY r.decided_at DESC LIMIT 30`).all();
-    return page(views.timeOffPage({ user, pending, recent, message }));
+    // Approved periods that have not ended yet (a day of margin for time zones).
+    const { results: current } = await env.DB.prepare(
+      `${base} WHERE r.status = 'approved' AND r.end_date >= ? ORDER BY r.start_date`
+    ).bind(addDays(today, -1)).all();
+    const { results: recent } = await env.DB.prepare(
+      `${base} WHERE r.status IN ('denied', 'cancelled') OR (r.status = 'approved' AND r.end_date < ?) ORDER BY r.decided_at DESC LIMIT 30`
+    ).bind(addDays(today, -1)).all();
+    const { results: vas } = await env.DB.prepare('SELECT id, name FROM users WHERE is_va = 1 ORDER BY name').all();
+    return page(views.timeOffPage({ user, pending, current, recent, vas, message }));
   }
 
   if ((m = path.match(/^\/admin\/time-off\/(\d+)\/(approve|deny)$/)) && method === 'POST') {
@@ -254,14 +264,40 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     if (req?.status === 'pending') {
       await env.DB.prepare('UPDATE time_off_requests SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?')
         .bind(status, user.id, now.toISOString(), req.id).run();
-      if (status === 'approved') {
-        // Days that already passed without a check-in now count as time off.
-        await env.DB.prepare(
-          "UPDATE attendance SET status = 'time_off' WHERE user_id = ? AND work_date BETWEEN ? AND ? AND status IN ('pending', 'missed')"
-        ).bind(req.user_id, req.start_date, req.end_date).run();
-      }
+      if (status === 'approved') await markPeriod(env, req);
     }
     return redirect(`/admin/time-off?msg=${status}`);
+  }
+
+  // An admin adds a time-off or coverage period directly. It applies right away.
+  if (path === '/admin/time-off/add' && method === 'POST') {
+    const va = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND is_va = 1').bind(field('user_id')).first();
+    const start = field('start_date');
+    const end = field('end_date');
+    if (!va || !isDate(start) || !isDate(end) || end < start) return redirect('/admin/time-off?msg=bad-dates');
+    const kind = field('kind') === 'coverage' ? 'coverage' : 'time_off';
+    const res = await env.DB.prepare(
+      `INSERT INTO time_off_requests (user_id, start_date, end_date, note, status, kind, added_by_admin, decided_by, decided_at)
+       VALUES (?, ?, ?, ?, 'approved', ?, 1, ?, ?)`
+    ).bind(va.id, start, end, field('note').slice(0, 1000) || null, kind, user.id, now.toISOString()).run();
+    await markPeriod(env, { user_id: va.id, start_date: start, end_date: end, kind, id: res.meta.last_row_id });
+    return redirect('/admin/time-off?msg=period-added');
+  }
+
+  // Cancelling a period: check-ins are expected again from the VA's today onward.
+  if ((m = path.match(/^\/admin\/time-off\/(\d+)\/cancel$/)) && method === 'POST') {
+    const req = await env.DB.prepare("SELECT * FROM time_off_requests WHERE id = ? AND status = 'approved'").bind(m[1]).first();
+    if (req) {
+      await env.DB.prepare('UPDATE time_off_requests SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?')
+        .bind('cancelled', user.id, now.toISOString(), req.id).run();
+      const va = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(req.user_id).first();
+      const today = (await dayInfo(env, va, now)).local.date;
+      await env.DB.prepare(
+        `UPDATE attendance SET status = 'pending' WHERE user_id = ? AND work_date BETWEEN ? AND ?
+         AND status IN ('time_off', 'coverage') AND checked_in_at IS NULL`
+      ).bind(req.user_id, today > req.start_date ? today : req.start_date, req.end_date).run();
+    }
+    return redirect('/admin/time-off?msg=period-cancelled');
   }
 
   if (path === '/admin/people' && method === 'GET') {
@@ -333,6 +369,11 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     return redirect('/admin/projects?msg=removed');
   }
 
+  if ((m = path.match(/^\/admin\/people\/(\d+)\/exempt$/)) && method === 'POST') {
+    await env.DB.prepare('UPDATE users SET exempt = ? WHERE id = ?').bind(field('exempt') === '1' ? 1 : 0, m[1]).run();
+    return redirect('/admin/people?msg=saved');
+  }
+
   if ((m = path.match(/^\/admin\/people\/(\d+)\/remove-admin$/)) && method === 'POST') {
     if (Number(m[1]) !== user.id) await env.DB.prepare('UPDATE users SET is_admin = 0 WHERE id = ?').bind(m[1]).run();
     return redirect('/admin/people?msg=removed');
@@ -369,11 +410,24 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
   if (path === '/admin/settings' && method === 'GET') {
     const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'last_email_error'").first();
     const emailError = row ? JSON.parse(row.value) : null;
-    return page(views.settingsPage({ user, grace: await getGraceMinutes(env), emailError, message }));
+    const { results: admins } = await env.DB.prepare('SELECT name, email FROM users WHERE is_admin = 1 ORDER BY name').all();
+    const recipients = await getReportRecipients(env);
+    return page(views.settingsPage({ user, grace: await getGraceMinutes(env), emailError, admins, recipients, message }));
   }
 
   if (path === '/admin/settings/notifications' && method === 'POST') {
     await env.DB.prepare('UPDATE users SET notify_time_off = ? WHERE id = ?').bind(field('notify_time_off') === '1' ? 1 : 0, user.id).run();
+    return redirect('/admin/settings?msg=saved');
+  }
+
+  // Who gets the report emails: ticked admins plus any other addresses typed in (one per line).
+  if (path === '/admin/settings/recipients' && method === 'POST') {
+    const typed = field('other').split(/[\s,;]+/);
+    const emails = [...fieldAll('admin_email'), ...typed]
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+    const unique = [...new Set(emails)];
+    await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('report_recipients', ?)").bind(JSON.stringify(unique)).run();
     return redirect('/admin/settings?msg=saved');
   }
 
@@ -384,11 +438,18 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
   }
 
   if ((m = path.match(/^\/admin\/reports\/(weekly|monthly)$/)) && method === 'POST') {
-    const { sent, total } = await sendReport(env, m[1], reportPeriod(m[1], now));
-    return redirect(`/admin/settings?msg=${sent === total ? 'report-sent' : 'report-email-failed'}`);
+    const { emailed } = await sendReport(env, m[1], reportPeriod(m[1], now));
+    return redirect(`/admin/settings?msg=${emailed ? 'report-sent' : 'report-email-failed'}`);
   }
 
   return redirect('/admin');
+}
+
+// When a period is approved or added, days in it that were open or missed now count as time off or coverage.
+async function markPeriod(env, period) {
+  await env.DB.prepare(
+    "UPDATE attendance SET status = ? WHERE user_id = ? AND work_date BETWEEN ? AND ? AND status IN ('pending', 'missed')"
+  ).bind(period.kind === 'coverage' ? 'coverage' : 'time_off', period.user_id, period.start_date, period.end_date).run();
 }
 
 // Checkbox values ["1", "3", "5"] -> "1,3,5" (only valid day numbers, in order).

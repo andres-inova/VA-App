@@ -3,8 +3,10 @@
 import { parseStart } from './time.js';
 
 // Zoho fields the app reads. "Slack_Management_ID" is the VA's management
-// channel; "Slack_ID" is the VA's own Slack user ID (used to tag them).
-const FIELDS = ['Name', 'Email', 'Time_Zone', 'Availability', 'VA_Status', 'Slack_ID', 'Slack_Management_ID'];
+// channel; "Slack_ID" is the VA's own Slack user ID (used to tag them). "VA_Company_Affiliation"
+// decides whether the VA is checked at all (only "InoVA Local" VAs are).
+const AFFILIATION = 'VA_Company_Affiliation';
+const FIELDS = ['Name', 'Email', 'Time_Zone', 'Availability', 'VA_Status', 'Slack_ID', 'Slack_Management_ID', AFFILIATION];
 
 async function accessToken(env) {
   const cached = await env.DB.prepare("SELECT value FROM settings WHERE key = 'zoho_token'").first();
@@ -59,17 +61,22 @@ async function syncVAs(env, token) {
   const records = await fetchVAs(env, token);
 
   const active = records.filter((r) => r.VA_Status === 'Active' && r.Email);
+  // Zoho leaves out fields that don't exist. If the affiliation field is missing entirely
+  // (for example, renamed in Zoho), keep the saved values instead of making every VA exempt.
+  const hasAffiliation = records.some((r) => AFFILIATION in r);
+  if (!hasAffiliation) console.error(`Zoho sync: field ${AFFILIATION} not found; affiliations were not updated.`);
   const statements = active.map((r) =>
     env.DB.prepare(
-      `INSERT INTO users (email, name, is_va, zoho_id, time_zone, availability, slack_channel_id, slack_user_id)
-       VALUES (?, ?, 1, ?, ?, ?, ?, ?)
+      `INSERT INTO users (email, name, is_va, zoho_id, time_zone, availability, slack_channel_id, slack_user_id, affiliation)
+       VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8)
        ON CONFLICT(email) DO UPDATE SET
          name = excluded.name, is_va = 1, zoho_id = excluded.zoho_id,
          time_zone = excluded.time_zone, availability = excluded.availability,
-         slack_channel_id = excluded.slack_channel_id, slack_user_id = excluded.slack_user_id`
+         slack_channel_id = excluded.slack_channel_id, slack_user_id = excluded.slack_user_id,
+         affiliation = CASE WHEN ?9 THEN excluded.affiliation ELSE users.affiliation END`
     ).bind(
       r.Email.trim().toLowerCase(), r.Name, r.id, clean(r.Time_Zone), clean(r.Availability),
-      clean(r.Slack_Management_ID), clean(r.Slack_ID)
+      clean(r.Slack_Management_ID), clean(r.Slack_ID), clean(r[AFFILIATION]), hasAffiliation ? 1 : 0
     )
   );
   // VAs who are no longer Active in Zoho lose VA access (admins keep admin access).

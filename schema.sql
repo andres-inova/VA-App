@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS users (
   start_override TEXT,   -- "HH:MM" set by an admin; used instead of the Zoho start time
   slack_channel_id TEXT, -- VA's management channel (Zoho "Slack Management ID")
   slack_user_id TEXT,    -- VA's own Slack user ID (Zoho "Slack ID"), used to tag them
+  affiliation TEXT,      -- Zoho "VA Company Affiliation"; only "InoVA Local" VAs are checked
+  exempt INTEGER NOT NULL DEFAULT 0,  -- 1 = an admin exempted this VA from check-ins
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -30,7 +32,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 -- One row per VA per work day.
--- status: pending, on_time, late, missed, called_out, time_off, checked_in
+-- status: pending, on_time, late, missed, called_out, time_off, coverage, exempt, checked_in
 -- ("checked_in" is used when the VA has no fixed start time.)
 CREATE TABLE IF NOT EXISTS attendance (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,7 +77,9 @@ CREATE TABLE IF NOT EXISTS time_off_requests (
   end_date TEXT NOT NULL,
   needs_coverage INTEGER NOT NULL DEFAULT 0,
   note TEXT,
-  status TEXT NOT NULL DEFAULT 'pending',  -- pending, approved, denied
+  status TEXT NOT NULL DEFAULT 'pending',  -- pending, approved, denied, cancelled
+  kind TEXT NOT NULL DEFAULT 'time_off',   -- time_off or coverage
+  added_by_admin INTEGER NOT NULL DEFAULT 0,
   decided_by INTEGER REFERENCES users(id),
   decided_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))

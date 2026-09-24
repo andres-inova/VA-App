@@ -1,6 +1,7 @@
 // The HTML for each page.
 
 import { esc } from './util.js';
+import { isExempt } from './jobs.js';
 import { formatDate, formatTimeIn, formatHM, parseHHMM, zoneFor, weekdayOf, DAY_NAMES } from './time.js';
 
 // Short messages shown at the top of a page after an action.
@@ -16,11 +17,13 @@ const MESSAGES = {
   'saved': ['good', 'Saved.'],
   'synced': ['good', 'VAs and projects were updated from Zoho.'],
   'sync-failed': ['bad', 'The Zoho sync did not work. Check the Zoho settings (see README).'],
-  'report-sent': ['good', 'Report sent to #check-in-tracker and emailed to admins.'],
-  'report-email-failed': ['bad', 'The report was posted in #check-in-tracker, but one or more emails did not send. See "Last email problem" below.'],
+  'report-sent': ['good', 'Report posted in #check-in-tracker and emailed to the report recipients.'],
+  'report-email-failed': ['bad', 'The report was posted in #check-in-tracker, but the email did not send. See "Last email problem" below.'],
   'password-changed': ['good', 'Your password was changed.'],
   'admin-added': ['good', 'Admin added. Use "Set temporary password" so they can log in.'],
   'removed': ['good', 'Removed.'],
+  'period-added': ['good', 'Period added. No check-in is expected on those days.'],
+  'period-cancelled': ['good', 'Period cancelled. Check-ins are expected again from today.'],
 };
 
 export const STATUS = {
@@ -30,6 +33,8 @@ export const STATUS = {
   missed: ['No check-in', 'bad', '✗'],
   called_out: ['Called out', 'info', 'C'],
   time_off: ['Time off', 'muted', 'T'],
+  coverage: ['Coverage', 'muted', 'V'],
+  exempt: ['Exempt', 'muted', 'E'],
   checked_in: ['Checked in', 'good', '✓'],
 };
 
@@ -148,8 +153,11 @@ export function vaPage({ user, day, today, requests, history, message }) {
     statusHtml = `<div class="big-status">${pill(today.status)}</div><p>You checked in at ${esc(formatTimeIn(today.checked_in_at, day.zone))} ${esc(day.zoneLabel)}.</p>`;
   } else if (today?.status === 'called_out') {
     statusHtml = `<div class="big-status">${pill('called_out')}</div><p>You called out today.</p>`;
-  } else if (today?.status === 'time_off' || day.onTimeOff) {
-    statusHtml = `<div class="big-status">${pill('time_off')}</div><p>You have approved time off today.</p>`;
+  } else if (['time_off', 'coverage'].includes(today?.status) || day.onTimeOff) {
+    const kind = today?.status === 'coverage' || (!today && day.timeOffKind === 'coverage') ? 'coverage' : 'time_off';
+    statusHtml = `<div class="big-status">${pill(kind)}</div><p>${kind === 'coverage' ? 'You are covered today' : 'You have approved time off today'}. No check-in is needed.</p>`;
+  } else if (day.exempt) {
+    statusHtml = '<p>You do not need to check in, but you can still check in if you want to.</p>';
   } else if (day.holiday) {
     statusHtml = `<p>Today is a company holiday (${esc(day.holiday.name)}). No check-in is needed.</p>`;
   } else if (!day.expected) {
@@ -205,17 +213,20 @@ export function vaPage({ user, day, today, requests, history, message }) {
 
 function requestsTable(requests, forAdmin) {
   if (!requests.length) return '<p class="small">No requests.</p>';
-  const statusPill = (s) => `<span class="pill ${{ pending: 'warn', approved: 'good', denied: 'bad' }[s]}">${esc(s[0].toUpperCase() + s.slice(1))}</span>`;
-  return `<div class="table"><table><tr>${forAdmin ? '<th>VA</th>' : ''}<th>Dates</th><th>Coverage needed</th><th>Note</th><th>Status</th>${forAdmin ? '<th></th>' : ''}</tr>
+  const statusPill = (s) => `<span class="pill ${{ pending: 'warn', approved: 'good', denied: 'bad', cancelled: 'muted' }[s]}">${esc(s[0].toUpperCase() + s.slice(1))}</span>`;
+  return `<div class="table"><table><tr>${forAdmin ? '<th>VA</th>' : ''}<th>Dates</th><th>Type</th><th>Coverage needed</th><th>Note</th><th>Status</th>${forAdmin ? '<th></th>' : ''}</tr>
   ${requests.map((r) => `<tr>
     ${forAdmin ? `<td>${esc(r.name)}</td>` : ''}
     <td>${esc(formatDate(r.start_date, true))}${r.end_date !== r.start_date ? ` to ${esc(formatDate(r.end_date, true))}` : ''}</td>
-    <td>${r.needs_coverage ? '<strong>Yes</strong>' : 'No'}</td>
+    <td>${r.kind === 'coverage' ? 'Coverage' : 'Time off'}${r.added_by_admin ? '<div class="small">Added by an admin</div>' : ''}</td>
+    <td>${r.added_by_admin ? '' : r.needs_coverage ? '<strong>Yes</strong>' : 'No'}</td>
     <td>${esc(r.note || '')}</td>
     <td>${statusPill(r.status)}${r.decided_by_name ? `<div class="small">by ${esc(r.decided_by_name)}</div>` : ''}</td>
     ${forAdmin ? `<td>${r.status === 'pending' ? `
       <form method="post" action="/admin/time-off/${r.id}/approve" class="inline"><button>Approve</button></form>
-      <form method="post" action="/admin/time-off/${r.id}/deny" class="inline"><button class="danger">Deny</button></form>` : ''}</td>` : ''}
+      <form method="post" action="/admin/time-off/${r.id}/deny" class="inline"><button class="danger">Deny</button></form>`
+      : r.status === 'approved' && r.cancellable ? `
+      <form method="post" action="/admin/time-off/${r.id}/cancel" class="inline"><button class="plain">Cancel</button></form>` : ''}</td>` : ''}
   </tr>`).join('')}</table></div>`;
 }
 
@@ -247,7 +258,8 @@ export function todayStatusHtml(row, day, now) {
     }
     return pill(row.status);
   }
-  if (day.onTimeOff) return pill('time_off');
+  if (day.exempt) return pill('exempt');
+  if (day.onTimeOff) return pill(day.timeOffKind);
   if (day.holiday) return '<span class="pill muted">Holiday</span>';
   if (!day.expected) return '<span class="pill muted">No check-in expected</span>';
   return '<span class="pill muted">Shift not started</span>';
@@ -256,7 +268,7 @@ export function todayStatusHtml(row, day, now) {
 export function historyPage({ user, month, prev, next, dates, vas, cells }) {
   const [y, m] = month.split('-').map(Number);
   const monthName = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' });
-  const legend = ['on_time', 'late', 'missed', 'called_out', 'time_off']
+  const legend = ['on_time', 'late', 'missed', 'called_out', 'time_off', 'coverage', 'exempt']
     .map((s) => `<span><span class="cell ${STATUS[s][1]}">${STATUS[s][2]}</span> ${STATUS[s][0]}</span>`).join('');
   return layout({
     title: 'History', user, active: '/admin/history',
@@ -289,12 +301,29 @@ export function historyPage({ user, month, prev, next, dates, vas, cells }) {
   });
 }
 
-export function timeOffPage({ user, pending, recent, message }) {
+export function timeOffPage({ user, pending, current, recent, vas, message }) {
   return layout({
     title: 'Time off', user, active: '/admin/time-off', message,
-    body: `<h1>Time-off requests</h1>
-    <div class="card"><h2>Waiting for a decision</h2>${requestsTable(pending, true)}</div>
-    <div class="card"><h2>Recent decisions</h2>${requestsTable(recent, true)}</div>`,
+    body: `<h1>Time off and coverage</h1>
+    <div class="card"><h2>Requests waiting for a decision</h2>${requestsTable(pending, true)}</div>
+    <div class="card">
+      <h2>Add a time-off or coverage period</h2>
+      <p class="small">The VA is not expected to check in on any day in the period, and gets no late alerts. It applies right away, without approval.</p>
+      <form method="post" action="/admin/time-off/add">
+        <div class="row">
+          <div><label for="pv">VA</label><select id="pv" name="user_id" required><option value="">Choose a VA</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}</select></div>
+          <div><label for="pk">Type</label><select id="pk" name="kind"><option value="time_off">Time off</option><option value="coverage">Coverage (another VA covers their work)</option></select></div>
+        </div>
+        <div class="row">
+          <div><label for="ps">First day</label><input id="ps" name="start_date" type="date" required></div>
+          <div><label for="pe">Last day</label><input id="pe" name="end_date" type="date" required></div>
+        </div>
+        <label for="pn">Note (optional)</label><input id="pn" name="note" type="text" maxlength="1000" placeholder="For example: Kayla covers Pool Partners">
+        <button>Add period</button>
+      </form>
+    </div>
+    <div class="card"><h2>Current and upcoming periods</h2>${requestsTable(current.map((r) => ({ ...r, cancellable: true })), true)}</div>
+    <div class="card"><h2>Past, denied and cancelled</h2>${requestsTable(recent, true)}</div>`,
   });
 }
 
@@ -304,6 +333,23 @@ export function peoplePage({ user, people, message, tempPassword }) {
   const tempBox = tempPassword
     ? `<div class="msg info">Temporary password for <strong>${esc(tempPassword.name)}</strong>: <code>${esc(tempPassword.password)}</code><br>
        Share it with them privately. They will choose their own password when they log in. This password is not shown again.</div>` : '';
+  // Whether the app checks this VA, why, and a button to exempt them or remove the exemption.
+  const checkedCell = (p) => {
+    const affiliation = (p.affiliation || '').trim();
+    const pillHtml = !isExempt(p) ? '<span class="pill good">Checked</span>'
+      : !p.exempt && !affiliation ? '<span class="pill warn">Exempt</span>' : '<span class="pill muted">Exempt</span>';
+    const why = p.exempt ? 'Exempted by an admin'
+      : !affiliation ? 'VA Company Affiliation is empty in Zoho'
+      : affiliation !== 'InoVA Local' ? `Affiliation: ${affiliation}` : 'Affiliation: InoVA Local';
+    const byZoho = affiliation !== 'InoVA Local';
+    // VAs exempt because of Zoho are changed in Zoho; the button only exempts (or un-exempts) InoVA Local VAs.
+    const button = byZoho && !p.exempt ? '<div class="small">Change the affiliation in Zoho to check this VA.</div>' : `
+      <form method="post" action="/admin/people/${p.id}/exempt" class="inline">
+        <input type="hidden" name="exempt" value="${p.exempt ? 0 : 1}">
+        <button class="plain" style="margin-top:4px">${p.exempt ? 'Remove exemption' : 'Exempt this VA'}</button>
+      </form>`;
+    return `${pillHtml}<div class="small">${esc(why)}</div>${button}`;
+  };
   const resetBtn = (p) => `<form method="post" action="/admin/people/${p.id}/temp-password" class="inline"><button class="plain">Set temporary password</button></form>`;
   return layout({
     title: 'People', user, active: '/admin/people', message,
@@ -313,15 +359,16 @@ export function peoplePage({ user, people, message, tempPassword }) {
       <p class="small">Active VAs are copied from Zoho CRM every hour. To change a VA's name, email, time zone, availability or Slack channels, change it in Zoho, then click "Sync with Zoho now". Projects and start times are set on the <a href="/admin/projects">Projects</a> page.</p>
       <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/people"><button>Sync with Zoho now</button></form>
       <div class="table" style="margin-top:14px"><table>
-        <tr><th>Name</th><th>Time zone</th><th>Zoho availability</th><th>Projects</th><th>Slack channel</th><th>Login</th></tr>
+        <tr><th>Name</th><th>Checked?</th><th>Time zone</th><th>Zoho availability</th><th>Projects</th><th>Slack channel</th><th>Login</th></tr>
         ${vas.map((p) => `<tr>
           <td>${esc(p.name)}<div class="small">${esc(p.email)}</div></td>
+          <td>${checkedCell(p)}</td>
           <td>${esc(p.time_zone || '')}${zoneFor(p.time_zone) ? '' : ' <span class="pill warn">Missing, using EST</span>'}</td>
           <td>${esc(p.availability || '')}</td>
           <td class="small">${p.project_list ? esc(p.project_list) : '<span class="pill warn">None</span>'}</td>
           <td>${p.slack_channel_id ? `<code>${esc(p.slack_channel_id)}</code>` : '<span class="pill warn">Not set</span>'}</td>
           <td>${p.password_hash ? (p.must_change_password ? 'Temporary password' : 'Active') : 'No password yet'}<br>${resetBtn(p)}</td>
-        </tr>`).join('') || '<tr><td colspan="6">No active VAs yet.</td></tr>'}
+        </tr>`).join('') || '<tr><td colspan="7">No active VAs yet.</td></tr>'}
       </table></div>
     </div>
     <div class="card">
@@ -360,7 +407,7 @@ export function holidaysPage({ user, holidays, message }) {
   });
 }
 
-export function settingsPage({ user, grace, emailError, message }) {
+export function settingsPage({ user, grace, emailError, admins, recipients, message }) {
   return layout({
     title: 'Settings', user, active: '/admin/settings', message,
     body: `<h1>Settings</h1>
@@ -386,6 +433,17 @@ export function settingsPage({ user, grace, emailError, message }) {
         <p class="small">Sent automatically at 9:00 AM Eastern: the weekly report every Monday (for the week before) and the monthly report on the 1st (for the month before). You can also send them now.</p>
         <form method="post" action="/admin/reports/weekly" class="inline"><button class="plain">Send weekly report now</button></form>
         <form method="post" action="/admin/reports/monthly" class="inline"><button class="plain">Send monthly report now</button></form>
+      </div>
+      <div class="card">
+        <h2>Who gets the report emails</h2>
+        <p class="small">The weekly and monthly reports go out as one email, with everyone below on it.</p>
+        <form method="post" action="/admin/settings/recipients">
+          ${admins.map((a) => `<label class="check"><input type="checkbox" name="admin_email" value="${esc(a.email)}" ${recipients.includes(a.email) ? 'checked' : ''}> ${esc(a.name)} <span class="small">(${esc(a.email)})</span></label>`).join('')}
+          <label for="other">Other email addresses (one per line)</label>
+          <textarea id="other" name="other" placeholder="name@inovalocal.com">${esc(recipients.filter((e) => !admins.some((a) => a.email === e)).join('\n'))}</textarea>
+          <button>Save recipients</button>
+        </form>
+        ${recipients.length ? '' : '<p class="msg bad" style="margin-top:10px">Nobody is selected, so report emails are not sent. Reports are still posted in Slack.</p>'}
       </div>
       <div class="card">
         <h2>Last email problem</h2>

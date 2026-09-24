@@ -12,6 +12,12 @@ export async function getGraceMinutes(env) {
   return row ? Number(row.value) : 0;
 }
 
+// A VA is exempt (never expected to check in) when an admin marked them exempt in the app,
+// or when their Zoho "VA Company Affiliation" is anything other than "InoVA Local" (including empty).
+export function isExempt(user) {
+  return Boolean(user.exempt) || (user.affiliation || '').trim() !== 'InoVA Local';
+}
+
 // Everything about a VA's day: their local date, today's projects, and whether a check-in is expected.
 // A VA with several projects today checks in once, by the earliest start time, and that check-in covers all of them.
 export async function dayInfo(env, user, now = new Date()) {
@@ -30,14 +36,17 @@ export async function dayInfo(env, user, now = new Date()) {
   const timed = projects.filter((p) => p.start);
   const start = timed.length ? timed[0].start : null; // already sorted, so the first is the earliest
 
+  const exempt = isExempt(user);
   const holiday = await env.DB.prepare('SELECT name FROM holidays WHERE date = ?').bind(local.date).first();
-  const expected = Boolean(start) && !holiday;
+  const expected = Boolean(start) && !holiday && !exempt;
   const scheduled = expected ? zonedTimeToUtc(local.date, start.hour, start.minute, zone) : null;
   const timeOff = await env.DB.prepare(
-    "SELECT id FROM time_off_requests WHERE user_id = ? AND status = 'approved' AND ? BETWEEN start_date AND end_date"
+    "SELECT kind FROM time_off_requests WHERE user_id = ? AND status = 'approved' AND ? BETWEEN start_date AND end_date"
   ).bind(user.id, local.date).first();
   return {
-    zone, zoneLabel, local, start, holiday, expected, scheduled, onTimeOff: Boolean(timeOff),
+    zone, zoneLabel, local, start, holiday, expected, scheduled, exempt,
+    onTimeOff: Boolean(timeOff),
+    timeOffKind: timeOff?.kind === 'coverage' ? 'coverage' : 'time_off',
     projects,
     projectNames: projects.map((p) => p.client).join(', '),
     startLabel: start ? `${formatHM(start)} ${zoneLabel}` : null,
@@ -48,17 +57,23 @@ async function checkShifts(env, now) {
   const { results: vas } = await env.DB.prepare('SELECT * FROM users WHERE is_va = 1').all();
   for (const va of vas) {
     const day = await dayInfo(env, va, now);
+    if (day.exempt) {
+      // If the VA became exempt today, today's open check-in no longer counts.
+      await env.DB.prepare("UPDATE attendance SET status = 'exempt' WHERE user_id = ? AND work_date = ? AND status = 'pending'")
+        .bind(va.id, day.local.date).run();
+      continue;
+    }
     if (!day.expected) continue;
 
     await env.DB.prepare(
       'INSERT OR IGNORE INTO attendance (user_id, work_date, scheduled_start, status, projects) VALUES (?, ?, ?, ?, ?)'
-    ).bind(va.id, day.local.date, day.scheduled.toISOString(), day.onTimeOff ? 'time_off' : 'pending', day.projectNames).run();
+    ).bind(va.id, day.local.date, day.scheduled.toISOString(), day.onTimeOff ? day.timeOffKind : 'pending', day.projectNames).run();
     // Keep the start time and project list current in case an admin changed an assignment today.
     await env.DB.prepare("UPDATE attendance SET scheduled_start = ?, projects = ? WHERE user_id = ? AND work_date = ? AND status = 'pending'")
       .bind(day.scheduled.toISOString(), day.projectNames, va.id, day.local.date).run();
     if (day.onTimeOff) {
-      await env.DB.prepare("UPDATE attendance SET status = 'time_off' WHERE user_id = ? AND work_date = ? AND status = 'pending'")
-        .bind(va.id, day.local.date).run();
+      await env.DB.prepare("UPDATE attendance SET status = ? WHERE user_id = ? AND work_date = ? AND status = 'pending'")
+        .bind(day.timeOffKind, va.id, day.local.date).run();
       continue;
     }
 
@@ -155,13 +170,23 @@ export async function buildReport(env, kind, period) {
   return { title: `${title}: ${range}`, slack, text, html };
 }
 
+// Who gets the weekly and monthly report emails. Admins choose this on the Settings page;
+// until someone saves a choice, every admin gets them.
+export async function getReportRecipients(env) {
+  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'report_recipients'").first();
+  if (row) return JSON.parse(row.value);
+  const { results: admins } = await env.DB.prepare('SELECT email FROM users WHERE is_admin = 1 ORDER BY name').all();
+  return admins.map((a) => a.email);
+}
+
+// Posts the report in Slack and sends it as one email with every recipient on it.
 export async function sendReport(env, kind, period) {
   const report = await buildReport(env, kind, period);
   await postToSlack(env, env.CHECKIN_CHANNEL_ID, report.slack);
-  const { results: admins } = await env.DB.prepare('SELECT email FROM users WHERE is_admin = 1').all();
-  let sent = 0;
-  for (const a of admins) if (await sendEmail(env, a.email, report.title, report.text, report.html)) sent++;
-  return { sent, total: admins.length };
+  const recipients = await getReportRecipients(env);
+  if (!recipients.length) return { emailed: true, recipients };
+  const emailed = await sendEmail(env, recipients.join(', '), report.title, report.text, report.html);
+  return { emailed, recipients };
 }
 
 async function maybeSendReports(env, now) {

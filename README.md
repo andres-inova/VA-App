@@ -139,7 +139,7 @@ If step 6 says the app is blocked, a Google Workspace admin can allow it at admi
 1. Log in and go to **Projects → Sync with Zoho now**. The 18 active projects should appear. 15 should have a VA, and 3 should be listed under "Projects with no VA": Shianne Catalano's two projects (she is On Deck in Zoho, not Active) and InoVA Local - Internal.
 2. On the **Projects** page, check each VA's start time and days, and fix any that are wrong. Andrew Villa (InoVA Closer) and Nika Kegbe-Davis (EcoVita) have "Open availability" in Zoho, so their projects start with **no start time**. Until you add one, they get no late alerts.
 3. On the **People** page, all 12 active VAs should appear, each with a Slack channel ID and their projects.
-4. Go to **Settings → Send weekly report now**. A report should appear in #check-in-tracker, and all 4 admins should get an email from inovaagent@inovalocal.com. Right after setup it will say nobody missed a check-in, which is expected.
+4. Go to **Settings → Send weekly report now**. A report should appear in #check-in-tracker, and everyone chosen under "Who gets the report emails" (all admins until changed) should get one email from inovaagent@inovalocal.com. Right after setup it will say nobody missed a check-in, which is expected.
 5. On the **People** page, click **Set temporary password** for each VA and admin, and send them their temporary password privately. They choose their own password the first time they log in.
 6. Add company holidays on the **Holidays** page.
 
@@ -161,17 +161,18 @@ If something doesn't work, open the Cloudflare dashboard → **Workers & Pages �
 - **Today**: every VA's projects today, their check-in time and their status right now.
 - **History**: a month grid showing each VA's status per work day, with totals.
 - **Projects**: the active projects from Zoho Projects and who is assigned to each, with a start time and work days per assignment. Admins can add, change or remove assignments.
-- **Time off**: approve or deny requests. Each new request emails every admin who has notifications turned on.
-- **People**: sync from Zoho, see each VA's projects, set temporary passwords, add or remove admins.
+- **Time off**: approve or deny requests. Each new request emails every admin who has notifications turned on. Admins can also add a **time-off or coverage period** for any VA directly, which applies right away, and cancel it later.
+- **People**: sync from Zoho, see each VA's projects and whether the app checks them, exempt a VA, set temporary passwords, add or remove admins.
 - **Holidays**: dates when nobody is expected to check in.
-- **Settings**: turn your time-off emails on or off, set the grace period, send a report now.
+- **Settings**: turn your time-off emails on or off, set the grace period, choose who gets the report emails, send a report now, and see the last email error.
 
 **Automatic (the job runs every minute)**
 - **10 minutes** after a VA's earliest project start with no check-in: #check-in-tracker gets a message tagging Stephany (VA Lead), and the VA's management channel gets a message tagging the VA.
 - **15 minutes** after: #check-in-tracker gets a message tagging Kelli.
 - If the VA checks in after an alert, #check-in-tracker gets a "checked in at…" message.
-- **Weekly report**, Mondays at 9:00 AM Eastern: VAs with 2 or more missed check-ins in the previous Monday–Sunday. Posted in #check-in-tracker and emailed to all admins.
+- **Weekly report**, Mondays at 9:00 AM Eastern: VAs with 2 or more missed check-ins in the previous Monday–Sunday. Posted in #check-in-tracker and sent as one email to the report recipients.
 - **Monthly report**, the 1st at 9:00 AM Eastern: VAs with 3 or more missed check-ins in the previous month. Posted and emailed the same way.
+- **Report recipients** are chosen on the Settings page: any of the admins, plus other email addresses. Until someone saves a choice, all admins get them.
 - **Zoho sync** every hour: VAs with VA Status "Active" can log in as VAs, and VAs who stop being Active lose access. Active projects are copied from Zoho Projects, and new ones are assigned by name (see below). Projects that are completed or closed in Zoho stop counting.
 
 ## Rules the app follows
@@ -180,6 +181,8 @@ If something doesn't work, open the Cloudflare dashboard → **Workers & Pages �
 - **One check-in per day:** if a VA has several projects on the same day, they check in once, by the **earliest** start time, and that check-in counts for all of them. For example, Pool Partners at 9:00 and Rise & Shine at 11:00 means one check-in due by 9:00.
 - **No projects that day, or no start times**, means no check-in is expected and no late alerts are sent. The VA can still check in.
 - **Holidays**: no check-in is expected on dates listed under Holidays.
+- **Exempt VAs are never checked.** A VA is exempt when their Zoho **VA Company Affiliation** is anything other than "InoVA Local" (for example "Closers", or empty), or when an admin clicks **Exempt this VA** on the People page. Exempt VAs get no expected check-in, no late alerts, and don't appear in reports. They can still log in, check in and request time off. An empty affiliation shows a warning on the People page.
+- **Time-off and coverage periods**: on any day inside an approved request or a period added by an admin, the VA is not expected to check in. The day shows as "Time off" or "Coverage" in History. If a period is cancelled, check-ins are expected again from that day on.
 - **Start times** are in the VA's Zoho **Time Zone** (PST, MST, CST or EST, with daylight saving time applied). If Time Zone is empty, the app uses Eastern.
 - **Automatic assignment:** when a new project appears in Zoho Projects, the app reads the name after the last " - " (for example "Pool Partners - **Tracy Saeman**") and assigns the project to the active VA with that name. Small differences are allowed: "Estefani Resendiz" matches "Estefani Resendiz Lopez", and "Nika Kedgbe-Davis" matches "Nika Kegbe-Davis". The first name must match, plus at least one other part of the name. If two VAs could match, nothing is assigned. The start time is taken from the VA's Zoho **Availability**, for example "8:30am - 4:30pm" means 8:30 AM. "Open availability" gives no start time.
 - **After a project is assigned** (automatically or by an admin), the sync leaves it alone, so an admin's changes are kept. A project that no VA matched is tried again at each sync, for example when an On Deck VA becomes Active.

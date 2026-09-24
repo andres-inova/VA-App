@@ -14,7 +14,7 @@ export async function postToSlack(env, channel, text) {
   const res = await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${env.SLACK_BOT_TOKEN}`,
+      Authorization: `Bearer ${env.SLACK_BOT_TOKEN.trim()}`,
       'Content-Type': 'application/json; charset=utf-8',
     },
     body: JSON.stringify({ channel, text, unfurl_links: false }),
@@ -68,9 +68,9 @@ async function gmailAccessToken(env) {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     body: new URLSearchParams({
-      client_id: env.GMAIL_CLIENT_ID,
-      client_secret: env.GMAIL_CLIENT_SECRET,
-      refresh_token: env.GMAIL_REFRESH_TOKEN,
+      client_id: (env.GMAIL_CLIENT_ID || '').trim(),
+      client_secret: (env.GMAIL_CLIENT_SECRET || '').trim(),
+      refresh_token: (env.GMAIL_REFRESH_TOKEN || '').trim(),
       grant_type: 'refresh_token',
     }),
   });

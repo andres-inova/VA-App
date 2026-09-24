@@ -13,9 +13,9 @@ async function accessToken(env) {
     if (expires > Date.now() + 60000) return token;
   }
   const params = new URLSearchParams({
-    refresh_token: env.ZOHO_REFRESH_TOKEN,
-    client_id: env.ZOHO_CLIENT_ID,
-    client_secret: env.ZOHO_CLIENT_SECRET,
+    refresh_token: (env.ZOHO_REFRESH_TOKEN || '').trim(),
+    client_id: (env.ZOHO_CLIENT_ID || '').trim(),
+    client_secret: (env.ZOHO_CLIENT_SECRET || '').trim(),
     grant_type: 'refresh_token',
   });
   const res = await fetch(`${env.ZOHO_ACCOUNTS_URL}/oauth/v2/token`, { method: 'POST', body: params });

@@ -10,7 +10,6 @@ const MESSAGES = {
   'already-in': ['info', 'You already checked in today.'],
   'called-out': ['good', 'Your call-out was sent to your management channel.'],
   'reason-needed': ['bad', 'Please write a short reason for calling out.'],
-  'request-sent': ['good', 'Your time-off request was sent to the admins.'],
   'bad-dates': ['bad', 'Please choose a start date and an end date that is the same or later.'],
   'approved': ['good', 'Request approved.'],
   'denied': ['good', 'Request denied.'],
@@ -147,7 +146,7 @@ export function accountPage(user, error, message) {
 
 // ---- VA page ----
 
-export function vaPage({ user, day, today, requests, history, message }) {
+export function vaPage({ user, day, today, requests, history, formUrl, message }) {
   let statusHtml;
   if (today?.checked_in_at) {
     statusHtml = `<div class="big-status">${pill(today.status)}</div><p>You checked in at ${esc(formatTimeIn(today.checked_in_at, day.zone))} ${esc(day.zoneLabel)}.</p>`;
@@ -189,17 +188,10 @@ export function vaPage({ user, day, today, requests, history, message }) {
         </form>
       </div>
       <div class="card">
-        <h2>Request time off</h2>
-        <form method="post" action="/va/time-off">
-          <div class="row">
-            <div><label for="start">First day off</label><input id="start" name="start_date" type="date" required></div>
-            <div><label for="end">Last day off</label><input id="end" name="end_date" type="date" required></div>
-          </div>
-          <label class="check"><input type="checkbox" name="needs_coverage" value="1"> I need another InoVA VA to cover for me</label>
-          <label for="note">Note (optional)</label>
-          <textarea id="note" name="note" maxlength="1000"></textarea>
-          <button>Send request</button>
-        </form>
+        <h2>Request time off or coverage</h2>
+        <p class="small">Use the coverage/time-off request form. Please send it at least 2 weeks before the first day you need covered. Your request shows up below once it is received, and an admin approves or denies it.</p>
+        <a class="btn" href="${esc(formUrl || '#')}" target="_blank" rel="noopener">Open the request form</a>
+        <p class="small">Type your name in the form exactly as it appears here: <strong>${esc(user.name)}</strong>.</p>
       </div>
     </div>
     <div class="card"><h2>My time-off requests</h2>${requestsTable(requests, false)}</div>
@@ -214,13 +206,13 @@ export function vaPage({ user, day, today, requests, history, message }) {
 function requestsTable(requests, forAdmin) {
   if (!requests.length) return '<p class="small">No requests.</p>';
   const statusPill = (s) => `<span class="pill ${{ pending: 'warn', approved: 'good', denied: 'bad', cancelled: 'muted' }[s]}">${esc(s[0].toUpperCase() + s.slice(1))}</span>`;
-  return `<div class="table"><table><tr>${forAdmin ? '<th>VA</th>' : ''}<th>Dates</th><th>Type</th><th>Coverage needed</th><th>Note</th><th>Status</th>${forAdmin ? '<th></th>' : ''}</tr>
+  return `<div class="table"><table><tr>${forAdmin ? '<th>VA</th>' : ''}<th>Dates</th><th>Type</th><th>Coverage needed</th><th>Details and notes</th><th>Status</th>${forAdmin ? '<th></th>' : ''}</tr>
   ${requests.map((r) => `<tr>
     ${forAdmin ? `<td>${esc(r.name)}</td>` : ''}
     <td>${esc(formatDate(r.start_date, true))}${r.end_date !== r.start_date ? ` to ${esc(formatDate(r.end_date, true))}` : ''}</td>
-    <td>${r.kind === 'coverage' ? 'Coverage' : 'Time off'}${r.added_by_admin ? '<div class="small">Added by an admin</div>' : ''}</td>
+    <td>${r.kind === 'coverage' ? 'Coverage' : 'Time off'}<div class="small">${r.added_by_admin ? 'Added by an admin' : r.source === 'form' ? 'From the request form' : ''}</div></td>
     <td>${r.added_by_admin ? '' : r.needs_coverage ? '<strong>Yes</strong>' : 'No'}</td>
-    <td>${esc(r.note || '')}</td>
+    <td>${r.details ? `<div class="small" style="white-space:pre-line">${esc(r.details)}</div>` : ''}${esc(r.note || '')}</td>
     <td>${statusPill(r.status)}${r.decided_by_name ? `<div class="small">by ${esc(r.decided_by_name)}</div>` : ''}</td>
     ${forAdmin ? `<td>${r.status === 'pending' ? `
       <form method="post" action="/admin/time-off/${r.id}/approve" class="inline"><button>Approve</button></form>
@@ -301,10 +293,26 @@ export function historyPage({ user, month, prev, next, dates, vas, cells }) {
   });
 }
 
-export function timeOffPage({ user, pending, current, recent, vas, message }) {
+export function timeOffPage({ user, pending, current, recent, vas, unmatched, formUrl, message }) {
   return layout({
     title: 'Time off', user, active: '/admin/time-off', message,
     body: `<h1>Time off and coverage</h1>
+    <p class="small">VAs request time off and coverage with the <a href="${esc(formUrl || '#')}" target="_blank" rel="noopener">coverage/time-off request form</a>. Each response appears here within a few seconds.</p>
+    ${unmatched.length ? `<div class="card"><h2>Form responses with an unknown name (${unmatched.length})</h2>
+      <p class="small">The name typed in the form did not match an active VA. Choose the VA to turn it into a request, or discard it.</p>
+      <div class="table"><table><tr><th>Name in the form</th><th>Dates</th><th>Details and notes</th><th></th></tr>
+      ${unmatched.map((u) => `<tr>
+        <td><strong>${esc(u.name)}</strong></td>
+        <td>${esc(formatDate(u.start_date, true))}${u.end_date !== u.start_date ? ` to ${esc(formatDate(u.end_date, true))}` : ''}</td>
+        <td><div class="small" style="white-space:pre-line">${esc(u.details || '')}</div>${esc(u.note || '')}</td>
+        <td>
+          <form method="post" action="/admin/form-unmatched/${u.id}/assign" class="assign-form">
+            <select name="user_id" required aria-label="VA"><option value="">Choose a VA</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}</select>
+            <button>Save</button>
+          </form>
+          <form method="post" action="/admin/form-unmatched/${u.id}/discard" class="inline"><button class="danger" style="margin-top:6px">Discard</button></form>
+        </td>
+      </tr>`).join('')}</table></div></div>` : ''}
     <div class="card"><h2>Requests waiting for a decision</h2>${requestsTable(pending, true)}</div>
     <div class="card">
       <h2>Add a time-off or coverage period</h2>

@@ -80,9 +80,26 @@ CREATE TABLE IF NOT EXISTS time_off_requests (
   status TEXT NOT NULL DEFAULT 'pending',  -- pending, approved, denied, cancelled
   kind TEXT NOT NULL DEFAULT 'time_off',   -- time_off or coverage
   added_by_admin INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT 'app',      -- app, form (Google Form) or admin
+  details TEXT,                            -- the form's answers: clients, shift times, template
+  form_response_id TEXT,                   -- the Google Form response id
   decided_by INTEGER REFERENCES users(id),
   decided_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS time_off_form_response ON time_off_requests (form_response_id);
+
+-- Form responses whose name did not match an active VA, until an admin picks the VA.
+CREATE TABLE IF NOT EXISTS form_unmatched (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  form_response_id TEXT UNIQUE,
+  name TEXT NOT NULL,
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  details TEXT,
+  note TEXT,
+  received_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Company holidays: no check-in is expected on these dates.

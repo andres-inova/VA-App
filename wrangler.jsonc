@@ -28,7 +28,8 @@
     "ZOHO_ACCOUNTS_URL": "https://accounts.zoho.com",
     "ZOHO_API_URL": "https://www.zohoapis.com",
     "ZOHO_PROJECTS_API_URL": "https://projectsapi.zoho.com",
-    "ZOHO_PORTAL_ID": "890895306"
+    "ZOHO_PORTAL_ID": "890895306",
+    "TIME_OFF_FORM_URL": "https://docs.google.com/forms/d/e/1FAIpQLScV4WhTKiiUbL9LD_CszRYsm8K5cugkBU27-3CvY2RlRM26VQ/viewform"
   },
 
   "observability": { "enabled": true }

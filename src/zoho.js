@@ -118,10 +118,27 @@ export function splitProjectName(name) {
 const nameParts = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
   .split(/[^a-z]+/).filter(Boolean);
 
-// Finds the one VA whose name matches the name in a project. The first names must be
-// the same, and at least one other part must match. This allows "Estefani Resendiz"
-// to match "Estefani Resendiz Lopez" and "Nika Kedgbe-Davis" to match "Nika Kegbe-Davis".
-// Returns null when there is no match or more than one.
+// How many single-letter changes turn one word into another ("rugenskii" -> "rugenski" is 1).
+function letterChanges(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) {
+      row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = row;
+  }
+  return prev[b.length];
+}
+
+// Two last-name parts count as the same if they are equal, or if they are 5+ letters long
+// and differ by at most 2 letters (a typo such as "Rugenskii" for "Rugenski").
+const closeEnough = (a, b) => a === b || (a.length >= 5 && b.length >= 5 && letterChanges(a, b) <= 2);
+
+// Finds the one VA whose name matches a name typed in a project or the request form.
+// The first names must be the same, and at least one other part must match (allowing a small typo).
+// This lets "Estefani Resendiz" match "Estefani Resendiz Lopez" and "Nika Kedgbe-Davis" match
+// "Nika Kegbe-Davis". Returns null when there is no match or more than one.
 export function matchVA(vaName, vas) {
   const want = nameParts(vaName);
   if (!want.length) return null;
@@ -129,7 +146,7 @@ export function matchVA(vaName, vas) {
     const have = nameParts(v.name);
     if (have[0] !== want[0]) return false;
     if (want.length === 1) return true;
-    return want.slice(1).some((part) => have.includes(part));
+    return want.slice(1).some((part) => have.slice(1).some((h) => closeEnough(part, h)));
   });
   return hits.length === 1 ? hits[0] : null;
 }

@@ -4,9 +4,10 @@
 import { checkLogin, startSession, currentUser, endSession, endAllSessions, hashPassword, verifyPassword, passwordProblem, temporaryPassword } from './auth.js';
 import { dayInfo, getGraceMinutes, runEveryMinute, reportPeriod, sendReport, getReportRecipients } from './jobs.js';
 import { syncFromZoho } from './zoho.js';
-import { postToSlack, sendEmail, slackSafe } from './notify.js';
+import { handleFormWebhook } from './forms.js';
+import { postToSlack, slackSafe } from './notify.js';
 import { formatDate, formatTimeIn, addDays } from './time.js';
-import { esc, redirect, page, isDate, isTime } from './util.js';
+import { redirect, page, isDate, isTime } from './util.js';
 import * as views from './views.js';
 
 export default {
@@ -29,6 +30,9 @@ async function handle(request, env) {
   const path = url.pathname.replace(/\/+$/, '') || '/';
   const method = request.method;
   const message = url.searchParams.get('msg');
+
+  // Responses from the Google Form come from Google, not from the app's pages. They are checked with a secret instead.
+  if (path === '/api/form/time-off' && method === 'POST') return handleFormWebhook(request, env);
 
   // Only accept form submissions that come from this app's own pages.
   if (method === 'POST' && request.headers.get('Origin') !== url.origin) {
@@ -128,7 +132,7 @@ async function vaRoutes(env, user, path, method, field, message) {
     const { results: history } = await env.DB.prepare(
       'SELECT * FROM attendance WHERE user_id = ? AND work_date >= ? ORDER BY work_date DESC'
     ).bind(user.id, addDays(day.local.date, -30)).all();
-    return page(views.vaPage({ user, day, today, requests, history, message }));
+    return page(views.vaPage({ user, day, today, requests, history, formUrl: env.TIME_OFF_FORM_URL, message }));
   }
 
   if (path === '/va/checkin' && method === 'POST') {
@@ -170,26 +174,7 @@ async function vaRoutes(env, user, path, method, field, message) {
     return redirect('/va?msg=called-out');
   }
 
-  if (path === '/va/time-off' && method === 'POST') {
-    const start = field('start_date');
-    const end = field('end_date');
-    if (!isDate(start) || !isDate(end) || end < start) return redirect('/va?msg=bad-dates');
-    const needsCoverage = field('needs_coverage') === '1';
-    const note = field('note').slice(0, 1000);
-    await env.DB.prepare('INSERT INTO time_off_requests (user_id, start_date, end_date, needs_coverage, note) VALUES (?, ?, ?, ?, ?)')
-      .bind(user.id, start, end, needsCoverage ? 1 : 0, note || null).run();
-
-    const dates = start === end ? formatDate(start, true) : `${formatDate(start, true)} to ${formatDate(end, true)}`;
-    const { results: admins } = await env.DB.prepare('SELECT email FROM users WHERE is_admin = 1 AND notify_time_off = 1').all();
-    const subject = `Time-off request from ${user.name}`;
-    const text = `${user.name} asked for time off: ${dates}.\nCoverage from another VA needed: ${needsCoverage ? 'Yes' : 'No'}${note ? `\nNote: ${note}` : ''}\n\nApprove or deny it here: ${env.APP_URL}/admin/time-off`;
-    const html = `<p><strong>${esc(user.name)}</strong> asked for time off: <strong>${esc(dates)}</strong>.</p>
-      <p>Coverage from another VA needed: <strong>${needsCoverage ? 'Yes' : 'No'}</strong></p>${note ? `<p>Note: ${esc(note)}</p>` : ''}
-      <p><a href="${esc(env.APP_URL)}/admin/time-off">Approve or deny the request</a></p>`;
-    for (const a of admins) await sendEmail(env, a.email, subject, text, html);
-    return redirect('/va?msg=request-sent');
-  }
-
+  // Time-off and coverage requests are made with the Google Form (see src/forms.js).
   return redirect('/va');
 }
 
@@ -255,7 +240,8 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
       `${base} WHERE r.status IN ('denied', 'cancelled') OR (r.status = 'approved' AND r.end_date < ?) ORDER BY r.decided_at DESC LIMIT 30`
     ).bind(addDays(today, -1)).all();
     const { results: vas } = await env.DB.prepare('SELECT id, name FROM users WHERE is_va = 1 ORDER BY name').all();
-    return page(views.timeOffPage({ user, pending, current, recent, vas, message }));
+    const { results: unmatched } = await env.DB.prepare('SELECT * FROM form_unmatched ORDER BY received_at').all();
+    return page(views.timeOffPage({ user, pending, current, recent, vas, unmatched, formUrl: env.TIME_OFF_FORM_URL, message }));
   }
 
   if ((m = path.match(/^\/admin\/time-off\/(\d+)\/(approve|deny)$/)) && method === 'POST') {
@@ -269,6 +255,25 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     return redirect(`/admin/time-off?msg=${status}`);
   }
 
+  // A form response whose name matched no VA: an admin picks the VA, and it becomes a normal request.
+  if ((m = path.match(/^\/admin\/form-unmatched\/(\d+)\/(assign|discard)$/)) && method === 'POST') {
+    const row = await env.DB.prepare('SELECT * FROM form_unmatched WHERE id = ?').bind(m[1]).first();
+    if (row && m[2] === 'assign') {
+      const va = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND is_va = 1').bind(field('user_id')).first();
+      if (!va) return redirect('/admin/time-off');
+      await env.DB.batch([
+        env.DB.prepare(
+          `INSERT INTO time_off_requests (user_id, start_date, end_date, needs_coverage, note, details, source, form_response_id)
+           VALUES (?, ?, ?, 1, ?, ?, 'form', ?)`
+        ).bind(va.id, row.start_date, row.end_date, row.note, row.details, row.form_response_id),
+        env.DB.prepare('DELETE FROM form_unmatched WHERE id = ?').bind(row.id),
+      ]);
+    } else if (row) {
+      await env.DB.prepare('DELETE FROM form_unmatched WHERE id = ?').bind(row.id).run();
+    }
+    return redirect(`/admin/time-off?msg=${m[2] === 'assign' ? 'saved' : 'removed'}`);
+  }
+
   // An admin adds a time-off or coverage period directly. It applies right away.
   if (path === '/admin/time-off/add' && method === 'POST') {
     const va = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND is_va = 1').bind(field('user_id')).first();
@@ -277,8 +282,8 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     if (!va || !isDate(start) || !isDate(end) || end < start) return redirect('/admin/time-off?msg=bad-dates');
     const kind = field('kind') === 'coverage' ? 'coverage' : 'time_off';
     const res = await env.DB.prepare(
-      `INSERT INTO time_off_requests (user_id, start_date, end_date, note, status, kind, added_by_admin, decided_by, decided_at)
-       VALUES (?, ?, ?, ?, 'approved', ?, 1, ?, ?)`
+      `INSERT INTO time_off_requests (user_id, start_date, end_date, note, status, kind, added_by_admin, source, decided_by, decided_at)
+       VALUES (?, ?, ?, ?, 'approved', ?, 1, 'admin', ?, ?)`
     ).bind(va.id, start, end, field('note').slice(0, 1000) || null, kind, user.id, now.toISOString()).run();
     await markPeriod(env, { user_id: va.id, start_date: start, end_date: end, kind, id: res.meta.last_row_id });
     return redirect('/admin/time-off?msg=period-added');

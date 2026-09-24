@@ -23,10 +23,11 @@ A web app where InoVA Local VAs check in at the start of each work day, call out
 ### Still to do, in this order
 
 1. ~~Set your admin password~~ (done)
-2. [Create the Slack bot and invite it to the channels](#2-slack-bot): 15 minutes
-3. [Create the Zoho key](#3-zoho-key): 10 minutes
-4. [Create the Gmail key](#4-gmail-key): 15 minutes
-5. [Test everything](#5-test-everything): 5 minutes
+2. ~~Create the Slack bot and invite it to the channels~~ (done)
+3. ~~Create the Zoho key~~ (done)
+4. ~~Create the Gmail key~~ (done)
+5. [Connect the time-off/coverage Google Form](#connect-the-timeoffcoverage-google-form): 10 minutes
+6. [Test everything](#5-test-everything): 5 minutes
 
 Steps 2 to 4 each end with `npx wrangler secret put` commands. Each command asks you to paste a key, which Cloudflare stores encrypted. **Run them yourself, and never paste the keys into a chat, email or file.** Every key starts working as soon as it's saved, so there's no need to deploy again.
 
@@ -134,6 +135,34 @@ Do these steps signed in as **inovaagent@inovalocal.com**.
 
 If step 6 says the app is blocked, a Google Workspace admin can allow it at admin.google.com under **Security → Access and data control → API controls**.
 
+## Connect the time-off/coverage Google Form
+
+VAs request time off and coverage with the Google Form **IL Coverage/Time-Off Request**. A small script attached to the form sends each new response to the app. The app matches the **Name** answer to a VA (small typos are allowed) and lists it on the **Time off** page for an admin to approve or deny. If the name matches nobody, the response is listed under "Form responses with an unknown name" so an admin can pick the VA.
+
+The script and the app share a secret code, so nobody else can send fake requests to the app. Do these steps signed in as the owner of the form.
+
+**1. Make the secret code.** In PowerShell, run:
+```bash
+[guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+```
+It prints a long random code. Keep this window open. You paste the code in two places below, and nowhere else.
+
+**2. Give the code to the app.** In the project folder, run this and paste the code when asked:
+```bash
+npx wrangler secret put FORM_SECRET
+```
+
+**3. Add the script to the form.**
+1. Open the form in edit mode. Click the three-dot menu at the top right, then **Apps Script**.
+2. Delete the sample code, paste in everything from `google-form-script.js` in this project, and click **Save**. Name the project "VA App form link".
+3. Click the gear icon (**Project Settings**). At the bottom, under **Script Properties**, click **Add script property**. Property: `APP_SECRET`. Value: the code from step 1. Click **Save script properties**.
+4. Click the clock icon (**Triggers**) → **Add Trigger**. Function: `onFormSubmit`. Event source: **From form**. Event type: **On form submit**. Click **Save**.
+5. Google asks you to allow the script to read the form and connect to an external service. Choose your account. If you see "Google hasn't verified this app", click **Advanced**, then **Go to VA App form link**, then **Allow**. This is your own script, so this warning is expected.
+
+**4. Send the responses that already exist (optional).** In the script editor, pick `sendAllResponses` in the function menu at the top and click **Run**. Responses the app already has are skipped, so running it again is safe.
+
+**5. Test it.** Submit the form once with a real VA's name. Within a few seconds it should appear on the app's **Time off** page, and the admins with notifications on should get an email. If it doesn't appear, open **Executions** (the list icon) in the script editor to see the error.
+
 ## 5. Test everything
 
 1. Log in and go to **Projects → Sync with Zoho now**. The 18 active projects should appear. 15 should have a VA, and 3 should be listed under "Projects with no VA": Shianne Catalano's two projects (she is On Deck in Zoho, not Active) and InoVA Local - Internal.
@@ -154,14 +183,14 @@ If something doesn't work, open the Cloudflare dashboard → **Workers & Pages �
 - See **today's projects** and the time they need to check in by.
 - **Check in** once per day. One check-in covers all of that day's projects. The app records whether it was on time.
 - **Call out** with a required reason. The reason is posted in the VA's management channel.
-- **Request time off**: first and last day off, a "need coverage from another VA" checkbox, and an optional note.
+- **Request time off or coverage** with a button that opens the Google Form. Their requests and the admins' decisions then show on their page.
 - See their own time-off requests and the last 30 days of check-ins.
 
 **Admins**
 - **Today**: every VA's projects today, their check-in time and their status right now.
 - **History**: a month grid showing each VA's status per work day, with totals.
 - **Projects**: the active projects from Zoho Projects and who is assigned to each, with a start time and work days per assignment. Admins can add, change or remove assignments.
-- **Time off**: approve or deny requests. Each new request emails every admin who has notifications turned on. Admins can also add a **time-off or coverage period** for any VA directly, which applies right away, and cancel it later.
+- **Time off**: approve or deny requests from the Google Form. Each new request sends one email to the admins who have notifications turned on. Admins can also add a **time-off or coverage period** for any VA directly, which applies right away, and cancel it later.
 - **People**: sync from Zoho, see each VA's projects and whether the app checks them, exempt a VA, set temporary passwords, add or remove admins.
 - **Holidays**: dates when nobody is expected to check in.
 - **Settings**: turn your time-off emails on or off, set the grace period, choose who gets the report emails, send a report now, and see the last email error.
@@ -213,6 +242,8 @@ If something doesn't work, open the Cloudflare dashboard → **Workers & Pages �
 | `src/views.js` | The HTML and styling of every page |
 | `src/jobs.js` | The every-minute job: late alerts, reports, Zoho sync |
 | `src/auth.js` | Passwords and login sessions |
+| `src/forms.js` | Receives responses from the time-off/coverage Google Form |
+| `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |
 | `src/zoho.js` | Reads active VAs from Zoho CRM and active projects from Zoho Projects, and assigns new projects by name |
 | `src/notify.js` | Sends Slack messages, and emails through Gmail |
 | `src/time.js` | Time zone and date calculations |

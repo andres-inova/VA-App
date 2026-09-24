@@ -12,9 +12,21 @@ function onFormSubmit(e) {
 }
 
 // Run this once by hand to send the responses that already exist.
-// Responses the app already has are skipped.
+// Responses the app already has are skipped. A response the app can't accept (for example an
+// old one whose dates were typed as free text) is listed in the log, and the rest are still sent.
 function sendAllResponses() {
-  FormApp.getActiveForm().getResponses().forEach(sendResponse_);
+  let sent = 0;
+  let failed = 0;
+  FormApp.getActiveForm().getResponses().forEach((response) => {
+    try {
+      sendResponse_(response);
+      sent++;
+    } catch (err) {
+      failed++;
+      console.log('Skipped the response from ' + response.getTimestamp() + ': ' + err.message);
+    }
+  });
+  console.log('Done. Sent: ' + sent + '. Skipped: ' + failed + '.');
 }
 
 function sendResponse_(response) {

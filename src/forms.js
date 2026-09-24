@@ -22,6 +22,21 @@ function sameSecret(a, b) {
 
 const text = (value, max = 2000) => (value ?? '').toString().trim().slice(0, max);
 
+// Google Forms sends dates as MM-DD-YYYY (for example 10-05-2026). This also accepts
+// M/D/YYYY and YYYY-MM-DD. Returns "2026-10-05", or "" if the date can't be read.
+export function toISODate(value) {
+  const s = text(value, 40);
+  let y, m, d;
+  let match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+  if (match) [, y, m, d] = match;
+  else if ((match = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/.exec(s))) [, m, d, y] = match;
+  else return '';
+  const date = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+  // Reject impossible dates such as 02-30-2026.
+  if (date.getUTCFullYear() !== Number(y) || date.getUTCMonth() !== Number(m) - 1 || date.getUTCDate() !== Number(d)) return '';
+  return date.toISOString().slice(0, 10);
+}
+
 // The form's extra answers, kept together so admins can read them on the Time off page.
 function formDetails(body) {
   return [
@@ -43,10 +58,12 @@ export async function handleFormWebhook(request, env) {
   }
   const responseId = text(body.response_id, 200);
   const name = text(body.name, 200);
-  const start = text(body.start_date, 10);
-  const end = text(body.end_date, 10) || start;
+  const start = toISODate(body.start_date);
+  const end = toISODate(body.end_date) || start;
   if (!responseId || !name || !isDate(start) || !isDate(end)) {
-    return json({ error: 'Name, start date and response id are required. Dates must look like 2026-10-05.' }, 400);
+    return json({
+      error: `Name, start date and response id are required. Dates must look like 10-05-2026 or 2026-10-05. Received start "${text(body.start_date, 40)}", end "${text(body.end_date, 40)}".`,
+    }, 400);
   }
   const [first, last] = end < start ? [end, start] : [start, end];
   const details = formDetails(body);

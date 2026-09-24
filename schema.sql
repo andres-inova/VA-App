@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS time_off_requests (
   source TEXT NOT NULL DEFAULT 'app',      -- app, form (Google Form) or admin
   details TEXT,                            -- the form's answers: clients, shift times, template
   form_response_id TEXT,                   -- the Google Form response id
+  project_ids TEXT,                        -- empty = whole day; otherwise only these projects (comma-separated ids)
   decided_by INTEGER REFERENCES users(id),
   decided_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))

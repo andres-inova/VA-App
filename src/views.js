@@ -21,6 +21,8 @@ const MESSAGES = {
   'password-changed': ['good', 'Your password was changed.'],
   'admin-added': ['good', 'Admin added. Use "Set temporary password" so they can log in.'],
   'removed': ['good', 'Removed.'],
+  'choose-va': ['bad', 'Please choose a VA for the request.'],
+  'choose-projects': ['bad', 'Please tick at least one project for the request.'],
   'period-added': ['good', 'Period added. No check-in is expected on those days.'],
   'period-cancelled': ['good', 'Period cancelled. Check-ins are expected again from today.'],
 };
@@ -174,6 +176,7 @@ export function vaPage({ user, day, today, requests, history, formUrl, message }
       <p class="small">Your time zone: ${esc(day.zoneLabel)}${day.startLabel ? ` · Check in by: <strong>${esc(day.startLabel)}</strong>` : ''}</p>
       ${day.projects.length ? `<p>Your projects today: ${day.projects.map((p) => `${esc(p.client)}${p.start ? ` (${formatHM(p.start)})` : ''}`).join(', ')}.
         ${day.projects.length > 1 ? '<br><span class="small">One check-in covers all of them. It is due at the earliest start time.</span>' : ''}</p>` : ''}
+      ${day.projectsOffNames ? `<p class="small">Approved time off today for: ${esc(day.projectsOffNames)}.</p>` : ''}
       ${statusHtml}
       <form method="post" action="/va/checkin"><button class="big" ${checkedIn ? 'disabled' : ''}>${checkedIn ? 'Checked in' : 'Check in'}</button></form>
     </div>
@@ -210,7 +213,8 @@ function requestsTable(requests, forAdmin) {
   ${requests.map((r) => `<tr>
     ${forAdmin ? `<td>${esc(r.name)}</td>` : ''}
     <td>${esc(formatDate(r.start_date, true))}${r.end_date !== r.start_date ? ` to ${esc(formatDate(r.end_date, true))}` : ''}</td>
-    <td>${r.kind === 'coverage' ? 'Coverage' : 'Time off'}<div class="small">${r.added_by_admin ? 'Added by an admin' : r.source === 'form' ? 'From the request form' : ''}</div></td>
+    <td>${r.kind === 'coverage' ? 'Coverage' : 'Time off'}<div class="small">${r.added_by_admin ? 'Added by an admin' : r.source === 'form' ? 'From the request form' : ''}</div>
+      <div class="small">${r.project_names ? `Only these projects: ${esc(r.project_names)}` : 'All projects'}</div></td>
     <td>${r.added_by_admin ? '' : r.needs_coverage ? '<strong>Yes</strong>' : 'No'}</td>
     <td>${r.details ? `<div class="small" style="white-space:pre-line">${esc(r.details)}</div>` : ''}${esc(r.note || '')}</td>
     <td>${statusPill(r.status)}${r.decided_by_name ? `<div class="small">by ${esc(r.decided_by_name)}</div>` : ''}</td>
@@ -293,27 +297,46 @@ export function historyPage({ user, month, prev, next, dates, vas, cells }) {
   });
 }
 
-export function timeOffPage({ user, pending, current, recent, vas, unmatched, formUrl, message }) {
+// Form responses whose name matched no VA. The admin picks the VA; that VA's projects then
+// appear as checkboxes, all ticked, and the admin unticks any the request does not cover.
+function unmatchedRequests(unmatched, vas, vaProjects) {
+  if (!unmatched.length) return '';
+  const projectsOf = (vaId) => vaProjects.filter((p) => p.user_id === vaId);
+  return `<div class="table"><table>
+    <tr><th>Name in the form</th><th>Dates</th><th>Details and notes</th><th>Assign to a VA and their projects</th></tr>
+    ${unmatched.map((u) => `<tr>
+      <td><strong>${esc(u.name)}</strong><div><span class="pill warn">No VA matched</span></div></td>
+      <td>${esc(formatDate(u.start_date, true))}${u.end_date !== u.start_date ? ` to ${esc(formatDate(u.end_date, true))}` : ''}</td>
+      <td><div class="small" style="white-space:pre-line">${esc(u.details || '')}</div>${esc(u.note || '')}</td>
+      <td>
+        <form method="post" action="/admin/form-unmatched/${u.id}/assign">
+          <select name="user_id" required aria-label="VA"
+            onchange="var va = this.value; this.form.querySelectorAll('[data-va]').forEach(function (g) { g.hidden = g.dataset.va !== va; })">
+            <option value="">Choose a VA</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}
+          </select>
+          ${vas.map((v) => {
+            const list = projectsOf(v.id);
+            return `<div data-va="${v.id}" hidden class="small" style="margin-top:6px">
+              ${list.length
+                ? `Projects this request covers:${list.map((p) => `<label class="check" style="margin-top:4px"><input type="checkbox" name="projects_${v.id}" value="${esc(p.id)}" checked> ${esc(p.client)}</label>`).join('')}`
+                : 'This VA has no projects, so the request covers the whole day.'}
+            </div>`;
+          }).join('')}
+          <button>Assign</button>
+        </form>
+        <form method="post" action="/admin/form-unmatched/${u.id}/discard" class="inline"><button class="danger" style="margin-top:6px">Discard</button></form>
+      </td>
+    </tr>`).join('')}
+  </table></div>
+  <p class="small">After you assign it, the request appears in the list below, where you approve or deny it.</p>`;
+}
+
+export function timeOffPage({ user, pending, current, recent, vas, unmatched, vaProjects, formUrl, message }) {
   return layout({
     title: 'Time off', user, active: '/admin/time-off', message,
     body: `<h1>Time off and coverage</h1>
     <p class="small">VAs request time off and coverage with the <a href="${esc(formUrl || '#')}" target="_blank" rel="noopener">coverage/time-off request form</a>. Each response appears here within a few seconds.</p>
-    ${unmatched.length ? `<div class="card"><h2>Form responses with an unknown name (${unmatched.length})</h2>
-      <p class="small">The name typed in the form did not match an active VA. Choose the VA to turn it into a request, or discard it.</p>
-      <div class="table"><table><tr><th>Name in the form</th><th>Dates</th><th>Details and notes</th><th></th></tr>
-      ${unmatched.map((u) => `<tr>
-        <td><strong>${esc(u.name)}</strong></td>
-        <td>${esc(formatDate(u.start_date, true))}${u.end_date !== u.start_date ? ` to ${esc(formatDate(u.end_date, true))}` : ''}</td>
-        <td><div class="small" style="white-space:pre-line">${esc(u.details || '')}</div>${esc(u.note || '')}</td>
-        <td>
-          <form method="post" action="/admin/form-unmatched/${u.id}/assign" class="assign-form">
-            <select name="user_id" required aria-label="VA"><option value="">Choose a VA</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}</select>
-            <button>Save</button>
-          </form>
-          <form method="post" action="/admin/form-unmatched/${u.id}/discard" class="inline"><button class="danger" style="margin-top:6px">Discard</button></form>
-        </td>
-      </tr>`).join('')}</table></div></div>` : ''}
-    <div class="card"><h2>Requests waiting for a decision</h2>${requestsTable(pending, true)}</div>
+    <div class="card"><h2>Requests waiting for a decision</h2>${unmatchedRequests(unmatched, vas, vaProjects)}${requestsTable(pending, true)}</div>
     <div class="card">
       <h2>Add a time-off or coverage period</h2>
       <p class="small">The VA is not expected to check in on any day in the period, and gets no late alerts. It applies right away, without approval.</p>

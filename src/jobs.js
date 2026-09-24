@@ -27,12 +27,26 @@ export async function dayInfo(env, user, now = new Date()) {
   const today = String(weekdayIndex(local.weekday));
 
   const { results: assignments } = await env.DB.prepare(
-    `SELECT a.start_time, a.days, p.client FROM assignments a JOIN projects p ON p.id = a.project_id
+    `SELECT a.project_id, a.start_time, a.days, p.client FROM assignments a JOIN projects p ON p.id = a.project_id
      WHERE a.user_id = ? AND p.active = 1 ORDER BY a.start_time IS NULL, a.start_time, p.client`
   ).bind(user.id).all();
-  const projects = assignments
+  const allToday = assignments
     .filter((a) => a.days.split(',').includes(today))
-    .map((a) => ({ client: a.client, start: parseHHMM(a.start_time) }));
+    .map((a) => ({ id: a.project_id, client: a.client, start: parseHHMM(a.start_time) }));
+
+  // Approved time off today. A request with no project list covers the whole day;
+  // one with a project list covers only those projects.
+  const { results: offs } = await env.DB.prepare(
+    "SELECT kind, project_ids FROM time_off_requests WHERE user_id = ? AND status = 'approved' AND ? BETWEEN start_date AND end_date"
+  ).bind(user.id, local.date).all();
+  const wholeDayOff = offs.find((o) => !o.project_ids);
+  const offIds = new Set(offs.flatMap((o) => (o.project_ids || '').split(',').filter(Boolean)));
+  const working = wholeDayOff ? [] : allToday.filter((p) => !offIds.has(p.id));
+  const projectsOff = wholeDayOff ? [] : allToday.filter((p) => offIds.has(p.id));
+  // Off for the day when a request covers the whole day, or covers every project the VA has today.
+  const onTimeOff = Boolean(wholeDayOff) || (projectsOff.length > 0 && working.length === 0);
+  // On a day off, keep today's projects so the day is still recorded (as time off) in History.
+  const projects = onTimeOff ? allToday : working;
   const timed = projects.filter((p) => p.start);
   const start = timed.length ? timed[0].start : null; // already sorted, so the first is the earliest
 
@@ -40,15 +54,14 @@ export async function dayInfo(env, user, now = new Date()) {
   const holiday = await env.DB.prepare('SELECT name FROM holidays WHERE date = ?').bind(local.date).first();
   const expected = Boolean(start) && !holiday && !exempt;
   const scheduled = expected ? zonedTimeToUtc(local.date, start.hour, start.minute, zone) : null;
-  const timeOff = await env.DB.prepare(
-    "SELECT kind FROM time_off_requests WHERE user_id = ? AND status = 'approved' AND ? BETWEEN start_date AND end_date"
-  ).bind(user.id, local.date).first();
+  const offKind = (wholeDayOff || offs[0])?.kind;
   return {
     zone, zoneLabel, local, start, holiday, expected, scheduled, exempt,
-    onTimeOff: Boolean(timeOff),
-    timeOffKind: timeOff?.kind === 'coverage' ? 'coverage' : 'time_off',
+    onTimeOff,
+    timeOffKind: offKind === 'coverage' ? 'coverage' : 'time_off',
     projects,
     projectNames: projects.map((p) => p.client).join(', '),
+    projectsOffNames: onTimeOff ? '' : projectsOff.map((p) => p.client).join(', '),
     startLabel: start ? `${formatHM(start)} ${zoneLabel}` : null,
   };
 }

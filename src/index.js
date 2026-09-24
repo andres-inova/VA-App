@@ -197,7 +197,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
         projects: day.projectNames,
         statusHtml: views.todayStatusHtml(row, day, now),
         checkedIn: row?.checked_in_at ? `${formatTimeIn(row.checked_in_at, day.zone)} ${day.zoneLabel}` : '',
-        note: row?.callout_reason || '',
+        note: row?.callout_reason || (day.projectsOffNames ? `Off today for: ${day.projectsOffNames}` : ''),
       });
     }
     rows.sort((a, b) => a.exempt - b.exempt); // exempt VAs at the bottom; otherwise alphabetical
@@ -241,7 +241,22 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     ).bind(addDays(today, -1)).all();
     const { results: vas } = await env.DB.prepare('SELECT id, name FROM users WHERE is_va = 1 ORDER BY name').all();
     const { results: unmatched } = await env.DB.prepare('SELECT * FROM form_unmatched ORDER BY received_at').all();
-    return page(views.timeOffPage({ user, pending, current, recent, vas, unmatched, formUrl: env.TIME_OFF_FORM_URL, message }));
+    // Each VA's active projects, for the project checkboxes when assigning an unknown-name request.
+    const { results: vaProjects } = await env.DB.prepare(
+      `SELECT a.user_id, p.id, p.client FROM assignments a JOIN projects p ON p.id = a.project_id
+       WHERE p.active = 1 ORDER BY p.client`
+    ).all();
+    // Project names for requests that cover only some projects.
+    const { results: allProjects } = await env.DB.prepare('SELECT id, client FROM projects').all();
+    const clientById = new Map(allProjects.map((p) => [p.id, p.client]));
+    const withProjects = (rows) => rows.map((r) => ({
+      ...r,
+      project_names: r.project_ids ? r.project_ids.split(',').map((id) => clientById.get(id) || id).join(', ') : '',
+    }));
+    return page(views.timeOffPage({
+      user, pending: withProjects(pending), current: withProjects(current), recent: withProjects(recent),
+      vas, unmatched, vaProjects, formUrl: env.TIME_OFF_FORM_URL, message,
+    }));
   }
 
   if ((m = path.match(/^\/admin\/time-off\/(\d+)\/(approve|deny)$/)) && method === 'POST') {
@@ -250,22 +265,33 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     if (req?.status === 'pending') {
       await env.DB.prepare('UPDATE time_off_requests SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?')
         .bind(status, user.id, now.toISOString(), req.id).run();
-      if (status === 'approved') await markPeriod(env, req);
+      // A request for some projects only leaves the VA working on the others, so past days stay as they were.
+      if (status === 'approved' && !req.project_ids) await markPeriod(env, req);
     }
     return redirect(`/admin/time-off?msg=${status}`);
   }
 
-  // A form response whose name matched no VA: an admin picks the VA, and it becomes a normal request.
+  // A form response whose name matched no VA: an admin picks the VA and the projects it covers
+  // (all of that VA's projects are ticked to start with). It then becomes a normal request.
   if ((m = path.match(/^\/admin\/form-unmatched\/(\d+)\/(assign|discard)$/)) && method === 'POST') {
     const row = await env.DB.prepare('SELECT * FROM form_unmatched WHERE id = ?').bind(m[1]).first();
     if (row && m[2] === 'assign') {
       const va = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND is_va = 1').bind(field('user_id')).first();
-      if (!va) return redirect('/admin/time-off');
+      if (!va) return redirect('/admin/time-off?msg=choose-va');
+      const { results: theirs } = await env.DB.prepare(
+        'SELECT p.id FROM assignments a JOIN projects p ON p.id = a.project_id WHERE a.user_id = ? AND p.active = 1'
+      ).bind(va.id).all();
+      const theirIds = theirs.map((p) => p.id);
+      const chosen = fieldAll(`projects_${va.id}`).filter((id) => theirIds.includes(id));
+      if (theirIds.length && !chosen.length) return redirect('/admin/time-off?msg=choose-projects');
+      // All of the VA's projects ticked means the whole day, which is stored as "no project list".
+      const projectIds = chosen.length && chosen.length < theirIds.length ? chosen.join(',') : null;
       await env.DB.batch([
         env.DB.prepare(
-          `INSERT INTO time_off_requests (user_id, start_date, end_date, needs_coverage, note, details, source, form_response_id)
-           VALUES (?, ?, ?, 1, ?, ?, 'form', ?)`
-        ).bind(va.id, row.start_date, row.end_date, row.note, row.details, row.form_response_id),
+          `INSERT INTO time_off_requests (user_id, start_date, end_date, needs_coverage, note, details, source, form_response_id, project_ids)
+           VALUES (?, ?, ?, 1, ?, ?, 'form', ?, ?)`
+        ).bind(va.id, row.start_date, row.end_date, row.note, [`Name in the form: ${row.name}`, row.details].filter(Boolean).join('\n'),
+          row.form_response_id, projectIds),
         env.DB.prepare('DELETE FROM form_unmatched WHERE id = ?').bind(row.id),
       ]);
     } else if (row) {

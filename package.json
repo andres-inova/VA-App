@@ -1,0 +1,20 @@
+{
+  "name": "inova-va-app",
+  "version": "1.0.0",
+  "description": "Check-in tracker for InoVA Local VAs",
+  "scripts": {
+    "dev": "wrangler dev --test-scheduled",
+    "deploy": "wrangler deploy",
+    "db:local": "wrangler d1 execute inova-checkin --local --file=schema.sql",
+    "db:remote": "wrangler d1 execute inova-checkin --remote --file=schema.sql"
+  },
+  "type": "module",
+  "devDependencies": {
+    "wrangler": "^4.138.0"
+  },
+  "allowScripts": {
+    "workerd@1.20260921.1": true,
+    "esbuild@0.28.1": true
+  },
+  "private": true
+}

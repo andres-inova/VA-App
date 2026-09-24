@@ -1,0 +1,35 @@
+// Settings Cloudflare uses to run the app.
+{
+  "name": "inova-va-app",
+  "main": "src/index.js",
+  "compatibility_date": "2025-09-01",
+
+  // The database. Replace database_id with the id Cloudflare prints
+  // when you run: npx wrangler d1 create inova-checkin
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "inova-checkin",
+      "database_id": "1eba0524-5974-495c-a58e-39e4b6b40fdf"
+    }
+  ],
+
+  // Run the scheduled job every minute (late alerts, reports, Zoho sync).
+  "triggers": { "crons": ["* * * * *"] },
+
+  // Settings that are not secret. Secrets (Slack, Zoho and Gmail keys) are added
+  // with "npx wrangler secret put NAME" and are never written in this file.
+  "vars": {
+    "APP_URL": "https://inova-va-app.andres-261.workers.dev",
+    "EMAIL_FROM": "inovaagent@inovalocal.com",
+    "CHECKIN_CHANNEL_ID": "C0AT17VS51S",
+    "VA_LEAD_SLACK_ID": "U079G0RQCBG",
+    "KELLI_SLACK_ID": "U014WK8DMC6",
+    "ZOHO_ACCOUNTS_URL": "https://accounts.zoho.com",
+    "ZOHO_API_URL": "https://www.zohoapis.com",
+    "ZOHO_PROJECTS_API_URL": "https://projectsapi.zoho.com",
+    "ZOHO_PORTAL_ID": "890895306"
+  },
+
+  "observability": { "enabled": true }
+}

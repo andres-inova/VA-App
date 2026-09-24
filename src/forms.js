@@ -60,11 +60,13 @@ export async function handleFormWebhook(request, env) {
   const name = text(body.name, 200);
   const start = toISODate(body.start_date);
   const end = toISODate(body.end_date) || start;
-  if (!responseId || !name || !isDate(start) || !isDate(end)) {
-    return json({
-      error: `Name, start date and response id are required. Dates must look like 10-05-2026 or 2026-10-05. Received start "${text(body.start_date, 40)}", end "${text(body.end_date, 40)}".`,
-    }, 400);
-  }
+  const problems = [
+    !responseId && 'the response id is missing',
+    !name && 'the name is missing',
+    !isDate(start) && `the start date "${text(body.start_date, 40)}" is not a date like 10-05-2026`,
+    body.end_date && !toISODate(body.end_date) && `the end date "${text(body.end_date, 40)}" is not a date like 10-05-2026`,
+  ].filter(Boolean);
+  if (problems.length) return json({ error: `Not accepted: ${problems.join('; ')}.` }, 400);
   const [first, last] = end < start ? [end, start] : [start, end];
   const details = formDetails(body);
   const note = text(body.notes, 1000) || null;

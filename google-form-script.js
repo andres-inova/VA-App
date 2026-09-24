@@ -35,10 +35,15 @@ function sendResponse_(response) {
     const found = answers.find((a) => a.getItem().getTitle().toLowerCase().indexOf(words) !== -1);
     return found ? String(found.getResponse()) : '';
   };
-  const exact = (title) => {
-    const found = answers.find((a) => a.getItem().getTitle().trim().toLowerCase() === title);
-    return found ? String(found.getResponse()) : '';
-  };
+  // The VA's name: the question titled "Name" (ignoring spaces, colons and other symbols),
+  // or else the first question with "name" in its title that isn't about clients or businesses.
+  const letters = (title) => title.toLowerCase().replace(/[^a-z]/g, '');
+  const nameAnswer = answers.find((a) => letters(a.getItem().getTitle()) === 'name')
+    || answers.find((a) => /name/i.test(a.getItem().getTitle()) && !/client|business/i.test(a.getItem().getTitle()));
+  if (!nameAnswer) {
+    console.log('Could not find the name question. Question titles: '
+      + answers.map((a) => JSON.stringify(a.getItem().getTitle())).join(', '));
+  }
   // The two date questions, in the order they appear on the form: start date, then end date.
   const dates = answers
     .filter((a) => a.getItem().getType() === FormApp.ItemType.DATE)
@@ -48,7 +53,7 @@ function sendResponse_(response) {
     secret: PropertiesService.getScriptProperties().getProperty('APP_SECRET'),
     response_id: response.getId(),
     submitted_at: response.getTimestamp().toISOString(),
-    name: exact('name'),
+    name: nameAnswer ? String(nameAnswer.getResponse()) : '',
     start_date: dates[0] || '',
     end_date: dates[1] || dates[0] || '',
     clients: titled('client'),

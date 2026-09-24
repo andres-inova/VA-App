@@ -21,6 +21,9 @@ const MESSAGES = {
   'password-changed': ['good', 'Your password was changed.'],
   'admin-added': ['good', 'Admin added. Use "Set temporary password" so they can log in.'],
   'removed': ['good', 'Removed.'],
+  'choose-backup': ['bad', 'This is time off that needs coverage: choose who covers (Edit) before approving.'],
+  'clickup-failed': ['bad', 'Saved, but the ClickUp checklist could not be created. The reason is shown on the request; use "Create ClickUp checklist" to try again.'],
+  'clickup-created': ['good', 'ClickUp checklist created.'],
   'choose-va': ['bad', 'Please choose a VA for the request.'],
   'choose-projects': ['bad', 'Please tick at least one project for the request.'],
   'period-added': ['good', 'Period added. No check-in is expected on those days.'],
@@ -34,6 +37,7 @@ export const STATUS = {
   missed: ['No check-in', 'bad', '✗'],
   called_out: ['Called out', 'info', 'C'],
   time_off: ['Time off', 'muted', 'T'],
+  emergency: ['Emergency', 'info', '!'],
   coverage: ['Coverage', 'muted', 'V'],
   exempt: ['Exempt', 'muted', 'E'],
   checked_in: ['Checked in', 'good', '✓'],
@@ -154,9 +158,9 @@ export function vaPage({ user, day, today, requests, history, formUrl, message }
     statusHtml = `<div class="big-status">${pill(today.status)}</div><p>You checked in at ${esc(formatTimeIn(today.checked_in_at, day.zone))} ${esc(day.zoneLabel)}.</p>`;
   } else if (today?.status === 'called_out') {
     statusHtml = `<div class="big-status">${pill('called_out')}</div><p>You called out today.</p>`;
-  } else if (['time_off', 'coverage'].includes(today?.status) || day.onTimeOff) {
-    const kind = today?.status === 'coverage' || (!today && day.timeOffKind === 'coverage') ? 'coverage' : 'time_off';
-    statusHtml = `<div class="big-status">${pill(kind)}</div><p>${kind === 'coverage' ? 'You are covered today' : 'You have approved time off today'}. No check-in is needed.</p>`;
+  } else if (['time_off', 'emergency', 'coverage'].includes(today?.status) || day.onTimeOff) {
+    const kind = ['emergency', 'coverage'].includes(today?.status) ? today.status : today ? 'time_off' : day.timeOffKind;
+    statusHtml = `<div class="big-status">${pill(kind)}</div><p>You are off today. No check-in is needed.</p>`;
   } else if (day.exempt) {
     statusHtml = '<p>You do not need to check in, but you can still check in if you want to.</p>';
   } else if (day.holiday) {
@@ -206,24 +210,58 @@ export function vaPage({ user, day, today, requests, history, formUrl, message }
   });
 }
 
-function requestsTable(requests, forAdmin) {
+const KIND_LABEL = { time_off: 'Time off', emergency: 'Emergency', coverage: 'Time off' };
+
+// ctx (admins only): { vas, backups } for the edit form.
+function requestsTable(requests, forAdmin, ctx = {}) {
   if (!requests.length) return '<p class="small">No requests.</p>';
   const statusPill = (s) => `<span class="pill ${{ pending: 'warn', approved: 'good', denied: 'bad', cancelled: 'muted' }[s]}">${esc(s[0].toUpperCase() + s.slice(1))}</span>`;
-  return `<div class="table"><table><tr>${forAdmin ? '<th>VA</th>' : ''}<th>Dates</th><th>Type</th><th>Coverage needed</th><th>Details and notes</th><th>Status</th>${forAdmin ? '<th></th>' : ''}</tr>
+  const needsBackup = (r) => r.kind !== 'emergency' && r.needs_coverage;
+  return `<div class="table"><table><tr>${forAdmin ? '<th>VA</th>' : ''}<th>Dates</th><th>Type</th><th>Coverage</th><th>Details and notes</th><th>Status</th>${forAdmin ? '<th></th>' : ''}</tr>
   ${requests.map((r) => `<tr>
     ${forAdmin ? `<td>${esc(r.name)}</td>` : ''}
     <td>${esc(formatDate(r.start_date, true))}${r.end_date !== r.start_date ? ` to ${esc(formatDate(r.end_date, true))}` : ''}</td>
-    <td>${r.kind === 'coverage' ? 'Coverage' : 'Time off'}<div class="small">${r.added_by_admin ? 'Added by an admin' : r.source === 'form' ? 'From the request form' : ''}</div>
+    <td>${KIND_LABEL[r.kind] || 'Time off'}<div class="small">${r.added_by_admin ? 'Added by an admin' : r.source === 'form' ? 'From the request form' : ''}</div>
       <div class="small">${r.project_names ? `Only these projects: ${esc(r.project_names)}` : 'All projects'}</div></td>
-    <td>${r.added_by_admin ? '' : r.needs_coverage ? '<strong>Yes</strong>' : 'No'}</td>
+    <td>${r.needs_coverage ? '<strong>Needed</strong>' : 'Not needed'}
+      ${needsBackup(r) ? (r.backup_name ? `<div class="small">Covered by ${esc(r.backup_name)}</div>` : '<div><span class="pill warn">Backup not chosen</span></div>') : ''}</td>
     <td>${r.details ? `<div class="small" style="white-space:pre-line">${esc(r.details)}</div>` : ''}${esc(r.note || '')}</td>
-    <td>${statusPill(r.status)}${r.decided_by_name ? `<div class="small">by ${esc(r.decided_by_name)}</div>` : ''}</td>
+    <td>${statusPill(r.status)}${r.decided_by_name ? `<div class="small">by ${esc(r.decided_by_name)}</div>` : ''}
+      ${forAdmin && r.clickup_list_url ? `<div class="small"><a href="${esc(r.clickup_list_url)}" target="_blank" rel="noopener">ClickUp checklist</a></div>` : ''}
+      ${forAdmin && r.status === 'approved' && needsBackup(r) && !r.clickup_list_url ? `
+        ${r.clickup_error ? `<div class="small" style="color:var(--bad)">ClickUp: ${esc(r.clickup_error)}</div>` : ''}
+        <form method="post" action="/admin/time-off/${r.id}/clickup" class="inline"><button class="plain" style="margin-top:4px">Create ClickUp checklist</button></form>` : ''}</td>
     ${forAdmin ? `<td>${r.status === 'pending' ? `
+      ${needsBackup(r) && !r.backup_name ? '<div class="small">Choose who covers (Edit) before approving.</div>' : ''}
       <form method="post" action="/admin/time-off/${r.id}/approve" class="inline"><button>Approve</button></form>
       <form method="post" action="/admin/time-off/${r.id}/deny" class="inline"><button class="danger">Deny</button></form>`
       : r.status === 'approved' && r.cancellable ? `
-      <form method="post" action="/admin/time-off/${r.id}/cancel" class="inline"><button class="plain">Cancel</button></form>` : ''}</td>` : ''}
+      <form method="post" action="/admin/time-off/${r.id}/cancel" class="inline"><button class="plain">Cancel</button></form>` : ''}
+      ${['pending', 'approved'].includes(r.status) && ctx.vas ? editForm(r, ctx) : ''}</td>` : ''}
   </tr>`).join('')}</table></div>`;
+}
+
+// The admin form to change a request's VA, type, dates, coverage and backup VA.
+function editForm(r, { vas, backups }) {
+  const requester = vas.find((v) => v.id === r.user_id);
+  // The VA taking time off can't cover for themselves.
+  const choices = backups.filter((b) => !requester || (b.zoho_id !== requester.zoho_id && b.name !== requester.name));
+  return `<details style="margin-top:6px"><summary class="small">Edit</summary>
+    <form method="post" action="/admin/time-off/${r.id}/edit">
+      <label>VA</label><select name="user_id">${vas.map((v) => `<option value="${v.id}" ${v.id === r.user_id ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}</select>
+      <label>Type</label><select name="kind">
+        <option value="time_off" ${r.kind !== 'emergency' ? 'selected' : ''}>Time off</option>
+        <option value="emergency" ${r.kind === 'emergency' ? 'selected' : ''}>Emergency</option></select>
+      <div class="row">
+        <div><label>First day</label><input type="date" name="start_date" value="${esc(r.start_date)}" required></div>
+        <div><label>Last day</label><input type="date" name="end_date" value="${esc(r.end_date)}" required></div>
+      </div>
+      <label class="check"><input type="checkbox" name="needs_coverage" value="1" ${r.needs_coverage ? 'checked' : ''}> Coverage needed</label>
+      <label>Who covers (for time off that needs coverage)</label>
+      <select name="backup"><option value="">Not chosen yet</option>${choices.map((b) =>
+        `<option value="${esc(b.zoho_id)}" ${b.zoho_id === r.backup_zoho_id ? 'selected' : ''}>${esc(b.name)} (${esc(b.status)})</option>`).join('')}</select>
+      <button>Save changes</button>
+    </form></details>`;
 }
 
 // ---- Admin pages ----
@@ -264,7 +302,7 @@ export function todayStatusHtml(row, day, now) {
 export function historyPage({ user, month, prev, next, dates, vas, cells }) {
   const [y, m] = month.split('-').map(Number);
   const monthName = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' });
-  const legend = ['on_time', 'late', 'missed', 'called_out', 'time_off', 'coverage', 'exempt']
+  const legend = ['on_time', 'late', 'missed', 'called_out', 'time_off', 'emergency', 'exempt']
     .map((s) => `<span><span class="cell ${STATUS[s][1]}">${STATUS[s][2]}</span> ${STATUS[s][0]}</span>`).join('');
   return layout({
     title: 'History', user, active: '/admin/history',
@@ -331,29 +369,35 @@ function unmatchedRequests(unmatched, vas, vaProjects) {
   <p class="small">After you assign it, the request appears in the list below, where you approve or deny it.</p>`;
 }
 
-export function timeOffPage({ user, pending, current, recent, vas, unmatched, vaProjects, formUrl, message }) {
+export function timeOffPage({ user, pending, current, recent, vas, unmatched, vaProjects, backups, clickupReady, formUrl, message }) {
+  const ctx = { vas, backups };
   return layout({
     title: 'Time off', user, active: '/admin/time-off', message,
     body: `<h1>Time off and coverage</h1>
     <p class="small">VAs request time off and coverage with the <a href="${esc(formUrl || '#')}" target="_blank" rel="noopener">coverage/time-off request form</a>. Each response appears here within a few seconds.</p>
-    <div class="card"><h2>Requests waiting for a decision</h2>${unmatchedRequests(unmatched, vas, vaProjects)}${requestsTable(pending, true)}</div>
+    ${clickupReady ? '' : '<div class="msg info">ClickUp is not connected yet, so approved coverage requests will not create a checklist. See "Connect ClickUp" in the README.</div>'}
+    <div class="card"><h2>Requests waiting for a decision</h2>${unmatchedRequests(unmatched, vas, vaProjects)}${requestsTable(pending, true, ctx)}</div>
     <div class="card">
-      <h2>Add a time-off or coverage period</h2>
-      <p class="small">The VA is not expected to check in on any day in the period, and gets no late alerts. It applies right away, without approval.</p>
+      <h2>Add time off or an emergency</h2>
+      <p class="small">The VA is not expected to check in on any day in the period, and gets no late alerts. It applies right away, without approval.
+      For time off that needs coverage, choose who covers; a ClickUp checklist is created in the Checklists space.</p>
       <form method="post" action="/admin/time-off/add">
         <div class="row">
           <div><label for="pv">VA</label><select id="pv" name="user_id" required><option value="">Choose a VA</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}</select></div>
-          <div><label for="pk">Type</label><select id="pk" name="kind"><option value="time_off">Time off</option><option value="coverage">Coverage (another VA covers their work)</option></select></div>
+          <div><label for="pk">Type</label><select id="pk" name="kind"><option value="time_off">Time off</option><option value="emergency">Emergency</option></select></div>
         </div>
         <div class="row">
           <div><label for="ps">First day</label><input id="ps" name="start_date" type="date" required></div>
           <div><label for="pe">Last day</label><input id="pe" name="end_date" type="date" required></div>
         </div>
-        <label for="pn">Note (optional)</label><input id="pn" name="note" type="text" maxlength="1000" placeholder="For example: Kayla covers Pool Partners">
-        <button>Add period</button>
+        <label class="check"><input type="checkbox" name="needs_coverage" value="1"> Coverage needed</label>
+        <label for="pb">Who covers (for time off that needs coverage)</label>
+        <select id="pb" name="backup"><option value="">Not needed</option>${backups.map((b) => `<option value="${esc(b.zoho_id)}">${esc(b.name)} (${esc(b.status)})</option>`).join('')}</select>
+        <label for="pn">Note (optional)</label><input id="pn" name="note" type="text" maxlength="1000">
+        <button>Add</button>
       </form>
     </div>
-    <div class="card"><h2>Current and upcoming periods</h2>${requestsTable(current.map((r) => ({ ...r, cancellable: true })), true)}</div>
+    <div class="card"><h2>Current and upcoming periods</h2>${requestsTable(current.map((r) => ({ ...r, cancellable: true })), true, ctx)}</div>
     <div class="card"><h2>Past, denied and cancelled</h2>${requestsTable(recent, true)}</div>`,
   });
 }

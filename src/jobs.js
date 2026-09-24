@@ -58,7 +58,7 @@ export async function dayInfo(env, user, now = new Date()) {
   return {
     zone, zoneLabel, local, start, holiday, expected, scheduled, exempt,
     onTimeOff,
-    timeOffKind: offKind === 'coverage' ? 'coverage' : 'time_off',
+    timeOffKind: offKind === 'emergency' ? 'emergency' : 'time_off',
     projects,
     projectNames: projects.map((p) => p.client).join(', '),
     projectsOffNames: onTimeOff ? '' : projectsOff.map((p) => p.client).join(', '),

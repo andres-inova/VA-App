@@ -5,6 +5,7 @@ import { checkLogin, startSession, currentUser, endSession, endAllSessions, hash
 import { dayInfo, getGraceMinutes, runEveryMinute, reportPeriod, sendReport, getReportRecipients } from './jobs.js';
 import { syncFromZoho } from './zoho.js';
 import { handleFormWebhook } from './forms.js';
+import { createCoverageChecklist, clickupReady } from './clickup.js';
 import { postToSlack, slackSafe } from './notify.js';
 import { formatDate, formatTimeIn, addDays } from './time.js';
 import { redirect, page, isDate, isTime } from './util.js';
@@ -239,7 +240,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     const { results: recent } = await env.DB.prepare(
       `${base} WHERE r.status IN ('denied', 'cancelled') OR (r.status = 'approved' AND r.end_date < ?) ORDER BY r.decided_at DESC LIMIT 30`
     ).bind(addDays(today, -1)).all();
-    const { results: vas } = await env.DB.prepare('SELECT id, name FROM users WHERE is_va = 1 ORDER BY name').all();
+    const { results: vas } = await env.DB.prepare('SELECT id, name, email, zoho_id FROM users WHERE is_va = 1 ORDER BY name').all();
     const { results: unmatched } = await env.DB.prepare('SELECT * FROM form_unmatched ORDER BY received_at').all();
     // Each VA's active projects, for the project checkboxes when assigning an unknown-name request.
     const { results: vaProjects } = await env.DB.prepare(
@@ -253,9 +254,10 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
       ...r,
       project_names: r.project_ids ? r.project_ids.split(',').map((id) => clientById.get(id) || id).join(', ') : '',
     }));
+    const { results: backups } = await env.DB.prepare('SELECT * FROM backup_candidates ORDER BY status, name').all();
     return page(views.timeOffPage({
       user, pending: withProjects(pending), current: withProjects(current), recent: withProjects(recent),
-      vas, unmatched, vaProjects, formUrl: env.TIME_OFF_FORM_URL, message,
+      vas, unmatched, vaProjects, backups, clickupReady: clickupReady(env), formUrl: env.TIME_OFF_FORM_URL, message,
     }));
   }
 
@@ -263,12 +265,55 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     const status = m[2] === 'approve' ? 'approved' : 'denied';
     const req = await env.DB.prepare('SELECT * FROM time_off_requests WHERE id = ?').bind(m[1]).first();
     if (req?.status === 'pending') {
+      if (status === 'approved' && needsBackup(req) && !req.backup_zoho_id) return redirect('/admin/time-off?msg=choose-backup');
       await env.DB.prepare('UPDATE time_off_requests SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?')
         .bind(status, user.id, now.toISOString(), req.id).run();
-      // A request for some projects only leaves the VA working on the others, so past days stay as they were.
-      if (status === 'approved' && !req.project_ids) await markPeriod(env, req);
+      if (status === 'approved') {
+        // A request for some projects only leaves the VA working on the others, so past days stay as they were.
+        if (!req.project_ids) await markPeriod(env, req);
+        if (needsBackup(req) && !(await makeChecklist(env, req.id))) return redirect('/admin/time-off?msg=clickup-failed');
+      }
     }
     return redirect(`/admin/time-off?msg=${status}`);
+  }
+
+  // An admin changes a request's VA, type, dates, whether coverage is needed, and who covers.
+  if ((m = path.match(/^\/admin\/time-off\/(\d+)\/edit$/)) && method === 'POST') {
+    const req = await env.DB.prepare("SELECT * FROM time_off_requests WHERE id = ? AND status IN ('pending', 'approved')").bind(m[1]).first();
+    if (!req) return redirect('/admin/time-off');
+    const va = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND is_va = 1').bind(field('user_id') || req.user_id).first();
+    const start = field('start_date');
+    const end = field('end_date');
+    if (!va || !isDate(start) || !isDate(end) || end < start) return redirect('/admin/time-off?msg=bad-dates');
+    const kind = field('kind') === 'emergency' ? 'emergency' : 'time_off';
+    const needsCoverage = field('needs_coverage') === '1' ? 1 : 0;
+    const backup = kind === 'time_off' && needsCoverage ? await backupCandidate(env, field('backup')) : null;
+    if (req.status === 'approved' && kind === 'time_off' && needsCoverage && !backup) return redirect('/admin/time-off?msg=choose-backup');
+
+    // For an approved request, first undo its effect on today and later days, then apply the new version.
+    if (req.status === 'approved') await reopenDays(env, req, now);
+    await env.DB.prepare(
+      `UPDATE time_off_requests SET user_id = ?, kind = ?, start_date = ?, end_date = ?, needs_coverage = ?,
+         backup_zoho_id = ?, backup_name = ?, project_ids = CASE WHEN user_id = ? THEN project_ids ELSE NULL END
+       WHERE id = ?`
+    ).bind(va.id, kind, start, end, needsCoverage, backup?.zoho_id || null, backup?.name || null, va.id, req.id).run();
+    const updated = await env.DB.prepare('SELECT * FROM time_off_requests WHERE id = ?').bind(req.id).first();
+    if (updated.status === 'approved') {
+      if (!updated.project_ids) await markPeriod(env, updated);
+      if (needsBackup(updated) && !updated.clickup_list_url && !(await makeChecklist(env, updated.id))) {
+        return redirect('/admin/time-off?msg=clickup-failed');
+      }
+    }
+    return redirect('/admin/time-off?msg=saved');
+  }
+
+  // Try again to create the ClickUp checklist for an approved coverage request.
+  if ((m = path.match(/^\/admin\/time-off\/(\d+)\/clickup$/)) && method === 'POST') {
+    const req = await env.DB.prepare("SELECT * FROM time_off_requests WHERE id = ? AND status = 'approved'").bind(m[1]).first();
+    if (req && needsBackup(req) && !req.clickup_list_url) {
+      return redirect(`/admin/time-off?msg=${(await makeChecklist(env, req.id)) ? 'clickup-created' : 'clickup-failed'}`);
+    }
+    return redirect('/admin/time-off');
   }
 
   // A form response whose name matched no VA: an admin picks the VA and the projects it covers
@@ -306,12 +351,19 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     const start = field('start_date');
     const end = field('end_date');
     if (!va || !isDate(start) || !isDate(end) || end < start) return redirect('/admin/time-off?msg=bad-dates');
-    const kind = field('kind') === 'coverage' ? 'coverage' : 'time_off';
+    const kind = field('kind') === 'emergency' ? 'emergency' : 'time_off';
+    const needsCoverage = field('needs_coverage') === '1' ? 1 : 0;
+    const backup = kind === 'time_off' && needsCoverage ? await backupCandidate(env, field('backup')) : null;
+    if (kind === 'time_off' && needsCoverage && !backup) return redirect('/admin/time-off?msg=choose-backup');
     const res = await env.DB.prepare(
-      `INSERT INTO time_off_requests (user_id, start_date, end_date, note, status, kind, added_by_admin, source, decided_by, decided_at)
-       VALUES (?, ?, ?, ?, 'approved', ?, 1, 'admin', ?, ?)`
-    ).bind(va.id, start, end, field('note').slice(0, 1000) || null, kind, user.id, now.toISOString()).run();
-    await markPeriod(env, { user_id: va.id, start_date: start, end_date: end, kind, id: res.meta.last_row_id });
+      `INSERT INTO time_off_requests (user_id, start_date, end_date, note, status, kind, needs_coverage, backup_zoho_id, backup_name,
+         added_by_admin, source, decided_by, decided_at)
+       VALUES (?, ?, ?, ?, 'approved', ?, ?, ?, ?, 1, 'admin', ?, ?)`
+    ).bind(va.id, start, end, field('note').slice(0, 1000) || null, kind, needsCoverage, backup?.zoho_id || null, backup?.name || null,
+      user.id, now.toISOString()).run();
+    const id = res.meta.last_row_id;
+    await markPeriod(env, { user_id: va.id, start_date: start, end_date: end, kind });
+    if (backup && !(await makeChecklist(env, id))) return redirect('/admin/time-off?msg=clickup-failed');
     return redirect('/admin/time-off?msg=period-added');
   }
 
@@ -321,12 +373,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     if (req) {
       await env.DB.prepare('UPDATE time_off_requests SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?')
         .bind('cancelled', user.id, now.toISOString(), req.id).run();
-      const va = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(req.user_id).first();
-      const today = (await dayInfo(env, va, now)).local.date;
-      await env.DB.prepare(
-        `UPDATE attendance SET status = 'pending' WHERE user_id = ? AND work_date BETWEEN ? AND ?
-         AND status IN ('time_off', 'coverage') AND checked_in_at IS NULL`
-      ).bind(req.user_id, today > req.start_date ? today : req.start_date, req.end_date).run();
+      await reopenDays(env, req, now);
     }
     return redirect('/admin/time-off?msg=period-cancelled');
   }
@@ -480,7 +527,43 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
 async function markPeriod(env, period) {
   await env.DB.prepare(
     "UPDATE attendance SET status = ? WHERE user_id = ? AND work_date BETWEEN ? AND ? AND status IN ('pending', 'missed')"
-  ).bind(period.kind === 'coverage' ? 'coverage' : 'time_off', period.user_id, period.start_date, period.end_date).run();
+  ).bind(period.kind === 'emergency' ? 'emergency' : 'time_off', period.user_id, period.start_date, period.end_date).run();
+}
+
+// Undoes a request's effect from the VA's today onward: those days expect a check-in again.
+async function reopenDays(env, req, now) {
+  const va = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(req.user_id).first();
+  if (!va) return;
+  const today = (await dayInfo(env, va, now)).local.date;
+  await env.DB.prepare(
+    `UPDATE attendance SET status = 'pending' WHERE user_id = ? AND work_date BETWEEN ? AND ?
+     AND status IN ('time_off', 'emergency', 'coverage') AND checked_in_at IS NULL`
+  ).bind(req.user_id, today > req.start_date ? today : req.start_date, req.end_date).run();
+}
+
+// A "time off" request that needs coverage must have a backup VA, and gets a ClickUp checklist when approved.
+const needsBackup = (req) => req.kind !== 'emergency' && Boolean(req.needs_coverage);
+
+// A VA who can cover (Active or On Deck in Zoho), chosen by their Zoho record id.
+async function backupCandidate(env, zohoId) {
+  if (!zohoId) return null;
+  return env.DB.prepare('SELECT * FROM backup_candidates WHERE zoho_id = ?').bind(zohoId).first();
+}
+
+// Creates the ClickUp checklist for a request and saves its link, or saves why it failed. Returns true on success.
+async function makeChecklist(env, requestId) {
+  const req = await env.DB.prepare(
+    'SELECT r.*, u.name AS va_name FROM time_off_requests r JOIN users u ON u.id = r.user_id WHERE r.id = ?'
+  ).bind(requestId).first();
+  try {
+    const url = await createCoverageChecklist(env, req);
+    await env.DB.prepare('UPDATE time_off_requests SET clickup_list_url = ?, clickup_error = NULL WHERE id = ?').bind(url, requestId).run();
+    return true;
+  } catch (err) {
+    console.error(`ClickUp checklist for request ${requestId} failed: ${err.message}`);
+    await env.DB.prepare('UPDATE time_off_requests SET clickup_error = ? WHERE id = ?').bind(err.message.slice(0, 500), requestId).run();
+    return false;
+  }
 }
 
 // Checkbox values ["1", "3", "5"] -> "1,3,5" (only valid day numbers, in order).

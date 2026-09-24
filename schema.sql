@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 -- One row per VA per work day.
--- status: pending, on_time, late, missed, called_out, time_off, coverage, exempt, checked_in
+-- status: pending, on_time, late, missed, called_out, time_off, emergency, exempt, checked_in
 -- ("checked_in" is used when the VA has no fixed start time.)
 CREATE TABLE IF NOT EXISTS attendance (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,12 +78,16 @@ CREATE TABLE IF NOT EXISTS time_off_requests (
   needs_coverage INTEGER NOT NULL DEFAULT 0,
   note TEXT,
   status TEXT NOT NULL DEFAULT 'pending',  -- pending, approved, denied, cancelled
-  kind TEXT NOT NULL DEFAULT 'time_off',   -- time_off or coverage
+  kind TEXT NOT NULL DEFAULT 'time_off',   -- time_off or emergency
   added_by_admin INTEGER NOT NULL DEFAULT 0,
   source TEXT NOT NULL DEFAULT 'app',      -- app, form (Google Form) or admin
   details TEXT,                            -- the form's answers: clients, shift times, template
   form_response_id TEXT,                   -- the Google Form response id
   project_ids TEXT,                        -- empty = whole day; otherwise only these projects (comma-separated ids)
+  backup_zoho_id TEXT,                     -- the VA who covers (Zoho record id)
+  backup_name TEXT,
+  clickup_list_url TEXT,                   -- the ClickUp checklist created when a coverage request is approved
+  clickup_error TEXT,                      -- why creating the checklist failed, if it did
   decided_by INTEGER REFERENCES users(id),
   decided_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -101,6 +105,14 @@ CREATE TABLE IF NOT EXISTS form_unmatched (
   details TEXT,
   note TEXT,
   received_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- VAs who can cover for someone: Zoho VA Status "Active" or "On Deck". Refreshed at every Zoho sync.
+CREATE TABLE IF NOT EXISTS backup_candidates (
+  zoho_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  email TEXT
 );
 
 -- Company holidays: no check-in is expected on these dates.

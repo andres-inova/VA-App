@@ -84,6 +84,13 @@ async function syncVAs(env, token) {
   statements.push(
     env.DB.prepare('UPDATE users SET is_va = 0 WHERE is_va = 1 AND email NOT IN (SELECT value FROM json_each(?))').bind(emails)
   );
+  // Everyone who can cover for another VA: Active or On Deck in Zoho.
+  const candidates = records.filter((r) => ['Active', 'On Deck'].includes(r.VA_Status) && r.Name);
+  statements.push(env.DB.prepare('DELETE FROM backup_candidates'));
+  for (const r of candidates) {
+    statements.push(env.DB.prepare('INSERT INTO backup_candidates (zoho_id, name, status, email) VALUES (?, ?, ?, ?)')
+      .bind(String(r.id), r.Name.trim(), r.VA_Status, clean(r.Email)));
+  }
   await env.DB.batch(statements);
   return active.length;
 }

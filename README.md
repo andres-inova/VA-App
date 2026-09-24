@@ -26,8 +26,9 @@ A web app where InoVA Local VAs check in at the start of each work day, call out
 2. ~~Create the Slack bot and invite it to the channels~~ (done)
 3. ~~Create the Zoho key~~ (done)
 4. ~~Create the Gmail key~~ (done)
-5. [Connect the time-off/coverage Google Form](#connect-the-timeoffcoverage-google-form): 10 minutes
-6. [Test everything](#5-test-everything): 5 minutes
+5. ~~Connect the time-off/coverage Google Form~~ (done)
+6. [Connect ClickUp](#connect-clickup-coverage-checklists): 5 minutes
+7. [Test everything](#5-test-everything): 5 minutes
 
 Steps 2 to 4 each end with `npx wrangler secret put` commands. Each command asks you to paste a key, which Cloudflare stores encrypted. **Run them yourself, and never paste the keys into a chat, email or file.** Every key starts working as soon as it's saved, so there's no need to deploy again.
 
@@ -163,6 +164,26 @@ npx wrangler secret put FORM_SECRET
 
 **5. Test it.** Submit the form once with a real VA's name. Within a few seconds it should appear on the app's **Time off** page, and the admins with notifications on should get an email. If it doesn't appear, open **Executions** (the list icon) in the script editor to see the error.
 
+## Connect ClickUp (coverage checklists)
+
+When an admin approves **time off that needs coverage**, the app creates a new list in the **Checklists** space of InoVA Local's ClickUp, made from the list template **VA Backup Checklist**. It's named like "VA Backup Checklist - Tracy Saeman (Mon, Oct 19 to Fri, Oct 30)". The request's details (VA, backup VA, dates, clients, shift times, notes) go in the list description, and every task in it is assigned to Stephany. The Time off page links to the new list.
+
+The app needs two things from ClickUp. Run each command in the project folder and paste the value when asked:
+
+**1. An API token.** This lets the app create lists as your ClickUp user. In ClickUp, click your avatar → **Settings** → **Apps** → **API Token** → **Generate** (or **Copy**). It starts with `pk_`. Then run:
+```bash
+npx wrangler secret put CLICKUP_API_TOKEN
+```
+
+**2. The template's ID.** In ClickUp, open the **Template Center**, find **VA Backup Checklist**, and copy its template ID or its link. The app accepts either, for example `t-12345678` or a link that contains it. Then run:
+```bash
+npx wrangler secret put CLICKUP_TEMPLATE_ID
+```
+
+The Checklists space ID (`90137115341`), the workspace ID (`90131247934`) and Stephany's ClickUp user ID (`118139191`) are already in `wrangler.jsonc`.
+
+If creating a checklist fails, the request is still approved. The reason appears on the request with a **Create ClickUp checklist** button to try again.
+
 ## 5. Test everything
 
 1. Log in and go to **Projects → Sync with Zoho now**. The 18 active projects should appear. 15 should have a VA, and 3 should be listed under "Projects with no VA": Shianne Catalano's two projects (she is On Deck in Zoho, not Active) and InoVA Local - Internal.
@@ -211,7 +232,9 @@ If something doesn't work, open the Cloudflare dashboard → **Workers & Pages �
 - **No projects that day, or no start times**, means no check-in is expected and no late alerts are sent. The VA can still check in.
 - **Holidays**: no check-in is expected on dates listed under Holidays.
 - **Exempt VAs are never checked.** A VA is exempt when their Zoho **VA Company Affiliation** is anything other than "InoVA Local" (for example "Closers", or empty), or when an admin clicks **Exempt this VA** on the People page. Exempt VAs get no expected check-in, no late alerts, and don't appear in reports. They can still log in, check in and request time off. An empty affiliation shows a warning on the People page.
-- **Time-off and coverage periods**: on any day inside an approved request or a period added by an admin, the VA is not expected to check in. A request assigned from an unknown name can cover only some of the VA's projects: on those days the VA is off only for the ticked projects, and still checks in by the earliest start among their other projects that day. If all their projects are ticked, it covers the whole day. The day shows as "Time off" or "Coverage" in History. If a period is cancelled, check-ins are expected again from that day on.
+- **Request types** are **Time off** and **Emergency**, and each request says whether **coverage** is needed. Form requests start as Time off with coverage needed. Admins can change the VA, type, dates, coverage and backup with **Edit** on the Time off page.
+- **Time off that needs coverage** must have a backup VA before it can be approved. The backup is chosen from VAs whose Zoho VA Status is **Active** or **On Deck** (never the VA taking time off). Approving it creates the ClickUp checklist (see "Connect ClickUp").
+- **Days off**: on any day inside an approved request or a period added by an admin, the VA is not expected to check in. A request assigned from an unknown name can cover only some of the VA's projects: on those days the VA is off only for the ticked projects, and still checks in by the earliest start among their other projects that day. If all their projects are ticked, it covers the whole day. The day shows as "Time off" or "Emergency" in History. If a period is cancelled, check-ins are expected again from that day on.
 - **Start times** are in the VA's Zoho **Time Zone** (PST, MST, CST or EST, with daylight saving time applied). If Time Zone is empty, the app uses Eastern.
 - **Automatic assignment:** when a new project appears in Zoho Projects, the app reads the name after the last " - " (for example "Pool Partners - **Tracy Saeman**") and assigns the project to the active VA with that name. Small differences are allowed: "Estefani Resendiz" matches "Estefani Resendiz Lopez", and "Nika Kedgbe-Davis" matches "Nika Kegbe-Davis". The first name must match, plus at least one other part of the name. If two VAs could match, nothing is assigned. The start time is taken from the VA's Zoho **Availability**, for example "8:30am - 4:30pm" means 8:30 AM. "Open availability" gives no start time.
 - **After a project is assigned** (automatically or by an admin), the sync leaves it alone, so an admin's changes are kept. A project that no VA matched is tried again at each sync, for example when an On Deck VA becomes Active.
@@ -242,6 +265,7 @@ If something doesn't work, open the Cloudflare dashboard → **Workers & Pages �
 | `src/views.js` | The HTML and styling of every page |
 | `src/jobs.js` | The every-minute job: late alerts, reports, Zoho sync |
 | `src/auth.js` | Passwords and login sessions |
+| `src/clickup.js` | Creates the ClickUp coverage checklist from the "VA Backup Checklist" template |
 | `src/forms.js` | Receives responses from the time-off/coverage Google Form |
 | `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |
 | `src/zoho.js` | Reads active VAs from Zoho CRM and active projects from Zoho Projects, and assigns new projects by name |

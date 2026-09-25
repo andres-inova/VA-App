@@ -26,6 +26,7 @@
     "APP_URL": "https://inova-va-app.andres-261.workers.dev",
     "EMAIL_FROM": "inovaagent@inovalocal.com",
     "CHECKIN_CHANNEL_ID": "C0AT17VS51S",
+    "VA_LEAD_CHANNEL_ID": "C0C3D6FLGBB",
     "VA_LEAD_SLACK_ID": "U079G0RQCBG",
     "KELLI_SLACK_ID": "U014WK8DMC6",
     "ZOHO_ACCOUNTS_URL": "https://accounts.zoho.com",

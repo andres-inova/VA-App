@@ -30,6 +30,8 @@ const MESSAGES = {
   'choose-projects': ['bad', 'Please tick at least one project for the request.'],
   'period-added': ['good', 'Added. No check-in is expected on those days.'],
   'period-cancelled': ['good', 'Cancelled. Check-ins are expected again from today.'],
+  'checkins-paused': ['good', 'All check-ins are paused. No late alerts or reports will be sent.'],
+  'checkins-resumed': ['good', 'Check-ins resumed. Late alerts start with the next shift that begins from now on.'],
   'timer-started': ['good', 'Timer started.'],
   'timer-started-checked-in': ['good', 'Timer started, and you are checked in for today.'],
   'timer-stopped': ['info', 'Timer stopped. Add your notes and save it to Zoho.'],
@@ -694,7 +696,7 @@ export function todayStatus(row, day, now) {
   return { label: 'Not started yet', tone: 'muted', group: 'upcoming' };
 }
 
-export function adminTodayPage({ user, rows, week, message }) {
+export function adminTodayPage({ user, rows, week, message, paused = false }) {
   const groups = [
     ['attention', 'Needs attention', 'attention', true],
     ['in', 'Checked in', '', true],
@@ -716,7 +718,7 @@ export function adminTodayPage({ user, rows, week, message }) {
   });
   return layout({
     title: 'Today', user, active: '/admin', message,
-    body: `<div data-autorefresh>
+    body: `${paused ? pauseCard(true, '/admin') : ''}<div data-autorefresh>
       <p class="updated">Updates by itself every minute · last updated <span data-updated></span></p>
       ${week ? weekCard(week) : ''}
       ${rows.length ? `<div class="summary-chips">${summary}</div>
@@ -926,10 +928,27 @@ export function holidaysPage({ user, holidays, message }) {
   });
 }
 
-export function settingsPage({ user, grace, emailError, admins, recipients, message }) {
+function pauseCard(paused, back) {
+  return paused
+    ? `<div class="card" style="border:2px solid var(--warn)"><h2>${icon('stop')} Check-ins are paused</h2>
+        <p class="meta">No check-ins are expected, no late alerts are sent, no days count as missed, and the automatic weekly and monthly reports are not sent. VAs can still check in and use Tasks &amp; time.</p>
+        <form method="post" action="/admin/settings/pause" data-confirm="Resume check-ins? Late alerts start with the next shift that begins after now.">
+          <input type="hidden" name="paused" value="0"><input type="hidden" name="back" value="${back}">
+          <button>${icon('play')} Resume check-ins</button></form></div>`
+    : `<form method="post" action="/admin/settings/pause" data-confirm="Pause all check-ins? No late alerts or reports will be sent until you resume.">
+        <input type="hidden" name="paused" value="1"><input type="hidden" name="back" value="${back}">
+        <button class="plain sm">${icon('stop')} Pause all check-ins</button></form>`;
+}
+
+export function settingsPage({ user, grace, emailError, admins, recipients, message, paused = false }) {
   return layout({
     title: 'Settings', user, active: '/admin/settings', message,
-    body: `${section({
+    body: `${paused ? pauseCard(true, '/admin/settings') : ''}${section({
+      title: 'Check-ins', open: false,
+      hint: 'Pause everything while VAs are not using the app yet, or during a company break.',
+      body: `<div style="padding:0 8px 8px">${paused ? '<p class="meta">Check-ins are paused (see above).</p>' : pauseCard(false, '/admin/settings')}</div>`,
+    })}
+    ${section({
       title: 'My notifications', open: true,
       body: `<form method="post" action="/admin/settings/notifications" style="padding:0 8px 8px">
         <label class="check"><input type="checkbox" name="notify_time_off" value="1" ${user.notify_time_off ? 'checked' : ''}> Email me when a VA sends a new time-off request</label>

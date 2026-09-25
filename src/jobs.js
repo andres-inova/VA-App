@@ -67,7 +67,17 @@ export async function dayInfo(env, user, now = new Date()) {
   };
 }
 
+// Admins can pause all check-ins (Settings). While paused, no check-ins are expected, no late alerts
+// are sent and no day counts as missed. After resuming, only shifts that start after that moment count.
+export async function checkinPause(env) {
+  const { results } = await env.DB.prepare("SELECT key, value FROM settings WHERE key IN ('checkins_paused', 'checkins_resumed_at')").all();
+  const get = (k) => results.find((r) => r.key === k)?.value;
+  return { paused: get('checkins_paused') === '1', resumedAt: get('checkins_resumed_at') || null };
+}
+
 async function checkShifts(env, now) {
+  const pause = await checkinPause(env);
+  if (pause.paused) return;
   const { results: vas } = await env.DB.prepare('SELECT * FROM users WHERE is_va = 1').all();
   for (const va of vas) {
     const day = await dayInfo(env, va, now);
@@ -78,6 +88,8 @@ async function checkShifts(env, now) {
       continue;
     }
     if (!day.expected) continue;
+    // Shifts that started while check-ins were paused don't count.
+    if (pause.resumedAt && day.scheduled.toISOString() < pause.resumedAt) continue;
 
     await env.DB.prepare(
       'INSERT OR IGNORE INTO attendance (user_id, work_date, scheduled_start, status, projects) VALUES (?, ?, ?, ?, ?)'
@@ -234,6 +246,7 @@ export async function sendReport(env, kind, period) {
 }
 
 async function maybeSendReports(env, now) {
+  if ((await checkinPause(env)).paused) return;
   const et = partsIn(REPORT_ZONE, now);
   if (et.hour !== 9) return;
   const due = [];

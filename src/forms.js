@@ -3,9 +3,9 @@
 // response here. The request must include the shared secret FORM_SECRET.
 
 import { matchVA } from './zoho.js';
-import { sendEmail } from './notify.js';
+import { sendEmail, postToSlack, slackSafe } from './notify.js';
 import * as messages from './messages.js';
-import { formatDate } from './time.js';
+import { formatDate, partsIn, addDays, REPORT_ZONE } from './time.js';
 import { esc, isDate } from './util.js';
 
 const json = (body, status = 200) =>
@@ -92,7 +92,29 @@ export async function handleFormWebhook(request, env) {
     ).bind(responseId, name, first, last, details, note).run();
   }
   await notifyAdmins(env, { name: va ? va.name : name, matched: Boolean(va), start: first, end: last, details, note });
+  // Requests need 2 weeks' notice. Shorter ones are kept (an admin decides) and flagged to the VA leads.
+  const today = partsIn(REPORT_ZONE).date;
+  if (first < addDays(today, 14)) {
+    await notifyShortNotice(env, { name: va ? va.name : name, start: first, end: last, today, details, note });
+  }
   return json({ ok: true, matched: va ? va.name : null });
+}
+
+// Posts a request sent with less than 2 weeks' notice in #va-lead-channel.
+async function notifyShortNotice(env, { name, start, end, today, details, note }) {
+  const dates = start === end ? formatDate(start, true) : `${formatDate(start, true)} to ${formatDate(end, true)}`;
+  const days = Math.round((Date.parse(start) - Date.parse(today)) / 86400000);
+  const notice = days <= 0 ? 'starting today or earlier' : `${days} day${days === 1 ? '' : 's'} before it starts`;
+  const lines = [details, note && `Extra notes: ${note}`].filter(Boolean).join('\n');
+  const msg = messages.slack({
+    title: "⏰ Time-off request with less than 2 weeks' notice",
+    subtitle: `${name} · ${dates}`,
+    intro: `*${slackSafe(name)}* sent a time-off request ${notice}. It has not been denied: approve or deny it on the Time off page.`,
+    details: lines ? lines.split('\n').map((l) => `> ${slackSafe(l)}`) : [],
+    button: { label: 'Open Time off', url: `${env.APP_URL}/admin/time-off` },
+    footer: 'Requests should be sent at least 2 weeks ahead. Anything sooner goes to the VA\'s management channel.',
+  });
+  await postToSlack(env, env.VA_LEAD_CHANNEL_ID, msg.text, msg.blocks);
 }
 
 // Emails every admin who has time-off notifications turned on.

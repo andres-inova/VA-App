@@ -2,7 +2,7 @@
 // and runs the scheduled job every minute.
 
 import { checkLogin, startSession, currentUser, endSession, renewedCookie, rememberedEmail, rememberEmailCookie, hashPassword, verifyPassword, passwordProblem } from './auth.js';
-import { dayInfo, getGraceMinutes, runEveryMinute, reportPeriod, sendReport, getReportRecipients, checkInStats, flaggedVAs } from './jobs.js';
+import { dayInfo, checkinPause, getGraceMinutes, runEveryMinute, reportPeriod, sendReport, getReportRecipients, checkInStats, flaggedVAs } from './jobs.js';
 import { syncFromZoho } from './zoho.js';
 import { handleFormWebhook } from './forms.js';
 import { handleSlackCommand } from './slack-commands.js';
@@ -338,7 +338,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
       ...stats, flagged: flaggedVAs(stats.rows, 2),
       label: `${formatDate(monday)} to ${monday === et.date ? 'today' : `today (${formatDate(et.date)})`}`,
     };
-    return page(views.adminTodayPage({ user, rows, week, message }));
+    return page(views.adminTodayPage({ user, rows, week, message, paused: (await checkinPause(env)).paused }));
   }
 
   // A month calendar of time off (approved and waiting) and holidays.
@@ -662,7 +662,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     const emailError = row ? JSON.parse(row.value) : null;
     const { results: admins } = await env.DB.prepare('SELECT name, email FROM users WHERE is_admin = 1 ORDER BY name').all();
     const recipients = await getReportRecipients(env);
-    return page(views.settingsPage({ user, grace: await getGraceMinutes(env), emailError, admins, recipients, message }));
+    return page(views.settingsPage({ user, grace: await getGraceMinutes(env), emailError, admins, recipients, message, paused: (await checkinPause(env)).paused }));
   }
 
   if (path === '/admin/settings/notifications' && method === 'POST') {
@@ -679,6 +679,16 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     const unique = [...new Set(emails)];
     await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('report_recipients', ?)").bind(JSON.stringify(unique)).run();
     return redirect('/admin/settings?msg=saved');
+  }
+
+  // Pause or resume all check-ins (late alerts, missed days and automatic reports).
+  if (path === '/admin/settings/pause' && method === 'POST') {
+    const pause = field('paused') === '1';
+    const statements = [env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('checkins_paused', ?)").bind(pause ? '1' : '0')];
+    // Only shifts that start after resuming count, so nobody gets a late alert for earlier today.
+    if (!pause) statements.push(env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('checkins_resumed_at', ?)").bind(now.toISOString()));
+    await env.DB.batch(statements);
+    return redirect(`${field('back') === '/admin' ? '/admin' : '/admin/settings'}?msg=${pause ? 'checkins-paused' : 'checkins-resumed'}`);
   }
 
   if (path === '/admin/settings/grace' && method === 'POST') {

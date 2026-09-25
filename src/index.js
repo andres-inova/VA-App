@@ -68,6 +68,14 @@ async function handle(request, env) {
   if (path === '/account') return account(env, user, method, field, message);
   if (user.must_change_password) return redirect('/account');
 
+  // Admins see how many time-off requests are waiting, as a badge in the menu.
+  if (user.is_admin) {
+    const waiting = await env.DB.prepare(
+      "SELECT (SELECT COUNT(*) FROM time_off_requests WHERE status = 'pending') + (SELECT COUNT(*) FROM form_unmatched) AS n"
+    ).first();
+    user.pending_requests = waiting?.n || 0;
+  }
+
   if (path === '/') return redirect(user.is_va ? '/va' : '/admin');
 
   if (path === '/va' || path.startsWith('/va/')) {
@@ -196,7 +204,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
         exempt: day.exempt,
         startLabel: day.exempt ? '' : day.startLabel,
         projects: day.projectNames,
-        statusHtml: views.todayStatusHtml(row, day, now),
+        status: views.todayStatus(row, day, now),
         checkedIn: row?.checked_in_at ? `${formatTimeIn(row.checked_in_at, day.zone)} ${day.zoneLabel}` : '',
         note: row?.callout_reason || (day.projectsOffNames ? `Off today for: ${day.projectsOffNames}` : ''),
       });
@@ -379,7 +387,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
   }
 
   if (path === '/admin/people' && method === 'GET') {
-    return page(views.peoplePage({ user, people: await allPeople(env), message }));
+    return page(views.peoplePage({ user, people: await allPeople(env), onDeck: await onDeckVAs(env), message }));
   }
 
   if (path === '/admin/sync' && method === 'POST') {
@@ -401,7 +409,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
       .bind(await hashPassword(password), person.id).run();
     await endAllSessions(env, person.id);
     if (person.id === user.id) return redirect('/login');
-    return page(views.peoplePage({ user, people: await allPeople(env), tempPassword: { name: person.name, password } }));
+    return page(views.peoplePage({ user, people: await allPeople(env), onDeck: await onDeckVAs(env), tempPassword: { name: person.name, password } }));
   }
 
   // ---- Projects and assignments ----
@@ -569,6 +577,12 @@ async function makeChecklist(env, requestId) {
 // Checkbox values ["1", "3", "5"] -> "1,3,5" (only valid day numbers, in order).
 function cleanDays(values) {
   return [...new Set(values.filter((v) => /^[0-6]$/.test(v)))].sort().join(',');
+}
+
+// On Deck VAs from Zoho (they don't log in or check in, but can cover for others).
+async function onDeckVAs(env) {
+  const { results } = await env.DB.prepare("SELECT * FROM backup_candidates WHERE status = 'On Deck' ORDER BY name").all();
+  return results;
 }
 
 async function allPeople(env) {

@@ -88,8 +88,9 @@ async function syncVAs(env, token) {
   const candidates = records.filter((r) => ['Active', 'On Deck'].includes(r.VA_Status) && r.Name);
   statements.push(env.DB.prepare('DELETE FROM backup_candidates'));
   for (const r of candidates) {
-    statements.push(env.DB.prepare('INSERT INTO backup_candidates (zoho_id, name, status, email) VALUES (?, ?, ?, ?)')
-      .bind(String(r.id), r.Name.trim(), r.VA_Status, clean(r.Email)));
+    statements.push(env.DB.prepare(
+      'INSERT INTO backup_candidates (zoho_id, name, status, email, time_zone, availability) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(String(r.id), r.Name.trim(), r.VA_Status, clean(r.Email), clean(r.Time_Zone), clean(r.Availability)));
   }
   await env.DB.batch(statements);
   return active.length;

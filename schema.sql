@@ -112,7 +112,9 @@ CREATE TABLE IF NOT EXISTS backup_candidates (
   zoho_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   status TEXT NOT NULL,
-  email TEXT
+  email TEXT,
+  time_zone TEXT,
+  availability TEXT
 );
 
 -- Company holidays: no check-in is expected on these dates.

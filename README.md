@@ -199,6 +199,8 @@ If something doesn't work, open the Cloudflare dashboard â†’ **Workers & Pages â
 
 ## What the app does
 
+The app works on computers and phones. On a computer, the menu is on the left. On a phone, tap **Menu** (top left or bottom right), and the most-used pages are in the bottom bar. Most lists are made of rows: click or tap a row to open its details and buttons. Sections can be opened and closed by clicking their title.
+
 **VAs**
 - Log in with email and password. The email is the VA's email in Zoho.
 - See **today's projects** and the time they need to check in by.
@@ -212,7 +214,7 @@ If something doesn't work, open the Cloudflare dashboard â†’ **Workers & Pages â
 - **History**: a month grid showing each VA's status per work day, with totals.
 - **Projects**: the active projects from Zoho Projects and who is assigned to each, with a start time and work days per assignment. Admins can add, change or remove assignments.
 - **Time off**: approve or deny requests from the Google Form. Each new request sends one email to the admins who have notifications turned on. Admins can also add a **time-off or coverage period** for any VA directly, which applies right away, and cancel it later.
-- **People**: sync from Zoho, see each VA's projects and whether the app checks them, exempt a VA, set temporary passwords, add or remove admins.
+- **People**: sync from Zoho; **Active VAs** (with their projects and whether the app checks them), **On Deck VAs** (for reference; they can be chosen to cover), and **Admins**. Exempt a VA, set temporary passwords, add or remove admins.
 - **Holidays**: dates when nobody is expected to check in.
 - **Settings**: turn your time-off emails on or off, set the grace period, choose who gets the report emails, send a report now, and see the last email error.
 

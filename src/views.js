@@ -1,4 +1,8 @@
 // The HTML for each page.
+//
+// Look and feel: a left sidebar (collapses into a menu on phones, with a bottom tab bar),
+// rows with initials avatars and colored status chips, and collapsible sections
+// (<details>) so each page shows what matters first and hides the rest until clicked.
 
 import { esc } from './util.js';
 import { isExempt } from './jobs.js';
@@ -26,10 +30,11 @@ const MESSAGES = {
   'clickup-created': ['good', 'ClickUp checklist created.'],
   'choose-va': ['bad', 'Please choose a VA for the request.'],
   'choose-projects': ['bad', 'Please tick at least one project for the request.'],
-  'period-added': ['good', 'Period added. No check-in is expected on those days.'],
-  'period-cancelled': ['good', 'Period cancelled. Check-ins are expected again from today.'],
+  'period-added': ['good', 'Added. No check-in is expected on those days.'],
+  'period-cancelled': ['good', 'Cancelled. Check-ins are expected again from today.'],
 };
 
+// Status of a day: [label, color, symbol for the History grid].
 export const STATUS = {
   pending: ['Not checked in', 'warn', '…'],
   on_time: ['On time', 'good', '✓'],
@@ -43,60 +48,221 @@ export const STATUS = {
   checked_in: ['Checked in', 'good', '✓'],
 };
 
-const CSS = `
-:root{--bg:#f6f7f9;--card:#fff;--text:#1d2330;--muted:#5f6b7a;--line:#e1e5ea;--accent:#0f766e;--accent-text:#fff;
---good:#15803d;--good-bg:#dcfce7;--warn:#a16207;--warn-bg:#fef3c7;--bad:#b91c1c;--bad-bg:#fee2e2;--info:#1d4ed8;--info-bg:#dbeafe;--muted-bg:#eef0f3}
-@media (prefers-color-scheme:dark){:root{--bg:#12151a;--card:#1b2028;--text:#e7eaee;--muted:#9aa5b1;--line:#2c333d;--accent:#2dd4bf;--accent-text:#062b27;
---good:#4ade80;--good-bg:#12311f;--warn:#fbbf24;--warn-bg:#3a2d0c;--bad:#f87171;--bad-bg:#3b1515;--info:#93c5fd;--info-bg:#162a4a;--muted-bg:#262c35}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-header{background:var(--card);border-bottom:1px solid var(--line)}
-.bar{max-width:1100px;margin:0 auto;padding:10px 16px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center}
-.brand{font-weight:700;margin-right:auto}nav{display:flex;flex-wrap:wrap;gap:4px 12px}nav a{color:var(--muted);text-decoration:none}nav a.on{color:var(--text);font-weight:600}
-main{max-width:1100px;margin:0 auto;padding:20px 16px 60px}h1{font-size:22px;margin:0 0 16px}h2{font-size:17px;margin:0 0 10px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
-.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
-label{display:block;font-weight:600;margin:10px 0 4px}input[type=text],input[type=email],input[type=password],input[type=date],input[type=time],input[type=number],textarea,select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--text);font:inherit}
-textarea{min-height:80px}.check{display:flex;gap:8px;align-items:center;font-weight:400;margin-top:12px}
-button,.btn{display:inline-block;background:var(--accent);color:var(--accent-text);border:0;border-radius:6px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer;text-decoration:none;margin-top:12px}
-button.big{font-size:18px;padding:14px 28px}button.plain{background:var(--muted-bg);color:var(--text)}button.danger{background:var(--bad);color:#fff}button:disabled{opacity:.5;cursor:default}
-.inline{display:inline}.inline button{margin:0 4px 0 0;padding:5px 10px}
-.msg{padding:10px 14px;border-radius:8px;margin-bottom:16px}.msg.good{background:var(--good-bg);color:var(--good)}.msg.bad{background:var(--bad-bg);color:var(--bad)}.msg.info{background:var(--info-bg);color:var(--info)}
-.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:13px;font-weight:600;white-space:nowrap}
-.good{background:var(--good-bg);color:var(--good)}.warn{background:var(--warn-bg);color:var(--warn)}.bad{background:var(--bad-bg);color:var(--bad)}.info{background:var(--info-bg);color:var(--info)}.muted{background:var(--muted-bg);color:var(--muted)}
-.table{overflow-x:auto}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:13px;color:var(--muted);font-weight:600}
-.hist td,.hist th{text-align:center;padding:5px 4px;min-width:30px}.hist td:first-child,.hist th:first-child{text-align:left;white-space:nowrap}
-.cell{display:inline-block;width:26px;height:24px;line-height:24px;border-radius:5px;font-weight:700;font-size:13px}
-.small{font-size:13px;color:var(--muted)}.big-status{font-size:20px;font-weight:700;margin:6px 0}
-.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:10px 0}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.row>*{flex:1;min-width:140px}
-code{background:var(--muted-bg);padding:2px 6px;border-radius:4px}
-.assign{padding:6px 0;border-bottom:1px dashed var(--line)}.assign-form{display:inline-flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
-.assign-form input[type=time]{width:auto}.assign-form select{width:auto}.assign-form button,.assign .inline button{margin:0}
-.days{display:inline-flex;gap:2px}.days label{display:inline-flex;align-items:center;gap:2px;font-weight:400;margin:0 4px 0 0;font-size:13px}
-details{margin-top:6px}summary{cursor:pointer}
-`;
+// ---- Small building blocks ----
 
-export function layout({ title, user, active, message, body }) {
-  const links = [];
-  if (user?.is_va) links.push(['/va', 'My day']);
-  if (user?.is_admin) {
-    links.push(['/admin', 'Today'], ['/admin/history', 'History'], ['/admin/projects', 'Projects'], ['/admin/time-off', 'Time off'],
-      ['/admin/people', 'People'], ['/admin/holidays', 'Holidays'], ['/admin/settings', 'Settings']);
-  }
-  const nav = user
-    ? `<nav>${links.map(([href, label]) => `<a href="${href}" class="${href === active ? 'on' : ''}">${label}</a>`).join('')}
-       <a href="/account">Password</a><form method="post" action="/logout" class="inline"><button class="plain" style="margin:0;padding:3px 10px">Log out</button></form></nav>`
-    : '';
-  const msg = MESSAGES[message];
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} · InoVA Check-in</title><style>${CSS}</style></head><body>
-<header><div class="bar"><div class="brand">InoVA Check-in</div>${nav}</div></header>
-<main>${msg ? `<div class="msg ${msg[0]}">${esc(msg[1])}</div>` : ''}${body}</main></body></html>`;
+const ICON_PATHS = {
+  today: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  history: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
+  projects: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  timeoff: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/>',
+  people: '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M16 4a4 4 0 0 1 0 8M22 21a7 7 0 0 0-5-6.7"/>',
+  holidays: '<path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/>',
+  settings: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  chevron: '<path d="M9 6l6 6-6 6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  sync: '<path d="M21 12a9 9 0 0 1-15.5 6.2M3 12a9 9 0 0 1 15.5-6.2"/><path d="M21 4v5h-5M3 20v-5h5"/>',
+  external: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>',
+  check: '<path d="M5 12l5 5 9-10"/>',
+};
+
+const icon = (name, cls = '') =>
+  `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name]}</svg>`;
+
+const initials = (name) => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+
+// A round avatar with the person's initials, in a color that always matches their name.
+function avatar(name, size = '') {
+  let hue = 0;
+  for (const ch of name || '') hue = (hue * 31 + ch.charCodeAt(0)) % 360;
+  return `<span class="avatar ${size}" style="--h:${hue}" aria-hidden="true">${esc(initials(name))}</span>`;
 }
 
+const chip = (label, tone = 'muted') => `<span class="chip ${tone}">${esc(label)}</span>`;
+
 const pill = (status) => {
-  const [label, cls] = STATUS[status] || [status, 'muted'];
-  return `<span class="pill ${cls}">${esc(label)}</span>`;
+  const [label, tone] = STATUS[status] || [status, 'muted'];
+  return chip(label, tone);
 };
+
+const dateRange = (start, end, year = true) =>
+  start === end ? formatDate(start, year) : `${formatDate(start, false)} – ${formatDate(end, year)}`;
+
+// A collapsible section with a title, an optional count badge and an optional hint line.
+function section({ title, count, open = true, hint = '', body, tone = '' }) {
+  return `<details class="section ${tone}" ${open ? 'open' : ''}>
+    <summary><span class="sec-title">${esc(title)}</span>${count !== undefined ? `<span class="count">${count}</span>` : ''}${icon('chevron', 'chev')}</summary>
+    ${hint ? `<p class="hint">${hint}</p>` : ''}
+    <div class="sec-body">${body}</div>
+  </details>`;
+}
+
+// A clickable row: avatar, title, subtitle and a chip; clicking opens the extra content.
+function item({ name, title, sub = '', side = '', body = '', open = false, tone = '' }) {
+  const head = `${name !== undefined ? avatar(name) : ''}<div class="grow"><div class="title">${title}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${side}`;
+  if (!body) return `<div class="item flat ${tone}"><div class="item-head">${head}</div></div>`;
+  return `<details class="item ${tone}" ${open ? 'open' : ''}><summary class="item-head">${head}${icon('chevron', 'chev')}</summary><div class="item-body">${body}</div></details>`;
+}
+
+const empty = (text) => `<div class="empty">${text}</div>`;
+
+// ---- Styles ----
+
+const CSS = `
+:root{--bg:#efeae2;--surface:#fff;--surface-2:#f6f5f3;--text:#111b21;--muted:#667781;--line:#e6e2dc;
+--brand:#008069;--accent:#00a884;--accent-ink:#fff;--accent-soft:#d9fdd3;
+--side:#0f2f2a;--side-ink:#d7ece7;--side-muted:#8fb3ab;--side-hover:#18413a;
+--good:#067647;--good-bg:#dcfae6;--warn:#935f00;--warn-bg:#fef0c7;--bad:#b42318;--bad-bg:#fee4e2;--info:#175cd3;--info-bg:#e0eaff;--muted-bg:#eef0f2;
+--shadow:0 1px 2px rgba(17,27,33,.06),0 2px 8px rgba(17,27,33,.05);--radius:16px}
+@media (prefers-color-scheme:dark){:root{--bg:#0b141a;--surface:#111b21;--surface-2:#1a252c;--text:#e9edef;--muted:#8696a0;--line:#233138;
+--brand:#00a884;--accent:#00a884;--accent-ink:#04211b;--accent-soft:#0b3d34;--side:#0b1d1a;--side-ink:#d7ece7;--side-muted:#7fa39b;--side-hover:#14302b;
+--good:#75e0a7;--good-bg:#0f3321;--warn:#fdb022;--warn-bg:#3b2a07;--bad:#fda29b;--bad-bg:#3d1512;--info:#84adff;--info-bg:#15254d;--muted-bg:#233138;
+--shadow:0 1px 2px rgba(0,0,0,.4)}}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 "Nunito Sans","Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+a{color:var(--brand)}.ic{width:20px;height:20px;flex:none}
+.app{display:flex;min-height:100vh}
+.sidebar{width:248px;flex:none;background:var(--side);color:var(--side-ink);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;padding:14px 10px}
+.side-brand{display:flex;align-items:center;gap:10px;padding:6px 8px 14px}.side-brand strong{display:block;font-size:16px}.side-brand small{color:var(--side-muted)}
+.logo{width:38px;height:38px;border-radius:12px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:800}
+.side-group{margin-top:10px}.side-label{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--side-muted);padding:4px 10px}
+.side-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;color:var(--side-ink);text-decoration:none;font-weight:600}
+.side-link:hover{background:var(--side-hover)}.side-link.on{background:var(--accent);color:#fff}
+.side-link .badge{margin-left:auto}.badge{background:#e53935;color:#fff;border-radius:99px;font-size:12px;font-weight:800;padding:1px 8px;min-width:22px;text-align:center}
+.side-user{margin-top:auto;border-top:1px solid var(--side-hover);padding-top:10px}
+.side-user .me{display:flex;align-items:center;gap:10px;padding:6px 8px}.side-user .me small{display:block;color:var(--side-muted)}
+.side-user form{margin:0}.side-user button{all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;font-weight:600;width:calc(100% - 20px)}
+.side-user button:hover{background:var(--side-hover)}
+.main-col{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:12px 24px}
+.topbar h1{font-size:20px;margin:0;flex:1}.topbar .menu{display:none;cursor:pointer;color:var(--text)}
+main{padding:20px 24px 90px;max-width:1080px;width:100%}
+.lead{color:var(--muted);margin:0 0 16px}
+.toast{display:flex;gap:10px;align-items:center;padding:12px 16px;border-radius:14px;margin-bottom:16px;font-weight:600;box-shadow:var(--shadow)}
+.toast.good{background:var(--good-bg);color:var(--good)}.toast.bad{background:var(--bad-bg);color:var(--bad)}.toast.info{background:var(--info-bg);color:var(--info)}
+.card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;margin-bottom:16px}
+.card h2{font-size:17px;margin:0 0 8px}
+.section{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:16px;overflow:hidden}
+.section>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:14px 18px;font-weight:800;font-size:16px}
+.section>summary::-webkit-details-marker,.item>summary::-webkit-details-marker{display:none}
+.section>summary:hover{background:var(--surface-2)}.sec-title{flex:1}
+.count{background:var(--muted-bg);color:var(--muted);border-radius:99px;padding:1px 10px;font-size:13px}
+.section.attention .count{background:var(--bad);color:#fff}.section.attention>summary{color:var(--bad)}
+.chev{transition:transform .15s;color:var(--muted)}details[open]>summary>.chev{transform:rotate(90deg)}
+.hint{color:var(--muted);margin:-4px 18px 10px;font-size:14px}.sec-body{padding:0 10px 10px}
+.item{border-radius:12px}.item+.item{border-top:1px solid var(--line)}
+.item-head{display:flex;align-items:center;gap:12px;padding:10px 8px;list-style:none}
+details.item>summary{cursor:pointer;border-radius:12px}details.item>summary:hover{background:var(--surface-2)}
+.item .title{font-weight:700}.item .sub{color:var(--muted);font-size:14px}
+.item-body{padding:4px 12px 14px 60px}.item.flat .item-head{cursor:default}
+.grow{flex:1;min-width:0}
+.avatar{--h:160;width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:800;font-size:14px;color:#fff;background:hsl(var(--h) 45% 42%)}
+.avatar.lg{width:56px;height:56px;font-size:18px}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;white-space:nowrap}
+.good{background:var(--good-bg);color:var(--good)}.warn{background:var(--warn-bg);color:var(--warn)}.bad{background:var(--bad-bg);color:var(--bad)}.info{background:var(--info-bg);color:var(--info)}.muted{background:var(--muted-bg);color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.bubble{background:var(--accent-soft);border-radius:4px 14px 14px 14px;padding:10px 14px;margin:6px 0 10px;white-space:pre-line;max-width:640px}
+.meta{color:var(--muted);font-size:14px;margin:4px 0}.meta b{color:var(--text)}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.actions form{margin:0}
+label{display:block;font-weight:700;margin:12px 0 4px;font-size:14px}
+input[type=text],input[type=email],input[type=password],input[type=date],input[type=time],input[type=number],textarea,select{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);font:inherit}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+textarea{min-height:90px;resize:vertical}
+.check{display:flex;gap:8px;align-items:center;font-weight:600;margin-top:12px}.check input{width:18px;height:18px;accent-color:var(--accent)}
+button,.btn{display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:var(--accent-ink);border:0;border-radius:99px;padding:10px 18px;font:inherit;font-weight:800;cursor:pointer;text-decoration:none;margin-top:12px}
+button:hover,.btn:hover{filter:brightness(1.05)}button.plain,.btn.plain{background:var(--muted-bg);color:var(--text)}
+button.danger{background:transparent;color:var(--bad);box-shadow:inset 0 0 0 1.5px var(--bad)}button:disabled{opacity:.55;cursor:default;filter:none}
+.actions button,.actions .btn{margin-top:0}button.sm{padding:6px 14px;font-size:14px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.row>*{flex:1;min-width:150px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.small{font-size:13px;color:var(--muted)}code{background:var(--muted-bg);padding:2px 6px;border-radius:6px;font-size:13px}
+.empty{color:var(--muted);text-align:center;padding:18px}
+.summary-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}.summary-chips .chip{font-size:14px;padding:6px 14px;box-shadow:var(--shadow)}
+.hero{display:flex;flex-direction:column;align-items:center;text-align:center;padding:26px 18px}
+.hero .date{color:var(--muted);font-weight:700}.hero h2{font-size:24px;margin:4px 0 6px}
+.checkin{width:170px;height:170px;border-radius:50%;font-size:22px;justify-content:center;flex-direction:column;gap:2px;margin:18px 0 10px;box-shadow:0 10px 30px color-mix(in srgb,var(--accent) 45%,transparent)}
+.checkin.done{background:var(--good-bg);color:var(--good);box-shadow:none}
+.table{overflow-x:auto}table{border-collapse:collapse;width:100%}
+.hist th,.hist td{text-align:center;padding:5px 3px;min-width:30px;font-size:13px;border-bottom:1px solid var(--line)}
+.hist td:first-child,.hist th:first-child{text-align:left;white-space:nowrap;position:sticky;left:0;background:var(--surface);padding-right:10px;font-weight:700}
+.cell{display:inline-block;width:26px;height:26px;line-height:26px;border-radius:8px;font-weight:800;font-size:13px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:6px 0 12px;font-size:13px;color:var(--muted)}
+.days{display:inline-flex;flex-wrap:wrap;gap:4px}.days label{margin:0;font-weight:700;font-size:13px}
+.days input{position:absolute;opacity:0;pointer-events:none}.days span{display:inline-block;padding:4px 9px;border-radius:99px;background:var(--muted-bg);color:var(--muted);cursor:pointer}
+.days input:checked+span{background:var(--accent);color:#fff}.days input:focus-visible+span{outline:2px solid var(--accent)}
+.assign{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--line)}
+.assign input[type=time],.assign select{width:auto}.assign .who{display:flex;align-items:center;gap:8px;font-weight:700;min-width:170px}
+.cal{width:48px;flex:none;border-radius:12px;overflow:hidden;text-align:center;box-shadow:var(--shadow);background:var(--surface)}
+.cal .m{background:#e53935;color:#fff;font-size:11px;font-weight:800;text-transform:uppercase;padding:2px 0}.cal .d{font-size:18px;font-weight:800;padding:2px 0}
+.auth{min-height:100vh;display:grid;place-items:center;padding:16px}.auth .card{width:100%;max-width:420px;padding:28px}
+.auth .logo{width:52px;height:52px;font-size:20px;margin-bottom:10px}
+.tabbar{display:none}
+.scrim{display:none}#nav-toggle{display:none}
+@media (max-width:860px){
+  .sidebar{position:fixed;z-index:20;left:0;top:0;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px rgba(0,0,0,.3)}
+  #nav-toggle:checked~.app .sidebar{transform:none}
+  #nav-toggle:checked~.app .scrim{display:block;position:fixed;inset:0;z-index:15;background:rgba(0,0,0,.35)}
+  .topbar{background:var(--brand);color:#fff;border:0;padding:12px 16px}.topbar .menu{display:inline-flex;color:#fff}
+  main{padding:16px 16px 96px}.item-body{padding-left:12px}
+  .tabbar{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:10;background:var(--surface);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+  .tabbar a,.tabbar label{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;font-weight:700;color:var(--muted);text-decoration:none;position:relative;cursor:pointer;margin:0}
+  .tabbar .on{color:var(--brand)}.tabbar .badge{position:absolute;top:-4px;left:52%;font-size:10px;padding:0 6px}
+}
+`;
+
+// ---- Page frame ----
+
+export function layout({ title, user, active, message, body }) {
+  const msg = MESSAGES[message];
+  const toast = msg ? `<div class="toast ${msg[0]}" role="status">${msg[0] === 'good' ? icon('check') : ''}${esc(msg[1])}</div>` : '';
+  const head = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#008069"><title>${esc(title)} · InoVA Check-in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>${CSS}</style></head><body>`;
+
+  // Log-in and set-up pages: a simple centered card.
+  if (!user) return `${head}<div class="auth"><div>${toast}${body}</div></div></body></html>`;
+
+  const pending = user.pending_requests || 0;
+  const groups = [];
+  if (user.is_va) groups.push(['Me', [['/va', 'My day', 'sun']]]);
+  if (user.is_admin) {
+    groups.push(['Daily', [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/history', 'History', 'history']]]);
+    groups.push(['Setup', [['/admin/projects', 'Projects', 'projects'], ['/admin/people', 'People', 'people'],
+      ['/admin/holidays', 'Holidays', 'holidays'], ['/admin/settings', 'Settings', 'settings']]]);
+  }
+  const link = ([href, label, ic, badge]) =>
+    `<a class="side-link ${href === active ? 'on' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${badge ? `<span class="badge">${badge}</span>` : ''}</a>`;
+  const sidebar = `<aside class="sidebar" aria-label="Menu">
+    <div class="side-brand"><div class="logo">IV</div><div><strong>InoVA Check-in</strong><small>InoVA Local</small></div></div>
+    ${groups.map(([label, links]) => `<div class="side-group"><div class="side-label">${label}</div>${links.map(link).join('')}</div>`).join('')}
+    <div class="side-user">
+      <div class="me">${avatar(user.name)}<div><strong>${esc(user.name)}</strong><small>${user.is_admin ? 'Admin' : 'VA'}</small></div></div>
+      <a class="side-link ${active === '/account' ? 'on' : ''}" href="/account">${icon('key')}<span>Password</span></a>
+      <form method="post" action="/logout"><button>${icon('logout')}<span>Log out</span></button></form>
+    </div>
+  </aside>`;
+
+  // Phone bottom bar: the most-used pages, plus "Menu" for the rest.
+  const tabs = user.is_admin
+    ? [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/projects', 'Projects', 'projects'], ['/admin/people', 'People', 'people']]
+    : [['/va', 'My day', 'sun']];
+  const tabbar = `<nav class="tabbar" aria-label="Main pages">${tabs.map(([href, label, ic, badge]) =>
+    `<a href="${href}" class="${href === active ? 'on' : ''}">${icon(ic)}${label}${badge ? `<span class="badge">${badge}</span>` : ''}</a>`).join('')}
+    <label for="nav-toggle">${icon('menu')}Menu</label></nav>`;
+
+  return `${head}<input type="checkbox" id="nav-toggle" aria-hidden="true">
+<div class="app">${sidebar}<label for="nav-toggle" class="scrim" aria-hidden="true"></label>
+  <div class="main-col">
+    <header class="topbar"><label for="nav-toggle" class="menu" aria-label="Open menu">${icon('menu')}</label><h1>${esc(title)}</h1></header>
+    <main>${toast}${body}</main>
+  </div>
+</div>${tabbar}</body></html>`;
+}
 
 // ---- Login pages ----
 
@@ -104,15 +270,17 @@ export function loginPage(error) {
   const errors = { wrong: 'That email and password do not match.', locked: 'Too many tries. Please wait 15 minutes and try again.', inactive: 'This account is not active. Please contact an admin.' };
   return layout({
     title: 'Log in',
-    body: `<div class="card" style="max-width:400px;margin:40px auto">
-      <h1>Log in</h1>
-      ${error ? `<div class="msg bad">${esc(errors[error] || error)}</div>` : ''}
+    body: `<div class="card">
+      <div class="logo">IV</div>
+      <h2 style="font-size:22px">Welcome back</h2>
+      <p class="lead">Log in to the InoVA check-in app.</p>
+      ${error ? `<div class="toast bad">${esc(errors[error] || error)}</div>` : ''}
       <form method="post" action="/login">
         <label for="email">Email</label><input id="email" name="email" type="email" required autocomplete="username">
         <label for="password">Password</label><input id="password" name="password" type="password" required autocomplete="current-password">
-        <button>Log in</button>
+        <button style="width:100%;justify-content:center">Log in</button>
       </form>
-      <p class="small">Forgot your password? Ask an admin to set a temporary one for you.</p>
+      <p class="small" style="margin-top:14px">Forgot your password? Ask an admin to set a temporary one for you.</p>
     </div>`,
   });
 }
@@ -120,27 +288,28 @@ export function loginPage(error) {
 export function setupPage(admins, error) {
   return layout({
     title: 'First-time setup',
-    body: `<div class="card" style="max-width:440px;margin:40px auto">
-      <h1>First-time setup</h1>
-      <p>No admin has a password yet. Choose your email and set your password. After that, this page stops working and you can set up everyone else from the People page.</p>
-      ${error ? `<div class="msg bad">${esc(error)}</div>` : ''}
+    body: `<div class="card">
+      <div class="logo">IV</div>
+      <h2 style="font-size:22px">First-time setup</h2>
+      <p class="lead">No admin has a password yet. Choose your email and set your password. After that, this page stops working and you set up everyone else from the People page.</p>
+      ${error ? `<div class="toast bad">${esc(error)}</div>` : ''}
       <form method="post" action="/setup">
         <label for="email">Your email</label>
         <select id="email" name="email">${admins.map((a) => `<option>${esc(a.email)}</option>`).join('')}</select>
         <label for="password">New password (at least 10 characters)</label><input id="password" name="password" type="password" required minlength="10" autocomplete="new-password">
         <label for="confirm">Type it again</label><input id="confirm" name="confirm" type="password" required autocomplete="new-password">
-        <button>Save and log in</button>
+        <button style="width:100%;justify-content:center">Save and log in</button>
       </form></div>`,
   });
 }
 
 export function accountPage(user, error, message) {
   return layout({
-    title: 'Change password', user, active: '/account', message,
-    body: `<div class="card" style="max-width:440px">
-      <h1>${user.must_change_password ? 'Choose your own password' : 'Change password'}</h1>
-      ${user.must_change_password ? '<p>You logged in with a temporary password. Please choose your own password to continue.</p>' : ''}
-      ${error ? `<div class="msg bad">${esc(error)}</div>` : ''}
+    title: 'Password', user, active: '/account', message,
+    body: `<div class="card" style="max-width:480px">
+      <h2>${user.must_change_password ? 'Choose your own password' : 'Change your password'}</h2>
+      ${user.must_change_password ? '<p class="lead">You logged in with a temporary password. Please choose your own password to continue.</p>' : ''}
+      ${error ? `<div class="toast bad">${esc(error)}</div>` : ''}
       <form method="post" action="/account">
         <label for="current">Current password</label><input id="current" name="current" type="password" required autocomplete="current-password">
         <label for="password">New password (at least 10 characters)</label><input id="password" name="password" type="password" required minlength="10" autocomplete="new-password">
@@ -153,92 +322,113 @@ export function accountPage(user, error, message) {
 // ---- VA page ----
 
 export function vaPage({ user, day, today, requests, history, formUrl, message }) {
-  let statusHtml;
+  let status;
   if (today?.checked_in_at) {
-    statusHtml = `<div class="big-status">${pill(today.status)}</div><p>You checked in at ${esc(formatTimeIn(today.checked_in_at, day.zone))} ${esc(day.zoneLabel)}.</p>`;
+    status = `${pill(today.status)}<p class="meta">You checked in at <b>${esc(formatTimeIn(today.checked_in_at, day.zone))} ${esc(day.zoneLabel)}</b>.</p>`;
   } else if (today?.status === 'called_out') {
-    statusHtml = `<div class="big-status">${pill('called_out')}</div><p>You called out today.</p>`;
+    status = `${pill('called_out')}<p class="meta">You called out today. Feel better soon.</p>`;
   } else if (['time_off', 'emergency', 'coverage'].includes(today?.status) || day.onTimeOff) {
     const kind = ['emergency', 'coverage'].includes(today?.status) ? today.status : today ? 'time_off' : day.timeOffKind;
-    statusHtml = `<div class="big-status">${pill(kind)}</div><p>You are off today. No check-in is needed.</p>`;
+    status = `${pill(kind)}<p class="meta">You are off today. No check-in is needed.</p>`;
   } else if (day.exempt) {
-    statusHtml = '<p>You do not need to check in, but you can still check in if you want to.</p>';
+    status = '<p class="meta">You do not need to check in, but you can if you want to.</p>';
   } else if (day.holiday) {
-    statusHtml = `<p>Today is a company holiday (${esc(day.holiday.name)}). No check-in is needed.</p>`;
+    status = `${chip(`Holiday: ${day.holiday.name}`, 'info')}<p class="meta">No check-in is needed today.</p>`;
   } else if (!day.expected) {
-    statusHtml = `<p>No check-in is required today${day.projects.length ? ' (your projects today have no fixed start time)' : ' (you have no projects today)'}, but you can still check in.</p>`;
+    status = `<p class="meta">No check-in is needed today${day.projects.length ? ' (your projects today have no fixed start time)' : ' (you have no projects today)'}, but you can still check in.</p>`;
   } else {
-    statusHtml = `<p>You have not checked in yet.</p>`;
+    status = `<p class="meta">Please check in by <b>${esc(day.startLabel)}</b>.</p>`;
   }
-
   const checkedIn = Boolean(today?.checked_in_at);
+  const projects = day.projects.length
+    ? `<div class="chips" style="justify-content:center">${day.projects.map((p) => chip(`${p.client}${p.start ? ` · ${formatHM(p.start)}` : ''}`, 'muted')).join('')}</div>
+       ${day.projects.length > 1 ? '<p class="small">One check-in covers all of these. It is due at the earliest start time.</p>' : ''}`
+    : '';
+
+  const pendingCount = requests.filter((r) => r.status === 'pending').length;
   return layout({
     title: 'My day', user, active: '/va', message,
-    body: `<h1>Hi ${esc(user.name.split(' ')[0])}</h1>
-    <div class="card">
-      <h2>Today, ${esc(formatDate(day.local.date))}</h2>
-      <p class="small">Your time zone: ${esc(day.zoneLabel)}${day.startLabel ? ` · Check in by: <strong>${esc(day.startLabel)}</strong>` : ''}</p>
-      ${day.projects.length ? `<p>Your projects today: ${day.projects.map((p) => `${esc(p.client)}${p.start ? ` (${formatHM(p.start)})` : ''}`).join(', ')}.
-        ${day.projects.length > 1 ? '<br><span class="small">One check-in covers all of them. It is due at the earliest start time.</span>' : ''}</p>` : ''}
+    body: `<div class="card hero">
+      <div class="date">${esc(formatDate(day.local.date, true))} · ${esc(day.zoneLabel)}</div>
+      <h2>Hi ${esc(user.name.split(' ')[0])} 👋</h2>
+      ${projects}
       ${day.projectsOffNames ? `<p class="small">Approved time off today for: ${esc(day.projectsOffNames)}.</p>` : ''}
-      ${statusHtml}
-      <form method="post" action="/va/checkin"><button class="big" ${checkedIn ? 'disabled' : ''}>${checkedIn ? 'Checked in' : 'Check in'}</button></form>
+      <form method="post" action="/va/checkin"><button class="checkin ${checkedIn ? 'done' : ''}" ${checkedIn ? 'disabled' : ''}>${checkedIn ? `${icon('check')} Checked in` : 'Check in'}</button></form>
+      ${status}
     </div>
-    <div class="grid">
-      <div class="card">
-        <h2>Call out</h2>
-        <p class="small">Use this if you cannot work today. Your reason is sent to your management channel on Slack.</p>
-        <form method="post" action="/va/callout">
-          <label for="reason">Reason</label>
-          <textarea id="reason" name="reason" required maxlength="1000" placeholder="A short explanation"></textarea>
-          <button>Send call-out</button>
-        </form>
-      </div>
-      <div class="card">
-        <h2>Request time off or coverage</h2>
-        <p class="small">Use the coverage/time-off request form. Please send it at least 2 weeks before the first day you need covered. Your request shows up below once it is received, and an admin approves or denies it.</p>
-        <a class="btn" href="${esc(formUrl || '#')}" target="_blank" rel="noopener">Open the request form</a>
-        <p class="small">Type your name in the form exactly as it appears here: <strong>${esc(user.name)}</strong>.</p>
-      </div>
-    </div>
-    <div class="card"><h2>My time-off requests</h2>${requestsTable(requests, false)}</div>
-    <div class="card"><h2>My last 30 days</h2>
-      ${history.length ? `<div class="table"><table><tr><th>Date</th><th>Status</th><th>Checked in</th></tr>
-      ${history.map((h) => `<tr><td>${esc(formatDate(h.work_date))}</td><td>${pill(h.status)}</td><td>${esc(formatTimeIn(h.checked_in_at, day.zone))}</td></tr>`).join('')}
-      </table></div>` : '<p class="small">Nothing yet.</p>'}
-    </div>`,
+    ${section({
+      title: "Can't work today? Call out", open: false,
+      hint: 'Your reason is sent to your management channel on Slack.',
+      body: `<form method="post" action="/va/callout" style="padding:0 8px">
+        <label for="reason">What happened?</label>
+        <textarea id="reason" name="reason" required maxlength="1000" placeholder="A short explanation"></textarea>
+        <button>Send call-out</button></form>`,
+    })}
+    ${section({
+      title: 'Need time off or coverage?', open: false,
+      hint: 'Please send the request form at least 2 weeks before the first day you need covered.',
+      body: `<div style="padding:0 8px"><a class="btn" href="${esc(formUrl || '#')}" target="_blank" rel="noopener">${icon('external')} Open the request form</a>
+        <p class="small">Type your name exactly as it appears here: <strong>${esc(user.name)}</strong>. Your request shows up below once it is received.</p></div>`,
+    })}
+    ${section({ title: 'My requests', count: requests.length, open: pendingCount > 0, body: requestCards(requests, false) })}
+    ${section({
+      title: 'My last 30 days', count: history.length, open: false,
+      body: history.length ? history.map((h) => item({
+        title: esc(formatDate(h.work_date)),
+        sub: h.checked_in_at ? `Checked in at ${esc(formatTimeIn(h.checked_in_at, day.zone))}` : '',
+        side: pill(h.status),
+      })).join('') : empty('Nothing yet.'),
+    })}`,
   });
 }
 
-const KIND_LABEL = { time_off: 'Time off', emergency: 'Emergency', coverage: 'Time off' };
+// ---- Time-off requests ----
 
-// ctx (admins only): { vas, backups } for the edit form.
-function requestsTable(requests, forAdmin, ctx = {}) {
-  if (!requests.length) return '<p class="small">No requests.</p>';
-  const statusPill = (s) => `<span class="pill ${{ pending: 'warn', approved: 'good', denied: 'bad', cancelled: 'muted' }[s]}">${esc(s[0].toUpperCase() + s.slice(1))}</span>`;
-  const needsBackup = (r) => r.kind !== 'emergency' && r.needs_coverage;
-  return `<div class="table"><table><tr>${forAdmin ? '<th>VA</th>' : ''}<th>Dates</th><th>Type</th><th>Coverage</th><th>Details and notes</th><th>Status</th>${forAdmin ? '<th></th>' : ''}</tr>
-  ${requests.map((r) => `<tr>
-    ${forAdmin ? `<td>${esc(r.name)}</td>` : ''}
-    <td>${esc(formatDate(r.start_date, true))}${r.end_date !== r.start_date ? ` to ${esc(formatDate(r.end_date, true))}` : ''}</td>
-    <td>${KIND_LABEL[r.kind] || 'Time off'}<div class="small">${r.added_by_admin ? 'Added by an admin' : r.source === 'form' ? 'From the request form' : ''}</div>
-      <div class="small">${r.project_names ? `Only these projects: ${esc(r.project_names)}` : 'All projects'}</div></td>
-    <td>${r.needs_coverage ? '<strong>Needed</strong>' : 'Not needed'}
-      ${needsBackup(r) ? (r.backup_name ? `<div class="small">Covered by ${esc(r.backup_name)}</div>` : '<div><span class="pill warn">Backup not chosen</span></div>') : ''}</td>
-    <td>${r.details ? `<div class="small" style="white-space:pre-line">${esc(r.details)}</div>` : ''}${esc(r.note || '')}</td>
-    <td>${statusPill(r.status)}${r.decided_by_name ? `<div class="small">by ${esc(r.decided_by_name)}</div>` : ''}
-      ${forAdmin && r.clickup_list_url ? `<div class="small"><a href="${esc(r.clickup_list_url)}" target="_blank" rel="noopener">ClickUp checklist</a></div>` : ''}
-      ${forAdmin && r.status === 'approved' && needsBackup(r) && !r.clickup_list_url ? `
-        ${r.clickup_error ? `<div class="small" style="color:var(--bad)">ClickUp: ${esc(r.clickup_error)}</div>` : ''}
-        <form method="post" action="/admin/time-off/${r.id}/clickup" class="inline"><button class="plain" style="margin-top:4px">Create ClickUp checklist</button></form>` : ''}</td>
-    ${forAdmin ? `<td>${r.status === 'pending' ? `
-      ${needsBackup(r) && !r.backup_name ? '<div class="small">Choose who covers (Edit) before approving.</div>' : ''}
-      <form method="post" action="/admin/time-off/${r.id}/approve" class="inline"><button>Approve</button></form>
-      <form method="post" action="/admin/time-off/${r.id}/deny" class="inline"><button class="danger">Deny</button></form>`
-      : r.status === 'approved' && r.cancellable ? `
-      <form method="post" action="/admin/time-off/${r.id}/cancel" class="inline"><button class="plain">Cancel</button></form>` : ''}
-      ${['pending', 'approved'].includes(r.status) && ctx.vas ? editForm(r, ctx) : ''}</td>` : ''}
-  </tr>`).join('')}</table></div>`;
+const KIND_LABEL = { time_off: 'Time off', emergency: 'Emergency', coverage: 'Time off' };
+const REQUEST_TONE = { pending: 'warn', approved: 'good', denied: 'bad', cancelled: 'muted' };
+const needsBackup = (r) => r.kind !== 'emergency' && Boolean(r.needs_coverage);
+
+// Requests as clickable rows. Admins (ctx.vas set) also get actions and the edit form.
+function requestCards(requests, forAdmin, ctx = {}) {
+  if (!requests.length) return empty('No requests.');
+  return requests.map((r) => {
+    const status = chip(r.status[0].toUpperCase() + r.status.slice(1), REQUEST_TONE[r.status]);
+    const coverage = r.needs_coverage
+      ? (needsBackup(r) ? (r.backup_name ? `Covered by ${esc(r.backup_name)}` : '<span style="color:var(--warn);font-weight:700">Backup not chosen</span>') : 'Coverage needed')
+      : 'No coverage needed';
+    const sub = `${esc(dateRange(r.start_date, r.end_date))} · ${coverage}`;
+    const body = `
+      ${r.details || r.note ? `<div class="bubble">${esc([r.details, r.note].filter(Boolean).join('\n'))}</div>` : ''}
+      <p class="meta">${r.added_by_admin ? 'Added by an admin' : r.source === 'form' ? 'From the request form' : 'Request'}
+        · ${r.project_names ? `Only these projects: <b>${esc(r.project_names)}</b>` : 'All projects'}
+        ${r.decided_by_name ? ` · ${esc(r.status)} by <b>${esc(r.decided_by_name)}</b>` : ''}</p>
+      ${forAdmin && r.clickup_list_url ? `<p class="meta"><a href="${esc(r.clickup_list_url)}" target="_blank" rel="noopener">${icon('external')} Open the ClickUp checklist</a></p>` : ''}
+      ${forAdmin && r.status === 'approved' && needsBackup(r) && !r.clickup_list_url && r.clickup_error
+        ? `<p class="meta" style="color:var(--bad)">ClickUp: ${esc(r.clickup_error)}</p>` : ''}
+      ${forAdmin ? requestActions(r, ctx) : ''}`;
+    return item({
+      name: forAdmin ? r.name : undefined,
+      title: `${forAdmin ? `${esc(r.name)} · ` : ''}${KIND_LABEL[r.kind] || 'Time off'}`,
+      sub, side: status, body, open: forAdmin && r.status === 'pending',
+    });
+  }).join('');
+}
+
+function requestActions(r, ctx) {
+  const buttons = [];
+  if (r.status === 'pending') {
+    if (needsBackup(r) && !r.backup_name) buttons.push('<span class="small">Choose who covers (Edit) before approving.</span>');
+    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/approve"><button class="sm">${icon('check')} Approve</button></form>`);
+    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/deny"><button class="sm danger">Deny</button></form>`);
+  }
+  if (r.status === 'approved' && needsBackup(r) && !r.clickup_list_url) {
+    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/clickup"><button class="sm plain">Create ClickUp checklist</button></form>`);
+  }
+  if (r.status === 'approved' && r.cancellable) {
+    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/cancel"><button class="sm danger">Cancel</button></form>`);
+  }
+  const edit = ['pending', 'approved'].includes(r.status) && ctx.vas ? editForm(r, ctx) : '';
+  return `<div class="actions">${buttons.join('')}</div>${edit}`;
 }
 
 // The admin form to change a request's VA, type, dates, coverage and backup VA.
@@ -246,12 +436,14 @@ function editForm(r, { vas, backups }) {
   const requester = vas.find((v) => v.id === r.user_id);
   // The VA taking time off can't cover for themselves.
   const choices = backups.filter((b) => !requester || (b.zoho_id !== requester.zoho_id && b.name !== requester.name));
-  return `<details style="margin-top:6px"><summary class="small">Edit</summary>
-    <form method="post" action="/admin/time-off/${r.id}/edit">
-      <label>VA</label><select name="user_id">${vas.map((v) => `<option value="${v.id}" ${v.id === r.user_id ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}</select>
-      <label>Type</label><select name="kind">
-        <option value="time_off" ${r.kind !== 'emergency' ? 'selected' : ''}>Time off</option>
-        <option value="emergency" ${r.kind === 'emergency' ? 'selected' : ''}>Emergency</option></select>
+  return `<details class="section" style="margin:12px 0 0;box-shadow:none;background:var(--surface-2)"><summary>Edit${icon('chevron', 'chev')}</summary>
+    <form method="post" action="/admin/time-off/${r.id}/edit" style="padding:0 16px 14px">
+      <div class="row">
+        <div><label>VA</label><select name="user_id">${vas.map((v) => `<option value="${v.id}" ${v.id === r.user_id ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}</select></div>
+        <div><label>Type</label><select name="kind">
+          <option value="time_off" ${r.kind !== 'emergency' ? 'selected' : ''}>Time off</option>
+          <option value="emergency" ${r.kind === 'emergency' ? 'selected' : ''}>Emergency</option></select></div>
+      </div>
       <div class="row">
         <div><label>First day</label><input type="date" name="start_date" value="${esc(r.start_date)}" required></div>
         <div><label>Last day</label><input type="date" name="end_date" value="${esc(r.end_date)}" required></div>
@@ -264,39 +456,88 @@ function editForm(r, { vas, backups }) {
     </form></details>`;
 }
 
-// ---- Admin pages ----
-
-export function adminTodayPage({ user, rows, message }) {
-  return layout({
-    title: 'Today', user, active: '/admin', message,
-    body: `<h1>Today</h1>
-    <div class="card table"><table>
-      <tr><th>VA</th><th>Projects today</th><th>Check in by</th><th>Status</th><th>Checked in</th><th>Notes</th></tr>
-      ${rows.map((r) => `<tr>
-        <td>${esc(r.name)}</td>
-        <td class="small">${esc(r.projects || 'None')}</td>
-        <td>${esc(r.startLabel || 'No fixed start')}</td>
-        <td>${r.statusHtml}</td>
-        <td>${esc(r.checkedIn || '')}</td>
-        <td class="small">${esc(r.note || '')}</td>
-      </tr>`).join('') || '<tr><td colspan="6">No active VAs yet. Go to People and click "Sync with Zoho now".</td></tr>'}
-    </table></div>`,
-  });
+// Form responses whose name matched no VA. The admin picks the VA; that VA's projects then
+// appear as checkboxes, all ticked, and the admin unticks any the request does not cover.
+function unmatchedCards(unmatched, vas, vaProjects) {
+  const projectsOf = (vaId) => vaProjects.filter((p) => p.user_id === vaId);
+  return unmatched.map((u) => item({
+    name: u.name,
+    title: `${esc(u.name)} · Time off`,
+    sub: `${esc(dateRange(u.start_date, u.end_date))} · <span style="color:var(--warn);font-weight:700">No VA matched this name</span>`,
+    side: chip('Needs a VA', 'warn'),
+    open: true,
+    body: `${u.details || u.note ? `<div class="bubble">${esc([u.details, u.note].filter(Boolean).join('\n'))}</div>` : ''}
+      <form method="post" action="/admin/form-unmatched/${u.id}/assign">
+        <label>Who is this?</label>
+        <select name="user_id" required aria-label="VA"
+          onchange="var va = this.value; this.form.querySelectorAll('[data-va]').forEach(function (g) { g.hidden = g.dataset.va !== va; })">
+          <option value="">Choose a VA</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}
+        </select>
+        ${vas.map((v) => {
+          const list = projectsOf(v.id);
+          return `<div data-va="${v.id}" hidden>
+            ${list.length
+              ? `<label>Projects this request covers</label>${list.map((p) => `<label class="check" style="margin-top:6px"><input type="checkbox" name="projects_${v.id}" value="${esc(p.id)}" checked> ${esc(p.client)}</label>`).join('')}`
+              : '<p class="small">This VA has no projects, so the request covers the whole day.</p>'}
+          </div>`;
+        }).join('')}
+        <div class="actions"><button class="sm">Assign</button></div>
+      </form>
+      <form method="post" action="/admin/form-unmatched/${u.id}/discard" class="actions"><button class="sm danger">Discard</button></form>`,
+  })).join('');
 }
 
-export function todayStatusHtml(row, day, now) {
+// ---- Admin pages ----
+
+// How a VA's day looks on the Today page: the chip, and which group the VA is listed in.
+export function todayStatus(row, day, now) {
   if (row) {
     if (row.status === 'pending') {
       const mins = Math.floor((now - new Date(row.scheduled_start)) / 60000);
-      return mins < 0 ? '<span class="pill muted">Shift not started</span>' : `<span class="pill bad">Not checked in (${mins} min)</span>`;
+      return mins < 0 ? { label: 'Not started yet', tone: 'muted', group: 'upcoming' } : { label: `${mins} min late`, tone: 'bad', group: 'attention' };
     }
-    return pill(row.status);
+    if (row.status === 'missed') return { label: 'No check-in', tone: 'bad', group: 'attention' };
+    if (['on_time', 'late', 'checked_in'].includes(row.status)) {
+      const [label, tone] = STATUS[row.status];
+      return { label, tone, group: 'in' };
+    }
+    const [label, tone] = STATUS[row.status] || [row.status, 'muted'];
+    return { label, tone, group: row.status === 'exempt' ? 'none' : 'off' };
   }
-  if (day.exempt) return pill('exempt');
-  if (day.onTimeOff) return pill(day.timeOffKind);
-  if (day.holiday) return '<span class="pill muted">Holiday</span>';
-  if (!day.expected) return '<span class="pill muted">No check-in expected</span>';
-  return '<span class="pill muted">Shift not started</span>';
+  if (day.exempt) return { label: 'Exempt', tone: 'muted', group: 'none' };
+  if (day.onTimeOff) return { label: STATUS[day.timeOffKind][0], tone: STATUS[day.timeOffKind][1], group: 'off' };
+  if (day.holiday) return { label: 'Holiday', tone: 'info', group: 'off' };
+  if (!day.expected) return { label: 'No check-in today', tone: 'muted', group: 'none' };
+  return { label: 'Not started yet', tone: 'muted', group: 'upcoming' };
+}
+
+export function adminTodayPage({ user, rows, message }) {
+  const groups = [
+    ['attention', 'Needs attention', 'attention', true],
+    ['in', 'Checked in', '', true],
+    ['upcoming', 'Not started yet', '', true],
+    ['off', 'Off today', '', false],
+    ['none', 'Not checked today', '', false],
+  ];
+  const by = (g) => rows.filter((r) => r.status.group === g);
+  const summary = groups.filter(([g]) => by(g).length).map(([g, label]) =>
+    chip(`${by(g).length} ${label.toLowerCase()}`, g === 'attention' ? 'bad' : g === 'in' ? 'good' : 'muted')).join('');
+  const rowHtml = (r) => item({
+    name: r.name,
+    title: esc(r.name),
+    sub: `${esc(r.projects || 'No projects today')}${r.startLabel ? ` · check in by ${esc(r.startLabel)}` : ''}`,
+    side: chip(r.status.label, r.status.tone),
+    body: `${r.checkedIn ? `<p class="meta">Checked in at <b>${esc(r.checkedIn)}</b></p>` : ''}
+      ${r.note ? `<div class="bubble">${esc(r.note)}</div>` : ''}
+      ${!r.checkedIn && !r.note ? '<p class="meta">Nothing else to show for today.</p>' : ''}`,
+  });
+  return layout({
+    title: 'Today', user, active: '/admin', message,
+    body: rows.length ? `<div class="summary-chips">${summary}</div>
+      ${groups.filter(([g]) => by(g).length).map(([g, title, tone, open]) =>
+        section({ title, count: by(g).length, open, tone, body: by(g).map(rowHtml).join('') })).join('')}`
+      : `<div class="card">${empty('No active VAs yet. Go to People and click "Sync with Zoho now".')}</div>`,
+  });
 }
 
 export function historyPage({ user, month, prev, next, dates, vas, cells }) {
@@ -306,16 +547,15 @@ export function historyPage({ user, month, prev, next, dates, vas, cells }) {
     .map((s) => `<span><span class="cell ${STATUS[s][1]}">${STATUS[s][2]}</span> ${STATUS[s][0]}</span>`).join('');
   return layout({
     title: 'History', user, active: '/admin/history',
-    body: `<h1>Check-in history</h1>
-    <div class="card">
+    body: `<div class="card">
       <div class="row" style="align-items:center">
-        <div><a class="btn" href="/admin/history?month=${prev}" style="margin:0">← Earlier</a></div>
-        <div style="text-align:center;font-weight:700;font-size:17px">${esc(monthName)}</div>
-        <div style="text-align:right"><a class="btn" href="/admin/history?month=${next}" style="margin:0">Later →</a></div>
+        <div><a class="btn plain" href="/admin/history?month=${prev}" style="margin:0">← Earlier</a></div>
+        <div style="text-align:center;font-weight:800;font-size:18px">${esc(monthName)}</div>
+        <div style="text-align:right"><a class="btn plain" href="/admin/history?month=${next}" style="margin:0">Later →</a></div>
       </div>
-      <div class="legend small">${legend}<span><span class="cell muted">–</span> No record</span></div>
+      <div class="legend">${legend}<span><span class="cell muted">–</span> No record</span></div>
       <div class="table"><table class="hist">
-        <tr><th>VA</th>${dates.map((d) => `<th><div class="small">${weekdayOf(d).slice(0, 2)}</div>${Number(d.slice(8))}</th>`).join('')}<th>On time</th><th>Late</th><th>No check-in</th></tr>
+        <tr><th>VA</th>${dates.map((d) => `<th><div class="small">${weekdayOf(d).slice(0, 2)}</div>${Number(d.slice(8))}</th>`).join('')}<th>On time</th><th>Late</th><th>Missed</th></tr>
         ${vas.map((v) => {
           const counts = { on_time: 0, late: 0, missed: 0 };
           const tds = dates.map((d) => {
@@ -330,58 +570,26 @@ export function historyPage({ user, month, prev, next, dates, vas, cells }) {
           return `<tr><td>${esc(v.name)}</td>${tds}<td>${counts.on_time}</td><td>${counts.late}</td><td>${counts.missed}</td></tr>`;
         }).join('')}
       </table></div>
-      <p class="small">Hover over a square to see details, including call-out reasons.</p>
+      <p class="small">Point at a square (or tap it on a phone) to see details, including call-out reasons.</p>
     </div>`,
   });
 }
 
-// Form responses whose name matched no VA. The admin picks the VA; that VA's projects then
-// appear as checkboxes, all ticked, and the admin unticks any the request does not cover.
-function unmatchedRequests(unmatched, vas, vaProjects) {
-  if (!unmatched.length) return '';
-  const projectsOf = (vaId) => vaProjects.filter((p) => p.user_id === vaId);
-  return `<div class="table"><table>
-    <tr><th>Name in the form</th><th>Dates</th><th>Details and notes</th><th>Assign to a VA and their projects</th></tr>
-    ${unmatched.map((u) => `<tr>
-      <td><strong>${esc(u.name)}</strong><div><span class="pill warn">No VA matched</span></div></td>
-      <td>${esc(formatDate(u.start_date, true))}${u.end_date !== u.start_date ? ` to ${esc(formatDate(u.end_date, true))}` : ''}</td>
-      <td><div class="small" style="white-space:pre-line">${esc(u.details || '')}</div>${esc(u.note || '')}</td>
-      <td>
-        <form method="post" action="/admin/form-unmatched/${u.id}/assign">
-          <select name="user_id" required aria-label="VA"
-            onchange="var va = this.value; this.form.querySelectorAll('[data-va]').forEach(function (g) { g.hidden = g.dataset.va !== va; })">
-            <option value="">Choose a VA</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}
-          </select>
-          ${vas.map((v) => {
-            const list = projectsOf(v.id);
-            return `<div data-va="${v.id}" hidden class="small" style="margin-top:6px">
-              ${list.length
-                ? `Projects this request covers:${list.map((p) => `<label class="check" style="margin-top:4px"><input type="checkbox" name="projects_${v.id}" value="${esc(p.id)}" checked> ${esc(p.client)}</label>`).join('')}`
-                : 'This VA has no projects, so the request covers the whole day.'}
-            </div>`;
-          }).join('')}
-          <button>Assign</button>
-        </form>
-        <form method="post" action="/admin/form-unmatched/${u.id}/discard" class="inline"><button class="danger" style="margin-top:6px">Discard</button></form>
-      </td>
-    </tr>`).join('')}
-  </table></div>
-  <p class="small">After you assign it, the request appears in the list below, where you approve or deny it.</p>`;
-}
-
 export function timeOffPage({ user, pending, current, recent, vas, unmatched, vaProjects, backups, clickupReady, formUrl, message }) {
   const ctx = { vas, backups };
+  const waiting = unmatched.length + pending.length;
   return layout({
     title: 'Time off', user, active: '/admin/time-off', message,
-    body: `<h1>Time off and coverage</h1>
-    <p class="small">VAs request time off and coverage with the <a href="${esc(formUrl || '#')}" target="_blank" rel="noopener">coverage/time-off request form</a>. Each response appears here within a few seconds.</p>
-    ${clickupReady ? '' : '<div class="msg info">ClickUp is not connected yet, so approved coverage requests will not create a checklist. See "Connect ClickUp" in the README.</div>'}
-    <div class="card"><h2>Requests waiting for a decision</h2>${unmatchedRequests(unmatched, vas, vaProjects)}${requestsTable(pending, true, ctx)}</div>
-    <div class="card">
-      <h2>Add time off or an emergency</h2>
-      <p class="small">The VA is not expected to check in on any day in the period, and gets no late alerts. It applies right away, without approval.
-      For time off that needs coverage, choose who covers; a ClickUp checklist is created in the Checklists space.</p>
-      <form method="post" action="/admin/time-off/add">
+    body: `<p class="lead">VAs ask for time off and coverage with the <a href="${esc(formUrl || '#')}" target="_blank" rel="noopener">request form</a>. New requests appear here within a few seconds.</p>
+    ${clickupReady ? '' : '<div class="toast info">ClickUp is not connected yet, so approved coverage requests will not create a checklist. See "Connect ClickUp" in the README.</div>'}
+    ${section({
+      title: 'Waiting for your decision', count: waiting, open: true, tone: waiting ? 'attention' : '',
+      body: waiting ? unmatchedCards(unmatched, vas, vaProjects) + requestCards(pending, true, ctx) : empty('All caught up. Nothing is waiting.'),
+    })}
+    ${section({
+      title: 'Add time off or an emergency', open: false,
+      hint: 'It applies right away, without approval. For time off that needs coverage, choose who covers; a ClickUp checklist is created.',
+      body: `<form method="post" action="/admin/time-off/add" style="padding:0 8px">
         <div class="row">
           <div><label for="pv">VA</label><select id="pv" name="user_id" required><option value="">Choose a VA</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}</select></div>
           <div><label for="pk">Type</label><select id="pk" name="kind"><option value="time_off">Time off</option><option value="emergency">Emergency</option></select></div>
@@ -394,196 +602,218 @@ export function timeOffPage({ user, pending, current, recent, vas, unmatched, va
         <label for="pb">Who covers (for time off that needs coverage)</label>
         <select id="pb" name="backup"><option value="">Not needed</option>${backups.map((b) => `<option value="${esc(b.zoho_id)}">${esc(b.name)} (${esc(b.status)})</option>`).join('')}</select>
         <label for="pn">Note (optional)</label><input id="pn" name="note" type="text" maxlength="1000">
-        <button>Add</button>
-      </form>
-    </div>
-    <div class="card"><h2>Current and upcoming periods</h2>${requestsTable(current.map((r) => ({ ...r, cancellable: true })), true, ctx)}</div>
-    <div class="card"><h2>Past, denied and cancelled</h2>${requestsTable(recent, true)}</div>`,
+        <button>${icon('plus')} Add</button>
+      </form>`,
+    })}
+    ${section({ title: 'Current and upcoming', count: current.length, open: true, body: requestCards(current.map((r) => ({ ...r, cancellable: true })), true, ctx) })}
+    ${section({ title: 'Past, denied and cancelled', count: recent.length, open: false, body: requestCards(recent, true) })}`,
   });
 }
 
-export function peoplePage({ user, people, message, tempPassword }) {
+export function peoplePage({ user, people, onDeck = [], message, tempPassword }) {
   const vas = people.filter((p) => p.is_va);
   const admins = people.filter((p) => p.is_admin);
   const tempBox = tempPassword
-    ? `<div class="msg info">Temporary password for <strong>${esc(tempPassword.name)}</strong>: <code>${esc(tempPassword.password)}</code><br>
-       Share it with them privately. They will choose their own password when they log in. This password is not shown again.</div>` : '';
+    ? `<div class="toast info" style="display:block">Temporary password for <strong>${esc(tempPassword.name)}</strong>: <code style="font-size:16px">${esc(tempPassword.password)}</code><br>
+       <span class="small">Share it with them privately. They choose their own password when they log in. It is not shown again.</span></div>` : '';
+  const loginText = (p) => (p.password_hash ? (p.must_change_password ? 'Temporary password' : 'Has logged in') : 'No password yet');
+  const resetBtn = (p) => `<form method="post" action="/admin/people/${p.id}/temp-password"><button class="sm plain">${icon('key')} Set temporary password</button></form>`;
+
   // Whether the app checks this VA, why, and a button to exempt them or remove the exemption.
-  const checkedCell = (p) => {
+  const checked = (p) => {
     const affiliation = (p.affiliation || '').trim();
-    const pillHtml = !isExempt(p) ? '<span class="pill good">Checked</span>'
-      : !p.exempt && !affiliation ? '<span class="pill warn">Exempt</span>' : '<span class="pill muted">Exempt</span>';
+    const exempt = isExempt(p);
     const why = p.exempt ? 'Exempted by an admin'
       : !affiliation ? 'VA Company Affiliation is empty in Zoho'
-      : affiliation !== 'InoVA Local' ? `Affiliation: ${affiliation}` : 'Affiliation: InoVA Local';
+      : affiliation !== 'InoVA Local' ? `Affiliation in Zoho: ${affiliation}` : 'Affiliation in Zoho: InoVA Local';
     const byZoho = affiliation !== 'InoVA Local';
     // VAs exempt because of Zoho are changed in Zoho; the button only exempts (or un-exempts) InoVA Local VAs.
-    const button = byZoho && !p.exempt ? '<div class="small">Change the affiliation in Zoho to check this VA.</div>' : `
-      <form method="post" action="/admin/people/${p.id}/exempt" class="inline">
+    const button = byZoho && !p.exempt ? '<span class="small">Change the affiliation in Zoho to check this VA.</span>' : `
+      <form method="post" action="/admin/people/${p.id}/exempt">
         <input type="hidden" name="exempt" value="${p.exempt ? 0 : 1}">
-        <button class="plain" style="margin-top:4px">${p.exempt ? 'Remove exemption' : 'Exempt this VA'}</button>
+        <button class="sm plain">${p.exempt ? 'Remove exemption' : 'Exempt this VA'}</button>
       </form>`;
-    return `${pillHtml}<div class="small">${esc(why)}</div>${button}`;
+    return { chip: exempt ? chip('Exempt', !p.exempt && !affiliation ? 'warn' : 'muted') : chip('Checked', 'good'), why, button };
   };
-  const resetBtn = (p) => `<form method="post" action="/admin/people/${p.id}/temp-password" class="inline"><button class="plain">Set temporary password</button></form>`;
+
+  const vaRow = (p) => {
+    const c = checked(p);
+    const warnings = [
+      !zoneFor(p.time_zone) && 'Time zone missing in Zoho (using EST)',
+      !p.slack_channel_id && 'Slack management channel not set in Zoho',
+    ].filter(Boolean);
+    return item({
+      name: p.name, title: esc(p.name), sub: esc(p.project_list || 'No projects'), side: c.chip,
+      body: `<p class="meta">${esc(p.email)}</p>
+        <div class="chips">${chip(p.time_zone || 'No time zone', zoneFor(p.time_zone) ? 'muted' : 'warn')}${chip(p.availability || 'No availability', 'muted')}${chip(loginText(p), p.password_hash ? 'good' : 'muted')}</div>
+        <p class="meta">${esc(c.why)}${p.slack_channel_id ? ` · Slack channel <code>${esc(p.slack_channel_id)}</code>` : ''}</p>
+        ${warnings.map((w) => `<p class="meta" style="color:var(--warn)">${esc(w)}</p>`).join('')}
+        <div class="actions">${c.button}${resetBtn(p)}</div>`,
+    });
+  };
+
+  const onDeckRow = (p) => item({
+    name: p.name, title: esc(p.name), sub: esc(p.email || 'No email in Zoho'), side: chip('On Deck', 'info'),
+    body: `<div class="chips">${chip(p.time_zone || 'No time zone', 'muted')}${chip(p.availability || 'No availability', 'muted')}</div>
+      <p class="meta">On Deck VAs don't check in. They can be chosen to cover when someone takes time off. To make them Active, change their VA Status in Zoho and sync.</p>`,
+  });
+
+  const adminRow = (p) => item({
+    name: p.name, title: esc(p.name), sub: esc(p.email), side: chip(loginText(p), p.password_hash ? 'good' : 'muted'),
+    body: `<div class="actions">${resetBtn(p)}${p.id !== user.id ? `<form method="post" action="/admin/people/${p.id}/remove-admin"><button class="sm danger">Remove admin</button></form>` : ''}</div>`,
+  });
+
   return layout({
     title: 'People', user, active: '/admin/people', message,
-    body: `<h1>People</h1>${tempBox}
-    <div class="card">
-      <h2>VAs</h2>
-      <p class="small">Active VAs are copied from Zoho CRM every hour. To change a VA's name, email, time zone, availability or Slack channels, change it in Zoho, then click "Sync with Zoho now". Projects and start times are set on the <a href="/admin/projects">Projects</a> page.</p>
-      <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/people"><button>Sync with Zoho now</button></form>
-      <div class="table" style="margin-top:14px"><table>
-        <tr><th>Name</th><th>Checked?</th><th>Time zone</th><th>Zoho availability</th><th>Projects</th><th>Slack channel</th><th>Login</th></tr>
-        ${vas.map((p) => `<tr>
-          <td>${esc(p.name)}<div class="small">${esc(p.email)}</div></td>
-          <td>${checkedCell(p)}</td>
-          <td>${esc(p.time_zone || '')}${zoneFor(p.time_zone) ? '' : ' <span class="pill warn">Missing, using EST</span>'}</td>
-          <td>${esc(p.availability || '')}</td>
-          <td class="small">${p.project_list ? esc(p.project_list) : '<span class="pill warn">None</span>'}</td>
-          <td>${p.slack_channel_id ? `<code>${esc(p.slack_channel_id)}</code>` : '<span class="pill warn">Not set</span>'}</td>
-          <td>${p.password_hash ? (p.must_change_password ? 'Temporary password' : 'Active') : 'No password yet'}<br>${resetBtn(p)}</td>
-        </tr>`).join('') || '<tr><td colspan="7">No active VAs yet.</td></tr>'}
-      </table></div>
+    body: `${tempBox}
+    <div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+      <p class="lead" style="margin:0;flex:1;min-width:240px">VAs come from Zoho CRM and update every hour. To change a VA's details, change them in Zoho, then sync. Projects and start times are on the <a href="/admin/projects">Projects</a> page.</p>
+      <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/people"><button style="margin:0">${icon('sync')} Sync with Zoho now</button></form>
     </div>
-    <div class="card">
-      <h2>Admins</h2>
-      <div class="table"><table><tr><th>Name</th><th>Email</th><th>Login</th><th></th></tr>
-      ${admins.map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.email)}</td>
-        <td>${p.password_hash ? (p.must_change_password ? 'Temporary password' : 'Active') : 'No password yet'}</td>
-        <td>${resetBtn(p)}${p.id !== user.id ? `<form method="post" action="/admin/people/${p.id}/remove-admin" class="inline"><button class="danger">Remove admin</button></form>` : ''}</td></tr>`).join('')}
-      </table></div>
-      <h2 style="margin-top:18px">Add an admin</h2>
-      <form method="post" action="/admin/people/add-admin" class="row">
-        <div><label for="an">Name</label><input id="an" name="name" type="text" required></div>
-        <div><label for="ae">Email</label><input id="ae" name="email" type="email" required></div>
-        <div style="flex:0"><button>Add</button></div>
-      </form>
-    </div>`,
+    ${section({ title: 'Active VAs', count: vas.length, open: true, body: vas.length ? vas.map(vaRow).join('') : empty('No active VAs yet.') })}
+    ${section({ title: 'On Deck VAs', count: onDeck.length, open: true, body: onDeck.length ? onDeck.map(onDeckRow).join('') : empty('No On Deck VAs in Zoho.') })}
+    ${section({
+      title: 'Admins', count: admins.length, open: false,
+      body: `${admins.map(adminRow).join('')}
+        <form method="post" action="/admin/people/add-admin" class="row" style="padding:8px">
+          <div><label for="an">Add an admin: name</label><input id="an" name="name" type="text" required></div>
+          <div><label for="ae">Email</label><input id="ae" name="email" type="email" required></div>
+          <div style="flex:0"><button>${icon('plus')} Add</button></div>
+        </form>`,
+    })}`,
   });
 }
 
 export function holidaysPage({ user, holidays, message }) {
+  const cal = (date) => {
+    const [y, m, d] = date.split('-').map(Number);
+    const month = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short' });
+    return `<div class="cal"><div class="m">${month}</div><div class="d">${d}</div></div>`;
+  };
   return layout({
     title: 'Holidays', user, active: '/admin/holidays', message,
-    body: `<h1>Company holidays</h1>
-    <div class="card">
-      <p class="small">No check-in is expected on these dates, so there are no late alerts.</p>
-      <form method="post" action="/admin/holidays" class="row">
+    body: `<p class="lead">No check-in is expected on these dates, so nobody gets late alerts.</p>
+    ${section({
+      title: 'Add a holiday', open: false,
+      body: `<form method="post" action="/admin/holidays" class="row" style="padding:0 8px 8px">
         <div><label for="hd">Date</label><input id="hd" name="date" type="date" required></div>
         <div><label for="hn">Name</label><input id="hn" name="name" type="text" required placeholder="For example: Thanksgiving"></div>
-        <div style="flex:0"><button>Add</button></div>
-      </form>
-      <div class="table" style="margin-top:14px"><table><tr><th>Date</th><th>Name</th><th></th></tr>
-      ${holidays.map((h) => `<tr><td>${esc(formatDate(h.date, true))}</td><td>${esc(h.name)}</td>
-        <td><form method="post" action="/admin/holidays/${esc(h.date)}/delete" class="inline"><button class="danger">Remove</button></form></td></tr>`).join('') || '<tr><td colspan="3">No holidays added.</td></tr>'}
-      </table></div>
-    </div>`,
+        <div style="flex:0"><button>${icon('plus')} Add</button></div>
+      </form>`,
+    })}
+    ${section({
+      title: 'Holidays', count: holidays.length, open: true,
+      body: holidays.length ? holidays.map((h) => `<div class="item flat"><div class="item-head">${cal(h.date)}
+        <div class="grow"><div class="title">${esc(h.name)}</div><div class="sub">${esc(formatDate(h.date, true))}</div></div>
+        <form method="post" action="/admin/holidays/${esc(h.date)}/delete"><button class="sm danger" style="margin:0">Remove</button></form></div></div>`).join('')
+        : empty('No holidays added.'),
+    })}`,
   });
 }
 
 export function settingsPage({ user, grace, emailError, admins, recipients, message }) {
   return layout({
     title: 'Settings', user, active: '/admin/settings', message,
-    body: `<h1>Settings</h1>
-    <div class="grid">
-      <div class="card">
-        <h2>My notifications</h2>
-        <form method="post" action="/admin/settings/notifications">
-          <label class="check"><input type="checkbox" name="notify_time_off" value="1" ${user.notify_time_off ? 'checked' : ''}> Email me when a VA sends a new time-off request</label>
-          <button>Save</button>
-        </form>
-      </div>
-      <div class="card">
-        <h2>On-time rule</h2>
-        <form method="post" action="/admin/settings/grace">
-          <label for="grace">A check-in counts as on time if it happens up to this many minutes after the start time</label>
-          <input id="grace" name="grace" type="number" min="0" max="9" value="${grace}">
-          <button>Save</button>
-        </form>
+    body: `${section({
+      title: 'My notifications', open: true,
+      body: `<form method="post" action="/admin/settings/notifications" style="padding:0 8px 8px">
+        <label class="check"><input type="checkbox" name="notify_time_off" value="1" ${user.notify_time_off ? 'checked' : ''}> Email me when a VA sends a new time-off request</label>
+        <button>Save</button></form>`,
+    })}
+    ${section({
+      title: 'Report emails', count: recipients.length, open: false,
+      hint: 'The weekly (Mondays) and monthly (the 1st) reports go out at 9:00 AM Eastern as one email, with everyone below on it.',
+      body: `<form method="post" action="/admin/settings/recipients" style="padding:0 8px 8px">
+        ${admins.map((a) => `<label class="check"><input type="checkbox" name="admin_email" value="${esc(a.email)}" ${recipients.includes(a.email) ? 'checked' : ''}> ${esc(a.name)} <span class="small">(${esc(a.email)})</span></label>`).join('')}
+        <label for="other">Other email addresses (one per line)</label>
+        <textarea id="other" name="other" placeholder="name@inovalocal.com">${esc(recipients.filter((e) => !admins.some((a) => a.email === e)).join('\n'))}</textarea>
+        <button>Save recipients</button>
+        ${recipients.length ? '' : '<div class="toast bad" style="margin-top:12px">Nobody is selected, so report emails are not sent. Reports are still posted in Slack.</div>'}
+        <div class="actions" style="margin-top:16px">
+          <span class="small">Send a report now:</span>
+          <button class="sm plain" formaction="/admin/reports/weekly">Weekly</button>
+          <button class="sm plain" formaction="/admin/reports/monthly">Monthly</button>
+        </div>
+      </form>`,
+    })}
+    ${section({
+      title: 'On-time rule', open: false,
+      body: `<form method="post" action="/admin/settings/grace" style="padding:0 8px 8px">
+        <label for="grace">A check-in counts as on time up to this many minutes after the start time</label>
+        <input id="grace" name="grace" type="number" min="0" max="9" value="${grace}" style="max-width:120px">
         <p class="small">Late alerts are still sent at 10 and 15 minutes.</p>
-      </div>
-      <div class="card">
-        <h2>Reports</h2>
-        <p class="small">Sent automatically at 9:00 AM Eastern: the weekly report every Monday (for the week before) and the monthly report on the 1st (for the month before). You can also send them now.</p>
-        <form method="post" action="/admin/reports/weekly" class="inline"><button class="plain">Send weekly report now</button></form>
-        <form method="post" action="/admin/reports/monthly" class="inline"><button class="plain">Send monthly report now</button></form>
-      </div>
-      <div class="card">
-        <h2>Who gets the report emails</h2>
-        <p class="small">The weekly and monthly reports go out as one email, with everyone below on it.</p>
-        <form method="post" action="/admin/settings/recipients">
-          ${admins.map((a) => `<label class="check"><input type="checkbox" name="admin_email" value="${esc(a.email)}" ${recipients.includes(a.email) ? 'checked' : ''}> ${esc(a.name)} <span class="small">(${esc(a.email)})</span></label>`).join('')}
-          <label for="other">Other email addresses (one per line)</label>
-          <textarea id="other" name="other" placeholder="name@inovalocal.com">${esc(recipients.filter((e) => !admins.some((a) => a.email === e)).join('\n'))}</textarea>
-          <button>Save recipients</button>
-        </form>
-        ${recipients.length ? '' : '<p class="msg bad" style="margin-top:10px">Nobody is selected, so report emails are not sent. Reports are still posted in Slack.</p>'}
-      </div>
-      <div class="card">
-        <h2>Last email problem</h2>
-        ${emailError
-          ? `<p class="small">${esc(new Date(emailError.at).toLocaleString('en-US', { timeZone: 'America/New_York' }))} ET, sending to ${esc(emailError.to)}:</p><p><code>${esc(emailError.problem)}</code></p>`
-          : '<p class="small">No email problems so far.</p>'}
-      </div>
-    </div>`,
+        <button>Save</button></form>`,
+    })}
+    ${section({
+      title: 'Last email problem', open: Boolean(emailError), tone: emailError ? 'attention' : '',
+      body: `<div style="padding:0 8px 8px">${emailError
+        ? `<p class="small">${esc(new Date(emailError.at).toLocaleString('en-US', { timeZone: 'America/New_York' }))} ET, sending to ${esc(emailError.to)}:</p><p><code>${esc(emailError.problem)}</code></p>`
+        : '<p class="small">No email problems so far.</p>'}</div>`,
+    })}`,
   });
 }
 
 // ---- Projects page ----
 
-// Checkboxes for work days, Monday first.
+// Work-day toggles, Monday first. Each looks like a small pill that turns green when on.
 function dayBoxes(days) {
   const on = new Set((days ?? '1,2,3,4,5').split(','));
   return `<span class="days">${[1, 2, 3, 4, 5, 6, 0].map((d) =>
-    `<label><input type="checkbox" name="days" value="${d}" ${on.has(String(d)) ? 'checked' : ''}>${DAY_NAMES[d].slice(0, 2)}</label>`).join('')}</span>`;
+    `<label><input type="checkbox" name="days" value="${d}" ${on.has(String(d)) ? 'checked' : ''}><span>${DAY_NAMES[d].slice(0, 2)}</span></label>`).join('')}</span>`;
 }
 
 export function projectsPage({ user, projects, assignments, vas, message }) {
   const byProject = new Map(projects.map((p) => [p.id, []]));
   for (const a of assignments) byProject.get(a.project_id)?.push(a);
   const unassigned = projects.filter((p) => !byProject.get(p.id).length);
+  const assigned = projects.filter((p) => byProject.get(p.id).length);
 
   const assignmentRow = (a) => `
     <div class="assign">
-      <form method="post" action="/admin/assignments/${a.id}" class="assign-form">
-        <strong>${esc(a.va_name)}</strong>
+      <form method="post" action="/admin/assignments/${a.id}" class="assign" style="border:0;padding:0;flex:1">
+        <span class="who">${avatar(a.va_name)}${esc(a.va_name)}</span>
         <input type="time" name="start_time" value="${esc(a.start_time || '')}" aria-label="Start time">
         <span class="small">${esc(zoneFor(a.time_zone) ? a.time_zone : 'EST')}</span>
         ${dayBoxes(a.days)}
-        <button class="plain">Save</button>
+        <button class="sm plain" style="margin:0">Save</button>
       </form>
-      <form method="post" action="/admin/assignments/${a.id}/delete" class="inline"><button class="danger">Remove</button></form>
-      ${parseHHMM(a.start_time) ? '' : '<div><span class="pill warn">No start time: no check-in or late alerts for this project</span></div>'}
+      <form method="post" action="/admin/assignments/${a.id}/delete"><button class="sm danger" style="margin:0">Remove</button></form>
+      ${parseHHMM(a.start_time) ? '' : `<div style="width:100%">${chip('No start time: no check-in or late alerts for this project', 'warn')}</div>`}
     </div>`;
 
   const addForm = (p) => `
-    <details><summary class="small">Add a VA</summary>
-      <form method="post" action="/admin/projects/${esc(p.id)}/assign" class="assign-form">
+    <details class="section" style="margin:10px 0 0;box-shadow:none;background:var(--surface-2)"><summary>${icon('plus')} Add a VA${icon('chevron', 'chev')}</summary>
+      <form method="post" action="/admin/projects/${esc(p.id)}/assign" class="assign" style="border:0;padding:0 16px 14px">
         <select name="user_id" required aria-label="VA"><option value="">Choose a VA</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}</select>
         <input type="time" name="start_time" aria-label="Start time">
         ${dayBoxes()}
-        <button>Add</button>
+        <button class="sm" style="margin:0">Add</button>
       </form>
     </details>`;
 
+  const projectRow = (p, open = false) => {
+    const list = byProject.get(p.id);
+    const missingTime = list.some((a) => !parseHHMM(a.start_time));
+    const who = list.map((a) => `${esc(a.va_name)}${a.start_time ? ` · ${esc(formatHM(parseHHMM(a.start_time) || { hour: 0, minute: 0 }))}` : ''}`).join(', ');
+    return item({
+      name: p.client, title: esc(p.client), sub: esc(who || 'No VA assigned'),
+      side: !list.length ? chip('No VA', 'warn') : missingTime ? chip('Needs a start time', 'warn') : chip(`${list.length} VA${list.length > 1 ? 's' : ''}`, 'good'),
+      open,
+      body: `<p class="meta">${esc(p.name)}</p>${list.map(assignmentRow).join('')}${addForm(p)}`,
+    });
+  };
+
   return layout({
     title: 'Projects', user, active: '/admin/projects', message,
-    body: `<h1>Projects</h1>
-    <div class="card">
-      <p class="small">Active projects are copied from Zoho Projects every hour. A new project is assigned automatically to the VA named after the " - " in its name (for example "Pool Partners - Tracy Saeman"), using that VA's Zoho availability as the start time. After that, changes here are kept.</p>
-      <p class="small">Start times are in each VA's own time zone. A VA with several projects on the same day checks in once, by the earliest start time, and that check-in counts for all of them.</p>
-      <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/projects"><button>Sync with Zoho now</button></form>
+    body: `<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+      <p class="lead" style="margin:0;flex:1;min-width:240px">Projects come from Zoho Projects every hour. A new project is given to the VA named after the " - " in its name, with their Zoho start time. Start times are in each VA's own time zone. A VA with several projects checks in once a day, by the earliest start.</p>
+      <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/projects"><button style="margin:0">${icon('sync')} Sync with Zoho now</button></form>
     </div>
-    ${unassigned.length ? `<div class="card"><h2>Projects with no VA (${unassigned.length})</h2>
-      <p class="small">No active VA matched the name in these projects. Add a VA below if one should check in for it.</p>
-      <ul>${unassigned.map((p) => `<li>${esc(p.name)}</li>`).join('')}</ul></div>` : ''}
-    <div class="card table"><table>
-      <tr><th>Project</th><th>VA, start time and days</th></tr>
-      ${projects.map((p) => `<tr>
-        <td><strong>${esc(p.client)}</strong><div class="small">${esc(p.name)}</div></td>
-        <td>${byProject.get(p.id).map(assignmentRow).join('')}${addForm(p)}</td>
-      </tr>`).join('') || '<tr><td colspan="2">No projects yet. Click "Sync with Zoho now".</td></tr>'}
-    </table></div>`,
+    ${unassigned.length ? section({
+      title: 'Projects with no VA', count: unassigned.length, open: true, tone: 'attention',
+      hint: 'No active VA matched the name in these projects. Open one to add a VA if someone should check in for it.',
+      body: unassigned.map((p) => projectRow(p)).join(''),
+    }) : ''}
+    ${section({ title: 'Projects', count: assigned.length, open: true, body: assigned.length ? assigned.map((p) => projectRow(p)).join('') : empty('No projects yet. Click "Sync with Zoho now".') })}`,
   });
 }

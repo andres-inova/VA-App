@@ -8,11 +8,14 @@ import { parseStart } from './time.js';
 const AFFILIATION = 'VA_Company_Affiliation';
 const FIELDS = ['Name', 'Email', 'Time_Zone', 'Availability', 'VA_Status', 'Slack_ID', 'Slack_Management_ID', AFFILIATION];
 
-async function accessToken(env) {
+// A short piece of the saved Zoho key, so a new key (with new permissions) is used right away.
+const keyTag = (env) => (env.ZOHO_REFRESH_TOKEN || '').trim().slice(-8);
+
+export async function accessToken(env) {
   const cached = await env.DB.prepare("SELECT value FROM settings WHERE key = 'zoho_token'").first();
   if (cached) {
-    const { token, expires } = JSON.parse(cached.value);
-    if (expires > Date.now() + 60000) return token;
+    const { token, expires, key } = JSON.parse(cached.value);
+    if (expires > Date.now() + 60000 && key === keyTag(env)) return token;
   }
   const params = new URLSearchParams({
     refresh_token: (env.ZOHO_REFRESH_TOKEN || '').trim(),
@@ -23,7 +26,7 @@ async function accessToken(env) {
   const res = await fetch(`${env.ZOHO_ACCOUNTS_URL}/oauth/v2/token`, { method: 'POST', body: params });
   const data = await res.json();
   if (!data.access_token) throw new Error(`Zoho login failed: ${JSON.stringify(data)}`);
-  const value = JSON.stringify({ token: data.access_token, expires: Date.now() + data.expires_in * 1000 });
+  const value = JSON.stringify({ token: data.access_token, expires: Date.now() + data.expires_in * 1000, key: keyTag(env) });
   await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('zoho_token', ?)").bind(value).run();
   return data.access_token;
 }
@@ -54,7 +57,14 @@ export async function syncFromZoho(env) {
   const token = await accessToken(env);
   const vas = await syncVAs(env, token);
   const projects = await syncProjects(env, token);
-  return { vas, projects };
+  // Needs the newer Zoho key (with Zoho Projects user access); the rest of the sync works without it.
+  let projectUsers = null;
+  try {
+    projectUsers = await syncProjectsUserIds(env, token);
+  } catch (err) {
+    console.log(`[Zoho Projects users] ${err.message}`);
+  }
+  return { vas, projects, projectUsers };
 }
 
 async function syncVAs(env, token) {
@@ -196,4 +206,28 @@ async function syncProjects(env, token) {
     assigned++;
   }
   return { count: projects.length, assigned };
+}
+
+// Finds each VA's user ID in Zoho Projects (by email, or else by name), so time logs from the app
+// are saved under the VA's own name.
+async function syncProjectsUserIds(env, token) {
+  const people = [];
+  for (let page = 1; page <= 20; page++) {
+    const url = `${env.ZOHO_PROJECTS_API_URL}/api/v3.1/portal/${env.ZOHO_PORTAL_ID}/users?page=${page}&per_page=200`;
+    const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${token}` } });
+    if (res.status === 204) break;
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    const body = await res.json();
+    const list = body.users || [];
+    people.push(...list.map((u) => ({ id: String(u.id || u.zpuid), email: (u.email || '').toLowerCase(), name: u.full_name || u.name || '' })));
+    if (!body.page_info?.has_next_page || !list.length) break;
+  }
+  const { results: vas } = await env.DB.prepare('SELECT id, email, name FROM users WHERE is_va = 1').all();
+  const statements = [];
+  for (const va of vas) {
+    const match = people.find((p) => p.email && p.email === va.email.toLowerCase()) || matchVA(va.name, people);
+    if (match) statements.push(env.DB.prepare('UPDATE users SET zoho_projects_user_id = ? WHERE id = ?').bind(match.id, va.id));
+  }
+  if (statements.length) await env.DB.batch(statements);
+  return { found: statements.length, of: vas.length };
 }

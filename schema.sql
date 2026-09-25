@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
   slack_user_id TEXT,    -- VA's own Slack user ID (Zoho "Slack ID"), used to tag them
   affiliation TEXT,      -- Zoho "VA Company Affiliation"; only "InoVA Local" VAs are checked
   exempt INTEGER NOT NULL DEFAULT 0,  -- 1 = an admin exempted this VA from check-ins
+  zoho_projects_user_id TEXT,  -- the VA's user ID in Zoho Projects (for time logs)
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -142,3 +143,14 @@ INSERT OR IGNORE INTO users (email, name, is_admin) VALUES
   ('pratap@inovalocal.com', 'Pratap', 1),
   ('kelli@inovalocal.com', 'Kelli', 1),
   ('stephany@inovalocal.com', 'Stephany Baldwin', 1);
+
+-- One timer per VA. When stopped (by the VA, or after 8 hours), it waits for the VA to add notes and save it to Zoho.
+CREATE TABLE IF NOT EXISTS timers (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id),
+  project_id TEXT NOT NULL,
+  task_id TEXT,            -- empty for a general log
+  task_name TEXT,
+  started_at TEXT NOT NULL,
+  stopped_at TEXT,         -- set when stopped; the timer then waits to be saved as a time log
+  auto_stopped INTEGER NOT NULL DEFAULT 0
+);

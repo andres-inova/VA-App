@@ -89,11 +89,11 @@ Done. Other admins get a temporary password from the **People** page (step 5 bel
 ## 3. Zoho key
 
 1. Go to https://api-console.zoho.com → **Add Client** → **Self Client** → **Create**.
-2. On the **Generate Code** tab, enter these two scopes, separated by a comma and no spaces:
+2. On the **Generate Code** tab, enter these scopes, separated by commas and no spaces (copy the whole line):
    ```
-   ZohoCRM.modules.custom.READ,ZohoProjects.projects.READ
+   ZohoCRM.modules.custom.READ,ZohoProjects.projects.READ,ZohoProjects.tasks.ALL,ZohoProjects.tasklists.READ,ZohoProjects.tasklists.CREATE,ZohoProjects.tasklists.UPDATE,ZohoProjects.tasklists.DELETE,ZohoProjects.timesheets.ALL,ZohoProjects.users.READ
    ```
-   Choose **10 minutes**, type any description, and click **Create**. Copy the code. Use an account that can see both the Virtual Assistants module in Zoho CRM and all projects in Zoho Projects, for example a Zoho admin.
+   Choose **10 minutes**, type any description, and click **Create**. Copy the code. Use an account that can see the Virtual Assistants module in Zoho CRM and is an **admin in the Zoho Projects portal** (andres@inovalocal.com). Time logs the app saves show this account in Zoho's **Created By** column; the **User** column is the VA.
 3. On the **Client Secret** tab, copy the **Client ID** and **Client Secret**.
 4. Within 10 minutes, swap the code for a long-lasting refresh token. In the command below, replace the three `YOUR_...` values, then run it:
    ```bash
@@ -110,6 +110,9 @@ Done. Other admins get a temporary password from the **People** page (step 5 bel
    ```bash
    npx wrangler secret put ZOHO_REFRESH_TOKEN
    ```
+6. The app starts using a new key right away. On the **People** page, click **Sync with Zoho now** so each VA is matched to their Zoho Projects account (by email, or else by name).
+
+**Adding permissions later** (for example the Tasks & time permissions): repeat steps 2, 4 and 5 with the full list of scopes above. You can keep the same Client ID and Client Secret, so only `ZOHO_REFRESH_TOKEN` needs saving again.
 
 ## 4. Gmail key
 
@@ -206,6 +209,19 @@ Setup, done once in the Slack app you created (VA App):
    ```
    The app uses it to check that each command really comes from Slack.
 6. If Slack shows a banner asking you to **reinstall** the app, click it and allow.
+
+## Tasks & time (Zoho Projects)
+
+VAs open **Tasks & time** in the menu (on phones, in the bottom bar). Everything they do there is saved straight into Zoho Projects, on the project the app assigned to them. A VA with several projects switches between them with the buttons at the top.
+
+- **Tasks and task lists**: the same lists and open tasks as in Zoho. VAs can add, rename, move and trash tasks, and add, rename and trash task lists. New task lists are visible to clients (External), like the existing ones.
+- **Timer**: **Start** next to a task (or **Start a general timer**). The timer keeps running on the app's server, so closing the app or locking the phone doesn't stop it. A bar at the top of every page shows it. **Stop** opens a form with the date, start and end times already filled in; the VA adds notes, picks Billable or Non Billable, and clicks **Save to Zoho** (or **Discard**). A timer that runs 8 hours stops by itself and waits to be saved the same way.
+- **Check-in**: starting the first timer of the day also checks the VA in (unless they called out or are off).
+- **Log time**: add time worked without the timer: task (or General with a log name), date, start and end time, billing type and notes.
+- **My time**: the VA's own time logs for the week (Sunday to Saturday), with billable and total hours. Each one can be edited or trashed. VAs can only change their own logs.
+- **Zoho's rules still apply**: Zoho's time log limits (which days can be logged, 10 hours a day, 50 a week). When Zoho turns something down, the app shows Zoho's reason.
+
+Needs: the Zoho key with the Tasks & time scopes (see [3. Zoho key](#3-zoho-key)), and each VA must be a user in the Zoho Projects portal. If a VA's Zoho Projects account isn't found, the app says so when they try to save time; check that their email in Zoho Projects matches their email in the app, then sync.
 
 ## Put the app on a phone or computer
 
@@ -326,7 +342,8 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 | `public/` | The app icons and the install file for phones (`manifest.webmanifest`) |
 | `src/forms.js` | Receives responses from the time-off/coverage Google Form |
 | `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |
-| `src/zoho.js` | Reads active VAs from Zoho CRM and active projects from Zoho Projects, and assigns new projects by name |
+| `src/zoho.js` | Reads active VAs from Zoho CRM and active projects from Zoho Projects, assigns new projects by name, and finds each VA's Zoho Projects user |
+| `src/work.js` | Tasks, task lists and time logs in Zoho Projects (the Tasks & time page) |
 | `src/notify.js` | Sends Slack messages, and emails through Gmail |
 | `src/time.js` | Time zone and date calculations |
 | `schema.sql` | The database tables, plus the 4 starting admins (used to create a new database) |

@@ -260,4 +260,16 @@ export async function runEveryMinute(env, now = new Date()) {
   if (now.getUTCMinutes() === 0 || vaCount.n === 0) await safely('Zoho sync', () => syncFromZoho(env));
   await safely('Shift check', () => checkShifts(env, now));
   await safely('Reports', () => maybeSendReports(env, now));
+  await safely('Timers', () => stopLongTimers(env, now));
+}
+
+// A timer stops by itself after 8 hours. It then waits on the VA's Tasks & time page to be saved with notes.
+export const TIMER_MAX_HOURS = 8;
+async function stopLongTimers(env, now) {
+  const cutoff = new Date(now.getTime() - TIMER_MAX_HOURS * 3600000).toISOString();
+  const { results } = await env.DB.prepare('SELECT user_id, started_at FROM timers WHERE stopped_at IS NULL AND started_at <= ?').bind(cutoff).all();
+  for (const t of results) {
+    const stop = new Date(Date.parse(t.started_at) + TIMER_MAX_HOURS * 3600000).toISOString();
+    await env.DB.prepare('UPDATE timers SET stopped_at = ?, auto_stopped = 1 WHERE user_id = ? AND stopped_at IS NULL').bind(stop, t.user_id).run();
+  }
 }

@@ -9,8 +9,9 @@ import { handleSlackCommand } from './slack-commands.js';
 import { checkIn, callOut } from './actions.js';
 import { sendInvite, newTemporaryPassword } from './invites.js';
 import { createCoverageChecklist, clickupReady } from './clickup.js';
-import { formatTimeIn, formatDate, addDays, partsIn, weekdayIndex, REPORT_ZONE } from './time.js';
+import { formatTimeIn, formatDate, addDays, partsIn, weekdayIndex, weekdayOf, REPORT_ZONE } from './time.js';
 import { redirect, page, isDate, isTime } from './util.js';
+import * as work from './work.js';
 import * as views from './views.js';
 
 export default {
@@ -92,6 +93,15 @@ async function handle(request, env) {
 
   if (path === '/') return redirect(user.is_va ? '/va' : '/admin');
 
+  if (user.is_va) {
+    user.timer = await env.DB.prepare('SELECT t.*, p.client FROM timers t LEFT JOIN projects p ON p.id = t.project_id WHERE t.user_id = ?').bind(user.id).first();
+  }
+
+  if (path === '/va/work' || path.startsWith('/va/work/')) {
+    if (!user.is_va) return redirect('/admin');
+    return workRoutes(env, user, path, method, field, message, url);
+  }
+
   if (path === '/va' || path.startsWith('/va/')) {
     if (!user.is_va) return redirect('/admin');
     return vaRoutes(env, user, path, method, field, message);
@@ -170,6 +180,134 @@ async function vaRoutes(env, user, path, method, field, message) {
 
   // Time-off and coverage requests are made with the Google Form (see src/forms.js).
   return redirect('/va');
+}
+
+// ---- Tasks and time (Zoho Projects) ----
+
+async function workRoutes(env, user, path, method, field, message, url) {
+  const now = new Date();
+  const day = await dayInfo(env, user, now);
+  const { results: projects } = await env.DB.prepare(
+    `SELECT p.id, p.client, p.name FROM assignments a JOIN projects p ON p.id = a.project_id
+     WHERE a.user_id = ? AND p.active = 1 ORDER BY p.client`
+  ).bind(user.id).all();
+  const projectId = field('project') || url.searchParams.get('project') || user.timer?.project_id || projects[0]?.id || '';
+  const project = projects.find((p) => p.id === projectId);
+  const back = (params) => redirect(`/va/work?${new URLSearchParams({ project: projectId, ...params })}`);
+
+  if (path === '/va/work' && method === 'GET') {
+    // Weeks run Sunday to Saturday, as in Zoho.
+    const weekParam = url.searchParams.get('week');
+    const today = day.local.date;
+    const thisWeek = addDays(today, -weekdayIndex(day.local.weekday));
+    const week = isDate(weekParam) ? addDays(weekParam, -weekdayIndex(weekdayOf(weekParam))) : thisWeek;
+    let lists = [], logs = [], zohoError = url.searchParams.get('err') || '';
+    if (project) {
+      try {
+        [lists, logs] = await Promise.all([
+          work.projectWork(env, project.id),
+          work.myLogs(env, project.id, user.zoho_projects_user_id, user.email, week, addDays(week, 6)),
+        ]);
+      } catch (err) {
+        if (!(err instanceof work.ZohoError)) console.error(err.stack || err.message);
+        zohoError = zohoError || (err instanceof work.ZohoError ? err.message : 'Zoho Projects could not be reached. Please try again in a minute.');
+      }
+    }
+    return page(views.workPage({ user, day, projects, project, lists, logs, week, thisWeek, today, message, zohoError }));
+  }
+
+  if (method !== 'POST' || !project) return redirect('/va/work');
+  const done = (key) => back({ msg: key });
+  const needName = (name) => (name.length < 1 || name.length > 500 ? 'Please enter a name.' : '');
+
+  try {
+    // ---- Timer ----
+    if (path === '/va/work/timer/start') {
+      if (user.timer) {
+        return back({ err: user.timer.stopped_at ? 'Please save or discard your stopped timer first.' : 'Please stop your running timer first.' });
+      }
+      await env.DB.prepare('INSERT INTO timers (user_id, project_id, task_id, task_name, started_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(user.id, project.id, field('task') || null, field('task_name').slice(0, 500) || 'General', now.toISOString()).run();
+      // Starting work counts as the day's check-in.
+      const row = await env.DB.prepare('SELECT status, checked_in_at FROM attendance WHERE user_id = ? AND work_date = ?')
+        .bind(user.id, day.local.date).first();
+      const off = ['called_out', 'time_off', 'emergency', 'coverage'].includes(row?.status);
+      if (!row?.checked_in_at && !off) {
+        await checkIn(env, user, now);
+        return done('timer-started-checked-in');
+      }
+      return done('timer-started');
+    }
+    if (path === '/va/work/timer/stop') {
+      await env.DB.prepare('UPDATE timers SET stopped_at = ? WHERE user_id = ? AND stopped_at IS NULL').bind(now.toISOString(), user.id).run();
+      return redirect(`/va/work?project=${encodeURIComponent(user.timer?.project_id || projectId)}&msg=timer-stopped#timer`);
+    }
+    if (path === '/va/work/timer/discard') {
+      await env.DB.prepare('DELETE FROM timers WHERE user_id = ?').bind(user.id).run();
+      return done('timer-discarded');
+    }
+
+    // ---- Time logs ----
+    if (path === '/va/work/log' || path === '/va/work/log/edit') {
+      if (!user.zoho_projects_user_id) {
+        return back({ err: 'Your Zoho Projects account was not found, so time cannot be saved under your name yet. Please ask an admin to check that your email in Zoho Projects matches your email here.' });
+      }
+      const [task, taskName] = field('task').split('|');
+      const log = {
+        date: field('date'), start: field('start'), end: field('end'), billable: field('billable') !== 'no',
+        notes: field('notes').slice(0, 10000), taskId: task || '', name: (field('name') || taskName || 'General').slice(0, 1000),
+      };
+      if (!isDate(log.date) || !isTime(log.start) || !isTime(log.end)) return back({ err: 'Please enter the date, start time and end time.' });
+      if (log.end <= log.start) return back({ err: 'The end time must be after the start time.' });
+      if (path === '/va/work/log') {
+        await work.addLog(env, project.id, user.zoho_projects_user_id, log);
+        if (field('from_timer') === '1') await env.DB.prepare('DELETE FROM timers WHERE user_id = ?').bind(user.id).run();
+        return done('log-added');
+      }
+      await work.updateLog(env, project.id, field('log'), user.zoho_projects_user_id, log);
+      return done('log-updated');
+    }
+    if (path === '/va/work/log/delete') {
+      await work.deleteLog(env, project.id, field('log'), field('type') === 'general' ? 'general' : 'task', user.zoho_projects_user_id);
+      return done('log-deleted');
+    }
+
+    // ---- Tasks and task lists ----
+    const name = field('name');
+    if (path === '/va/work/task/add') {
+      if (needName(name)) return back({ err: needName(name) });
+      await work.createTask(env, project.id, field('list'), name);
+      return done('task-added');
+    }
+    if (path === '/va/work/task/edit') {
+      if (needName(name)) return back({ err: needName(name) });
+      await work.renameTask(env, project.id, field('task'), name);
+      if (field('list') && field('list') !== field('old_list')) await work.moveTask(env, project.id, field('task'), field('list'));
+      return done('task-updated');
+    }
+    if (path === '/va/work/task/delete') {
+      await work.deleteTask(env, project.id, field('task'));
+      return done('task-deleted');
+    }
+    if (path === '/va/work/list/add') {
+      if (needName(name)) return back({ err: needName(name) });
+      await work.createList(env, project.id, name);
+      return done('list-added');
+    }
+    if (path === '/va/work/list/rename') {
+      if (needName(name)) return back({ err: needName(name) });
+      await work.renameList(env, project.id, field('list'), name);
+      return done('list-updated');
+    }
+    if (path === '/va/work/list/delete') {
+      await work.deleteList(env, project.id, field('list'));
+      return done('list-deleted');
+    }
+  } catch (err) {
+    if (!(err instanceof work.ZohoError)) console.error(err.stack || err.message);
+    return back({ err: err instanceof work.ZohoError ? err.message : 'Something went wrong while talking to Zoho. Please try again.' });
+  }
+  return redirect('/va/work');
 }
 
 // ---- Admin pages ----

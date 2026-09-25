@@ -201,19 +201,21 @@ async function workRoutes(env, user, path, method, field, message, url) {
     const today = day.local.date;
     const thisWeek = addDays(today, -weekdayIndex(day.local.weekday));
     const week = isDate(weekParam) ? addDays(weekParam, -weekdayIndex(weekdayOf(weekParam))) : thisWeek;
-    let lists = [], logs = [], zohoError = url.searchParams.get('err') || '';
+    // Tasks and time logs load separately, so a problem with one doesn't hide the other.
+    const problem = (err) => {
+      if (!(err instanceof work.ZohoError)) console.error(err.stack || err.message);
+      return err instanceof work.ZohoError ? err.message : 'Zoho Projects could not be reached. Please try again in a minute.';
+    };
+    let lists = [], logs = [], zohoError = url.searchParams.get('err') || '', logsError = '';
     if (project) {
-      try {
-        [lists, logs] = await Promise.all([
-          work.projectWork(env, project.id),
-          work.myLogs(env, project.id, user.zoho_projects_user_id, user.email, week, addDays(week, 6)),
-        ]);
-      } catch (err) {
-        if (!(err instanceof work.ZohoError)) console.error(err.stack || err.message);
-        zohoError = zohoError || (err instanceof work.ZohoError ? err.message : 'Zoho Projects could not be reached. Please try again in a minute.');
-      }
+      const [a, b] = await Promise.allSettled([
+        work.projectWork(env, project.id),
+        work.myLogs(env, project.id, user.zoho_projects_user_id, user.email, week, addDays(week, 6)),
+      ]);
+      if (a.status === 'fulfilled') lists = a.value; else zohoError = zohoError || `Tasks could not be loaded. ${problem(a.reason)}`;
+      if (b.status === 'fulfilled') logs = b.value; else logsError = `Your time logs could not be loaded. ${problem(b.reason)}`;
     }
-    return page(views.workPage({ user, day, projects, project, lists, logs, week, thisWeek, today, message, zohoError }));
+    return page(views.workPage({ user, day, projects, project, lists, logs, week, thisWeek, today, message, zohoError, logsError }));
   }
 
   if (method !== 'POST' || !project) return redirect('/va/work');

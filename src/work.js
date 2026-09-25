@@ -17,7 +17,7 @@ function plainZohoMessage(status, body) {
   (function walk(v) {
     if (!v || typeof v !== 'object') return;
     for (const [k, x] of Object.entries(v)) {
-      if (typeof x === 'string' && /^(message|error_message)$/.test(k)) messages.push(x);
+      if (typeof x === 'string' && /^(message|error_message)$/.test(k)) messages.push(v.field_name ? `${x} (${v.field_name})` : x);
       else if (typeof x === 'string' && k === 'title') titles.push(x);
       else walk(x);
     }
@@ -105,11 +105,13 @@ export function to24h(value) {
 }
 
 // The VA's own time logs in a project between two dates (inclusive), newest first.
+// Zoho lists task logs and general logs separately, so both are fetched.
 export async function myLogs(env, projectId, userZohoId, email, start, end) {
   const logs = [];
-  for (let page = 1; page <= 10; page++) {
-    const body = await zp(env, 'GET', `/projects/${projectId}/timelogs`,
-      { query: { view_type: 'customdate', start_date: start, end_date: end, page, per_page: 100 } });
+  for (const type of ['task', 'general']) for (let page = 1; page <= 10; page++) {
+    const body = await zp(env, 'GET', `/projects/${projectId}/timelogs`, {
+      query: { view_type: 'customdate', start_date: start, end_date: end, page, per_page: 100, module: JSON.stringify({ type }) },
+    });
     for (const day of body.time_logs || []) {
       for (const l of day.log_details || []) {
         const owner = l.owner || {};
@@ -118,7 +120,7 @@ export async function myLogs(env, projectId, userZohoId, email, start, end) {
         logs.push({
           id: String(l.id),
           date: l.date || day.date,
-          type: l.type || l.module_detail?.type || 'task',
+          type: l.type || l.module_detail?.type || type,
           taskId: l.module_detail?.id ? String(l.module_detail.id) : '',
           title: l.module_detail?.name || l.name || l.log_name || 'General',
           hours: l.log_hour || '',

@@ -198,7 +198,9 @@ button,.btn{display:inline-flex;align-items:center;gap:6px;background:var(--acce
 button:hover,.btn:hover{filter:brightness(1.05)}button.plain,.btn.plain{background:var(--muted-bg);color:var(--text)}
 button.danger{background:transparent;color:var(--bad);box-shadow:inset 0 0 0 1.5px var(--bad)}button:disabled{opacity:.55;cursor:default;filter:none}
 .actions button,.actions .btn{margin-top:0}button.sm{padding:6px 14px;font-size:14px}
-.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.row>*{flex:1;min-width:150px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.row>*{flex:1;min-width:140px}
+input[type=date],input[type=time]{min-width:0;max-width:100%;min-height:46px;-webkit-appearance:none;appearance:none;display:block;text-align:left}
+input::-webkit-date-and-time-value{text-align:left}
 .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
 .small{font-size:13px;color:var(--muted)}code{background:var(--muted-bg);padding:2px 6px;border-radius:6px;font-size:13px}
 .empty{color:var(--muted);text-align:center;padding:18px}
@@ -1097,7 +1099,7 @@ const clock = (value) => { const t = parseHHMM(value); return t ? formatHM(t) : 
 const minutesOf = (hours) => { const m = /^(\d+):(\d{2})$/.exec(hours || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : 0; };
 const asHours = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
 
-export function workPage({ user, day, projects, project, lists, logs, week, thisWeek, today, message, zohoError }) {
+export function workPage({ user, day, projects, project, lists, logs, week, thisWeek, today, message, zohoError, logsError = '' }) {
   const title = 'Tasks & time';
   if (!project) {
     return layout({ title, user, active: '/va/work', message, body: `<div class="card">${empty('You have no projects yet. An admin assigns them on the Projects page.')}</div>` });
@@ -1236,7 +1238,7 @@ export function workPage({ user, day, projects, project, lists, logs, week, this
     ${section({
       title: `My time · ${formatDate(week, false)} – ${formatDate(addDays(week, 6), false)}`, count: `${asHours(total)} h`, key: 'my-time',
       hint: `Billable ${asHours(billable)} h · Non billable ${asHours(total - billable)} h. Zoho only accepts time from recent days (up to 10 hours a day and 50 a week).`,
-      body: `${weekNav}${logItems || empty('No time logged this week.')}`,
+      body: `${logsError ? `<div class="toast bad" style="margin:0 8px 10px">${esc(logsError)}</div>` : ''}${weekNav}${logItems || (logsError ? '' : empty('No time logged this week.'))}`,
     })}
     ${listSections}
     ${section({

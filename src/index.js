@@ -1,13 +1,15 @@
 // The app's entry point: decides what happens for each web address,
 // and runs the scheduled job every minute.
 
-import { checkLogin, startSession, currentUser, endSession, endAllSessions, hashPassword, verifyPassword, passwordProblem, temporaryPassword } from './auth.js';
-import { dayInfo, getGraceMinutes, runEveryMinute, reportPeriod, sendReport, getReportRecipients } from './jobs.js';
+import { checkLogin, startSession, currentUser, endSession, hashPassword, verifyPassword, passwordProblem } from './auth.js';
+import { dayInfo, getGraceMinutes, runEveryMinute, reportPeriod, sendReport, getReportRecipients, checkInStats, flaggedVAs } from './jobs.js';
 import { syncFromZoho } from './zoho.js';
 import { handleFormWebhook } from './forms.js';
+import { handleSlackCommand } from './slack-commands.js';
+import { checkIn, callOut } from './actions.js';
+import { sendInvite, newTemporaryPassword } from './invites.js';
 import { createCoverageChecklist, clickupReady } from './clickup.js';
-import { postToSlack, slackSafe } from './notify.js';
-import { formatDate, formatTimeIn, addDays } from './time.js';
+import { formatTimeIn, formatDate, addDays, partsIn, weekdayIndex, REPORT_ZONE } from './time.js';
 import { redirect, page, isDate, isTime } from './util.js';
 import * as views from './views.js';
 
@@ -34,6 +36,8 @@ async function handle(request, env) {
 
   // Responses from the Google Form come from Google, not from the app's pages. They are checked with a secret instead.
   if (path === '/api/form/time-off' && method === 'POST') return handleFormWebhook(request, env);
+  // Slack slash commands (/checkin, /callout) come from Slack and are checked with Slack's signature instead.
+  if (path === '/api/slack/command' && method === 'POST') return handleSlackCommand(request, env);
 
   // Only accept form submissions that come from this app's own pages.
   if (method === 'POST' && request.headers.get('Origin') !== url.origin) {
@@ -145,42 +149,13 @@ async function vaRoutes(env, user, path, method, field, message) {
   }
 
   if (path === '/va/checkin' && method === 'POST') {
-    if (today?.checked_in_at) return redirect('/va?msg=already-in');
-    let status = 'checked_in';
-    if (day.expected) {
-      const grace = await getGraceMinutes(env);
-      status = now <= new Date(day.scheduled.getTime() + grace * 60000) ? 'on_time' : 'late';
-    }
-    await env.DB.prepare(
-      `INSERT INTO attendance (user_id, work_date, scheduled_start, checked_in_at, status, projects) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT (user_id, work_date) DO UPDATE SET checked_in_at = excluded.checked_in_at, status = excluded.status,
-         scheduled_start = excluded.scheduled_start, projects = excluded.projects`
-    ).bind(user.id, day.local.date, day.scheduled?.toISOString() || null, now.toISOString(), status, day.projectNames || null).run();
-
-    // If a late alert already went out, tell the channel the VA has now checked in.
-    if (today?.alert_10_sent) {
-      await postToSlack(env, env.CHECKIN_CHANNEL_ID,
-        `:white_check_mark: *${slackSafe(user.name)}* checked in at ${formatTimeIn(now.toISOString(), day.zone)} ${day.zoneLabel}.`);
-    }
-    return redirect('/va?msg=checked-in');
+    const r = await checkIn(env, user, now);
+    return redirect(`/va?msg=${r.result}`);
   }
 
   if (path === '/va/callout' && method === 'POST') {
-    const reason = field('reason').slice(0, 1000);
-    if (reason.length < 3) return redirect('/va?msg=reason-needed');
-    await env.DB.prepare(
-      `INSERT INTO attendance (user_id, work_date, scheduled_start, status, callout_reason, projects) VALUES (?, ?, ?, 'called_out', ?, ?)
-       ON CONFLICT (user_id, work_date) DO UPDATE SET status = 'called_out', callout_reason = excluded.callout_reason, projects = excluded.projects`
-    ).bind(user.id, day.local.date, day.scheduled?.toISOString() || null, reason, day.projectNames || null).run();
-
-    const covering = day.projectNames ? ` Projects affected: ${slackSafe(day.projectNames)}.` : '';
-    const text = `:red_circle: *${slackSafe(user.name)}* called out today (${formatDate(day.local.date)}).${covering}\n>${slackSafe(reason).replace(/\n/g, '\n>')}`;
-    if (user.slack_channel_id) {
-      await postToSlack(env, user.slack_channel_id, text);
-    } else {
-      await postToSlack(env, env.CHECKIN_CHANNEL_ID, `${text}\n_(${slackSafe(user.name)} has no management channel set in Zoho, so this was posted here.)_`);
-    }
-    return redirect('/va?msg=called-out');
+    const r = await callOut(env, user, field('reason'), now);
+    return redirect(`/va?msg=${r.result}`);
   }
 
   // Time-off and coverage requests are made with the Google Form (see src/forms.js).
@@ -210,7 +185,42 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
       });
     }
     rows.sort((a, b) => a.exempt - b.exempt); // exempt VAs at the bottom; otherwise alphabetical
-    return page(views.adminTodayPage({ user, rows, message }));
+    // This week so far (Monday to today, Eastern time).
+    const et = partsIn(REPORT_ZONE, now);
+    const monday = addDays(et.date, -((weekdayIndex(et.weekday) + 6) % 7));
+    const stats = await checkInStats(env, monday, et.date);
+    const week = {
+      ...stats, flagged: flaggedVAs(stats.rows, 2),
+      label: `${formatDate(monday)} to ${monday === et.date ? 'today' : `today (${formatDate(et.date)})`}`,
+    };
+    return page(views.adminTodayPage({ user, rows, week, message }));
+  }
+
+  // A month calendar of time off (approved and waiting) and holidays.
+  if (path === '/admin/calendar' && method === 'GET') {
+    const today = partsIn(REPORT_ZONE, now).date;
+    const month = /^\d{4}-\d{2}$/.test(url.searchParams.get('month') || '') ? url.searchParams.get('month') : today.slice(0, 7);
+    const first = `${month}-01`;
+    const last = addDays(`${addDays(first, 32).slice(0, 7)}-01`, -1);
+    // Include the days of the previous and next month shown in the grid.
+    const from = addDays(first, -7);
+    const to = addDays(last, 7);
+    const { results: requests } = await env.DB.prepare(
+      `SELECT r.id, r.start_date, r.end_date, r.kind, r.status, r.backup_name, u.name FROM time_off_requests r
+       JOIN users u ON u.id = r.user_id
+       WHERE r.status IN ('pending', 'approved') AND r.end_date >= ? AND r.start_date <= ? ORDER BY u.name`
+    ).bind(from, to).all();
+    const events = [];
+    for (const r of requests) {
+      for (let d = r.start_date < from ? from : r.start_date; d <= r.end_date && d <= to; d = addDays(d, 1)) {
+        events.push({ date: d, name: r.name, kind: r.kind === 'emergency' ? 'emergency' : 'time_off', status: r.status, backup: r.backup_name, id: r.id });
+      }
+    }
+    const { results: holidays } = await env.DB.prepare('SELECT date, name FROM holidays WHERE date BETWEEN ? AND ?').bind(from, to).all();
+    return page(views.calendarPage({
+      user, month, today, events, holidays, message,
+      prev: addDays(first, -1).slice(0, 7), next: addDays(first, 32).slice(0, 7),
+    }));
   }
 
   if (path === '/admin/history' && method === 'GET') {
@@ -404,12 +414,21 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
   if ((m = path.match(/^\/admin\/people\/(\d+)\/temp-password$/)) && method === 'POST') {
     const person = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(m[1]).first();
     if (!person) return redirect('/admin/people');
-    const password = temporaryPassword();
-    await env.DB.prepare('UPDATE users SET password_hash = ?, must_change_password = 1, failed_logins = 0, locked_until = NULL WHERE id = ?')
-      .bind(await hashPassword(password), person.id).run();
-    await endAllSessions(env, person.id);
+    const password = await newTemporaryPassword(env, person);
     if (person.id === user.id) return redirect('/login');
     return page(views.peoplePage({ user, people: await allPeople(env), onDeck: await onDeckVAs(env), tempPassword: { name: person.name, password } }));
+  }
+
+  // Sends a login invite (email, plus Slack for VAs) with a new temporary password.
+  if ((m = path.match(/^\/admin\/people\/(\d+)\/invite$/)) && method === 'POST') {
+    const person = await env.DB.prepare('SELECT * FROM users WHERE id = ? AND (is_va = 1 OR is_admin = 1)').bind(m[1]).first();
+    if (!person) return redirect('/admin/people');
+    const sent = await sendInvite(env, person);
+    if (person.id === user.id) return redirect('/login');
+    return page(views.peoplePage({
+      user, people: await allPeople(env), onDeck: await onDeckVAs(env),
+      tempPassword: { name: person.name, password: sent.password, emailed: sent.emailed, slacked: sent.slacked, email: person.email },
+    }));
   }
 
   // ---- Projects and assignments ----

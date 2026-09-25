@@ -27,8 +27,10 @@ A web app where InoVA Local VAs check in at the start of each work day, call out
 3. ~~Create the Zoho key~~ (done)
 4. ~~Create the Gmail key~~ (done)
 5. ~~Connect the time-off/coverage Google Form~~ (done)
-6. [Connect ClickUp](#connect-clickup-coverage-checklists): 5 minutes
-7. [Test everything](#5-test-everything): 5 minutes
+6. ~~Connect ClickUp~~ (done)
+7. [Set up the Slack commands](#slack-commands-checkin-and-callout): 5 minutes
+8. Send everyone a login invite from the **People** page
+9. [Test everything](#5-test-everything): 5 minutes
 
 Steps 2 to 4 each end with `npx wrangler secret put` commands. Each command asks you to paste a key, which Cloudflare stores encrypted. **Run them yourself, and never paste the keys into a chat, email or file.** Every key starts working as soon as it's saved, so there's no need to deploy again.
 
@@ -184,6 +186,53 @@ The Checklists space ID (`90137115341`), the workspace ID (`90131247934`) and St
 
 If creating a checklist fails, the request is still approved. The reason appears on the request with a **Create ClickUp checklist** button to try again.
 
+## Slack commands: /checkin and /callout
+
+VAs can check in by typing `/checkin` in any Slack channel, and call out with `/callout` plus a short reason (for example `/callout I have a fever`). Only they see the app's reply. The app finds the VA by their **Slack ID** in Zoho, so that field must be filled in.
+
+Setup, done once in the Slack app you created (VA App):
+
+1. Go to https://api.slack.com/apps and open **VA App**.
+2. **Slash Commands → Create New Command**:
+   - Command: `/checkin`
+   - Request URL: `https://inova-va-app.andres-261.workers.dev/api/slack/command`
+   - Short description: `Check in for today`
+   - Click **Save**.
+3. Create a second command the same way: `/callout`, the same Request URL, description `Call out for today`, usage hint `[reason]`.
+4. **App Home**: under **Show Tabs**, turn on **Messages Tab** and tick **Allow users to send Slash commands and messages from the messages tab**. This also lets the app send login invites to VAs as a direct message.
+5. **Basic Information → App Credentials → Signing Secret**: click **Show**, copy it, and run:
+   ```bash
+   npx wrangler secret put SLACK_SIGNING_SECRET
+   ```
+   The app uses it to check that each command really comes from Slack.
+6. If Slack shows a banner asking you to **reinstall** the app, click it and allow.
+
+## Put the app on a phone or computer
+
+The app can be installed like a regular app, with its own icon, and opens without the browser bars.
+
+- **iPhone:** open the app's address in **Safari**, tap **Share**, then **Add to Home Screen**.
+- **Android:** open it in **Chrome**, tap the three dots, then **Install app** (or **Add to Home screen**).
+- **Computer (Chrome or Edge):** click the install icon at the right end of the address bar.
+
+VAs see the same steps on their page under **Tips**, and in their login invite.
+
+## Message format
+
+Every email and Slack message the app sends follows the same format (`src/messages.js`), in this order:
+
+1. **Title** with an emoji that says what kind of message it is (📊 weekly report, 📅 monthly report, 👋 login invite, 🌴 time-off request).
+2. **Subtitle**: the dates or the person it's about.
+3. **Intro**: one or two plain sentences saying what happened or what to do.
+4. **Figures** (reports): on-time rate, on time, late, no check-in, call-outs, days off.
+5. **Details**: a short list or table (for example the VAs with repeated late or missing check-ins, with the dates).
+6. **One button**: for example "Open History in the app" or "Log in now".
+7. **Footer**: a small note explaining terms or who to ask.
+
+Emails come from inovaagent@inovalocal.com with a green "InoVA Check-in" header, and also include a plain-text version. In Slack the same parts appear as a formatted message with a button.
+
+**Login invites.** On the **People** page, open a person and click **Send login invite**. The app makes a new temporary password and sends the invite by email, and also by Slack direct message for VAs with a Slack ID. The invite includes the app link, their email, the temporary password, the three steps to log in, how to add the app to their phone, and (for VAs) how to use `/checkin`. The page then confirms where it was sent and shows the temporary password once, in case they can't find the message. **Just show a temporary password** does the same without sending anything.
+
 ## 5. Test everything
 
 1. Log in and go to **Projects → Sync with Zoho now**. The 18 active projects should appear. 15 should have a VA, and 3 should be listed under "Projects with no VA": Shianne Catalano's two projects (she is On Deck in Zoho, not Active) and InoVA Local - Internal.
@@ -210,11 +259,12 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 - See their own time-off requests and the last 30 days of check-ins.
 
 **Admins**
-- **Today**: every VA's projects today, their check-in time and their status right now.
+- **Today**: a **This week** summary (on-time rate, counts, and anyone late or missing 2+ times), then every VA's projects today, their check-in time and status, grouped into Needs attention, Checked in, Not started yet, Off today and Not checked today. It updates by itself every minute.
+- **Calendar**: a month view of who is off (time off, emergencies, requests waiting for a decision, and who covers) and company holidays.
 - **History**: a month grid showing each VA's status per work day, with totals.
 - **Projects**: the active projects from Zoho Projects and who is assigned to each, with a start time and work days per assignment. Admins can add, change or remove assignments.
 - **Time off**: approve or deny requests from the Google Form. Each new request sends one email to the admins who have notifications turned on. Admins can also add a **time-off or coverage period** for any VA directly, which applies right away, and cancel it later.
-- **People**: sync from Zoho; **Active VAs** (with their projects and whether the app checks them), **On Deck VAs** (for reference; they can be chosen to cover), and **Admins**. Exempt a VA, set temporary passwords, add or remove admins.
+- **People**: send **login invites**; sync from Zoho; **Active VAs** (with their projects and whether the app checks them), **On Deck VAs** (for reference; they can be chosen to cover), and **Admins**. Exempt a VA, set temporary passwords, add or remove admins.
 - **Holidays**: dates when nobody is expected to check in.
 - **Settings**: turn your time-off emails on or off, set the grace period, choose who gets the report emails, send a report now, and see the last email error.
 
@@ -268,6 +318,11 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 | `src/jobs.js` | The every-minute job: late alerts, reports, Zoho sync |
 | `src/auth.js` | Passwords and login sessions |
 | `src/clickup.js` | Creates the ClickUp coverage checklist from the "VA Backup Checklist" template |
+| `src/messages.js` | The standard format for every email and Slack message |
+| `src/invites.js` | Login invites (temporary password by email and Slack) |
+| `src/actions.js` | Check-in and call-out, shared by the app and the Slack commands |
+| `src/slack-commands.js` | The `/checkin` and `/callout` Slack commands |
+| `public/` | The app icons and the install file for phones (`manifest.webmanifest`) |
 | `src/forms.js` | Receives responses from the time-off/coverage Google Form |
 | `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |
 | `src/zoho.js` | Reads active VAs from Zoho CRM and active projects from Zoho Projects, and assigns new projects by name |

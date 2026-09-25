@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   must_change_password INTEGER NOT NULL DEFAULT 0,
   failed_logins INTEGER NOT NULL DEFAULT 0,
   locked_until TEXT,
+  invited_at TEXT,       -- when a login invite was last sent
   notify_time_off INTEGER NOT NULL DEFAULT 1,  -- admins only: email me about new time-off requests
   zoho_id TEXT,
   time_zone TEXT,        -- PST, MST, CST or EST (from Zoho)

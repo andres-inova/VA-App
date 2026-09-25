@@ -4,6 +4,7 @@
 
 import { matchVA } from './zoho.js';
 import { sendEmail } from './notify.js';
+import * as messages from './messages.js';
 import { formatDate } from './time.js';
 import { esc, isDate } from './util.js';
 
@@ -101,15 +102,16 @@ async function notifyAdmins(env, { name, matched, start, end, details, note }) {
   const dates = start === end ? formatDate(start, true) : `${formatDate(start, true)} to ${formatDate(end, true)}`;
   const warning = matched ? '' : `The name "${name}" did not match any active VA. Choose the right VA on the Time off page.`;
   const subject = `Coverage/time-off request from ${name}`;
-  const body = [
-    `${name} asked for time off or coverage: ${dates}.`,
-    details, note && `Extra notes: ${note}`, warning,
-    `Approve or deny it here: ${env.APP_URL}/admin/time-off`,
-  ].filter(Boolean).join('\n\n');
-  const html = `<p><strong>${esc(name)}</strong> asked for time off or coverage: <strong>${esc(dates)}</strong>.</p>`
-    + (details ? `<p style="white-space:pre-line">${esc(details)}</p>` : '')
-    + (note ? `<p>Extra notes: ${esc(note)}</p>` : '')
-    + (warning ? `<p style="color:#b91c1c">${esc(warning)}</p>` : '')
-    + `<p><a href="${esc(env.APP_URL)}/admin/time-off">Approve or deny the request</a></p>`;
-  await sendEmail(env, admins.map((a) => a.email).join(', '), subject, body, html);
+  const lines = [details, note && `Extra notes: ${note}`].filter(Boolean).join('\n');
+  const mail = messages.email({
+    title: '🌴 New time-off request',
+    subtitle: `${name} · ${dates}`,
+    intro: `<strong>${esc(name)}</strong> asked for time off or coverage on <strong>${esc(dates)}</strong>.`
+      + (warning ? `<br><span style="color:#b42318">${esc(warning)}</span>` : ''),
+    details: lines ? `<div style="background:#d9fdd3;border-radius:4px 14px 14px 14px;padding:12px 16px;white-space:pre-line;font-size:14px">${esc(lines)}</div>` : '',
+    plainDetails: [lines, warning].filter(Boolean).join('\n'),
+    button: { label: 'Approve or deny the request', url: `${env.APP_URL}/admin/time-off` },
+    footer: 'You get this email because time-off notifications are on for you. Turn them off in Settings.',
+  });
+  await sendEmail(env, admins.map((a) => a.email).join(', '), subject, mail.text, mail.html);
 }

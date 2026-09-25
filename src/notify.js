@@ -5,11 +5,13 @@
 // Slack gives <, > and & special meaning. Use this on any text a person typed.
 export const slackSafe = (text) => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-export async function postToSlack(env, channel, text) {
-  if (!channel) return;
+// blocks (optional): a Slack Block Kit layout, see messages.js. text is still needed for notifications.
+// Returns true if Slack accepted the message.
+export async function postToSlack(env, channel, text, blocks) {
+  if (!channel) return false;
   if (!env.SLACK_BOT_TOKEN) {
-    console.log(`[Slack not set up] #${channel}: ${text}`);
-    return;
+    console.log(`[Slack not set up] #${channel}: ${text}${blocks ? ` (+${blocks.length} blocks)` : ''}`);
+    return false;
   }
   const res = await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
@@ -17,10 +19,11 @@ export async function postToSlack(env, channel, text) {
       Authorization: `Bearer ${env.SLACK_BOT_TOKEN.trim()}`,
       'Content-Type': 'application/json; charset=utf-8',
     },
-    body: JSON.stringify({ channel, text, unfurl_links: false }),
+    body: JSON.stringify({ channel, text, unfurl_links: false, ...(blocks ? { blocks } : {}) }),
   });
   const data = await res.json();
   if (!data.ok) console.error(`Slack error for channel ${channel}: ${data.error}`);
+  return Boolean(data.ok);
 }
 
 // ---- Email through Gmail (sent from the EMAIL_FROM account, inovaagent@inovalocal.com) ----

@@ -4,6 +4,7 @@ import { REPORT_ZONE, zoneFor, partsIn, zonedTimeToUtc, parseHHMM, weekdayIndex,
 import { postToSlack, sendEmail, slackSafe } from './notify.js';
 import { syncFromZoho } from './zoho.js';
 import { esc } from './util.js';
+import * as messages from './messages.js';
 
 const ALERT_WINDOW_MINUTES = 120; // Never send a late alert more than 2 hours after the start time.
 
@@ -140,47 +141,77 @@ export function reportPeriod(kind, now = new Date()) {
   return { start: `${end.slice(0, 8)}01`, end };
 }
 
-export async function buildReport(env, kind, period) {
-  const threshold = kind === 'weekly' ? 2 : 3;
+// Counts check-ins for a date range: how many were on time, late, missing, and days off.
+export async function checkInStats(env, start, end) {
   const { results } = await env.DB.prepare(
-    `SELECT u.name, a.work_date, a.status FROM attendance a JOIN users u ON u.id = a.user_id
-     WHERE a.work_date BETWEEN ? AND ? AND a.status IN ('late', 'missed')
-     ORDER BY u.name, a.work_date`
-  ).bind(period.start, period.end).all();
+    `SELECT u.id, u.name, a.work_date, a.status FROM attendance a JOIN users u ON u.id = a.user_id
+     WHERE a.work_date BETWEEN ? AND ? ORDER BY u.name, a.work_date`
+  ).bind(start, end).all();
+  const count = (...statuses) => results.filter((r) => statuses.includes(r.status)).length;
+  const onTime = count('on_time');
+  const late = count('late');
+  const missed = count('missed');
+  const expected = onTime + late + missed;
+  return {
+    rows: results, onTime, late, missed, expected,
+    calledOut: count('called_out'),
+    daysOff: count('time_off', 'emergency', 'coverage'),
+    rate: expected ? Math.round((onTime * 100) / expected) : null,
+  };
+}
 
+// VAs with at least `threshold` late or missing check-ins in the rows.
+export function flaggedVAs(rows, threshold) {
   const byPerson = new Map();
-  for (const r of results) {
-    if (!byPerson.has(r.name)) byPerson.set(r.name, []);
-    byPerson.get(r.name).push(r);
+  for (const r of rows.filter((x) => x.status === 'late' || x.status === 'missed')) {
+    if (!byPerson.has(r.name)) byPerson.set(r.name, { id: r.id, name: r.name, late: [], missed: [] });
+    byPerson.get(r.name)[r.status === 'late' ? 'late' : 'missed'].push(r.work_date);
   }
-  const people = [...byPerson.entries()]
-    .filter(([, rows]) => rows.length >= threshold)
-    .map(([name, rows]) => ({
-      name,
-      total: rows.length,
-      late: rows.filter((r) => r.status === 'late').length,
-      missed: rows.filter((r) => r.status === 'missed').length,
-      days: rows.map((r) => `${formatDate(r.work_date)} (${r.status === 'late' ? 'late' : 'no check-in'})`),
-    }));
+  return [...byPerson.values()]
+    .map((p) => ({ ...p, total: p.late.length + p.missed.length }))
+    .filter((p) => p.total >= threshold)
+    .sort((x, y) => y.total - x.total || x.name.localeCompare(y.name));
+}
 
-  const title = kind === 'weekly' ? 'Weekly check-in report' : 'Monthly check-in report';
-  const range = `${formatDate(period.start, true)} to ${formatDate(period.end, true)}`;
-  const rule = kind === 'weekly' ? 'VAs who missed more than one on-time check-in' : 'VAs who missed 3 or more on-time check-ins';
+// The weekly or monthly report, in the standard message format (see messages.js), for Slack and email.
+export async function buildReport(env, kind, period) {
+  const weekly = kind === 'weekly';
+  const threshold = weekly ? 2 : 3;
+  const stats = await checkInStats(env, period.start, period.end);
+  const people = flaggedVAs(stats.rows, threshold);
 
-  const lines = people.map((p) => `• ${slackSafe(p.name)}: ${p.total} missed (${p.late} late, ${p.missed} no check-in). ${p.days.join(', ')}`);
-  const empty = 'Nobody reached this number. :tada:';
-  const slack = `*${title}* (${range})\n${rule}:\n${lines.length ? lines.join('\n') : empty}`;
-  const text = `${title} (${range})\n${rule}:\n\n${lines.length ? lines.join('\n') : 'Nobody reached this number.'}\n\n"Missed" means the VA checked in late or did not check in. Call-outs and approved time off are not counted.`;
-  const html = `<h2>${esc(title)}</h2><p>${esc(range)}<br>${esc(rule)}:</p>` +
-    (people.length
-      ? `<table cellpadding="6" style="border-collapse:collapse" border="1"><tr><th align="left">VA</th><th>Missed</th><th>Late</th><th>No check-in</th><th align="left">Days</th></tr>` +
-        people.map((p) => `<tr><td>${esc(p.name)}</td><td align="center">${p.total}</td><td align="center">${p.late}</td><td align="center">${p.missed}</td><td>${esc(p.days.join(', '))}</td></tr>`).join('') +
-        '</table>'
-      : '<p>Nobody reached this number.</p>') +
-    '<p style="color:#666">"Missed" means the VA checked in late or did not check in. Call-outs and approved time off are not counted.</p>' +
-    (env.APP_URL ? `<p><a href="${esc(env.APP_URL)}/admin/history">Open the check-in tracker</a></p>` : '');
+  const title = weekly ? '📊 Weekly check-in report' : '📅 Monthly check-in report';
+  const subtitle = `${formatDate(period.start, true)} to ${formatDate(period.end, true)}`;
+  const rule = weekly ? '2 or more late or missing check-ins' : '3 or more late or missing check-ins';
+  const intro = people.length
+    ? `${people.length} VA${people.length > 1 ? 's' : ''} had ${rule} ${weekly ? 'last week' : 'last month'}.`
+    : `Nobody had ${rule} ${weekly ? 'last week' : 'last month'}. Nice work, team! 🎉`;
+  const figures = [
+    { label: 'On-time rate', value: stats.rate === null ? '–' : `${stats.rate}%` },
+    { label: 'On time', value: String(stats.onTime) },
+    { label: 'Late', value: String(stats.late) },
+    { label: 'No check-in', value: String(stats.missed) },
+    { label: 'Call-outs', value: String(stats.calledOut) },
+    { label: 'Days off', value: String(stats.daysOff) },
+  ];
+  const dayList = (dates) => dates.map((d) => formatDate(d)).join(' · ');
+  const personLine = (p) => [p.late.length && `${p.late.length} late (${dayList(p.late)})`, p.missed.length && `${p.missed.length} no check-in (${dayList(p.missed)})`].filter(Boolean).join('; ');
+  const button = { label: 'Open History in the app', url: `${env.APP_URL}/admin/history?month=${period.start.slice(0, 7)}` };
+  const footer = 'On time means checked in by the start time (plus the grace period). Call-outs, approved time off and holidays are not counted as missed.';
 
-  return { title: `${title}: ${range}`, slack, text, html };
+  const slackMsg = messages.slack({
+    title, subtitle, intro: people.length ? `*${intro}*` : intro, figures,
+    details: people.map((p) => `• *${slackSafe(p.name)}*: ${slackSafe(personLine(p))}`),
+    button, footer,
+  });
+  const mail = messages.email({
+    title, subtitle, intro: `<strong>${esc(intro)}</strong>`, figures,
+    details: people.length ? messages.emailTable(['VA', 'Late', 'No check-in', 'Days'],
+      people.map((p) => [`<strong>${esc(p.name)}</strong>`, String(p.late.length), String(p.missed.length), esc(dayList([...p.late, ...p.missed].sort()))])) : '',
+    plainDetails: people.map((p) => `- ${p.name}: ${personLine(p)}`).join('\n'),
+    button, footer: esc(footer),
+  });
+  return { subject: `${title.replace(/^\S+\s/, '')}: ${subtitle}`, slack: slackMsg, email: mail };
 }
 
 // Who gets the weekly and monthly report emails. Admins choose this on the Settings page;
@@ -195,10 +226,10 @@ export async function getReportRecipients(env) {
 // Posts the report in Slack and sends it as one email with every recipient on it.
 export async function sendReport(env, kind, period) {
   const report = await buildReport(env, kind, period);
-  await postToSlack(env, env.CHECKIN_CHANNEL_ID, report.slack);
+  await postToSlack(env, env.CHECKIN_CHANNEL_ID, report.slack.text, report.slack.blocks);
   const recipients = await getReportRecipients(env);
   if (!recipients.length) return { emailed: true, recipients };
-  const emailed = await sendEmail(env, recipients.join(', '), report.title, report.text, report.html);
+  const emailed = await sendEmail(env, recipients.join(', '), report.subject, report.email.text, report.email.html);
   return { emailed, recipients };
 }
 

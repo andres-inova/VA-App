@@ -67,6 +67,9 @@ const ICON_PATHS = {
   sync: '<path d="M21 12a9 9 0 0 1-15.5 6.2M3 12a9 9 0 0 1 15.5-6.2"/><path d="M21 4v5h-5M3 20v-5h5"/>',
   external: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>',
   check: '<path d="M5 12l5 5 9-10"/>',
+  calendar: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M7 13h2M11 13h2M15 13h2M7 17h2M11 17h2"/>',
+  send: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>',
+  phone: '<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/>',
 };
 
 const icon = (name, cls = '') =>
@@ -92,8 +95,8 @@ const dateRange = (start, end, year = true) =>
   start === end ? formatDate(start, year) : `${formatDate(start, false)} – ${formatDate(end, year)}`;
 
 // A collapsible section with a title, an optional count badge and an optional hint line.
-function section({ title, count, open = true, hint = '', body, tone = '' }) {
-  return `<details class="section ${tone}" ${open ? 'open' : ''}>
+function section({ title, count, open = true, hint = '', body, tone = '', key = '' }) {
+  return `<details class="section ${tone}" ${open ? 'open' : ''} ${key ? `data-key="${esc(key)}"` : ''}>
     <summary><span class="sec-title">${esc(title)}</span>${count !== undefined ? `<span class="count">${count}</span>` : ''}${icon('chevron', 'chev')}</summary>
     ${hint ? `<p class="hint">${hint}</p>` : ''}
     <div class="sec-body">${body}</div>
@@ -101,10 +104,10 @@ function section({ title, count, open = true, hint = '', body, tone = '' }) {
 }
 
 // A clickable row: avatar, title, subtitle and a chip; clicking opens the extra content.
-function item({ name, title, sub = '', side = '', body = '', open = false, tone = '' }) {
+function item({ name, title, sub = '', side = '', body = '', open = false, tone = '', key = '' }) {
   const head = `${name !== undefined ? avatar(name) : ''}<div class="grow"><div class="title">${title}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${side}`;
   if (!body) return `<div class="item flat ${tone}"><div class="item-head">${head}</div></div>`;
-  return `<details class="item ${tone}" ${open ? 'open' : ''}><summary class="item-head">${head}${icon('chevron', 'chev')}</summary><div class="item-body">${body}</div></details>`;
+  return `<details class="item ${tone}" ${open ? 'open' : ''} ${key ? `data-key="${esc(key)}"` : ''}><summary class="item-head">${head}${icon('chevron', 'chev')}</summary><div class="item-body">${body}</div></details>`;
 }
 
 const empty = (text) => `<div class="empty">${text}</div>`;
@@ -225,6 +228,21 @@ button.busy::after{content:"";width:14px;height:14px;border-radius:50%;border:2p
 .search{display:flex;align-items:center;gap:8px;background:var(--surface);border-radius:99px;box-shadow:var(--shadow);padding:4px 16px;margin-bottom:16px}
 .search input{border:0;box-shadow:none;background:transparent;padding:10px 0}.search input:focus{box-shadow:none}
 .no-results{display:none}
+.week{display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+.rate{width:96px;height:96px;border-radius:50%;display:grid;place-items:center;flex:none;
+  background:conic-gradient(var(--accent) calc(var(--p)*1%),var(--muted-bg) 0)}
+.rate>div{width:74px;height:74px;border-radius:50%;background:var(--surface);display:grid;place-items:center;font-size:22px;font-weight:800}
+.week h2{margin:0 0 4px}.updated{color:var(--muted);font-size:13px;margin:-8px 0 12px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.cal-grid .dow{font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;text-align:center;padding:4px 0}
+.day{background:var(--surface-2);border-radius:12px;min-height:92px;padding:6px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.day.out{opacity:.35}.day.today{box-shadow:inset 0 0 0 2px var(--accent)}.day.weekend{background:transparent;box-shadow:inset 0 0 0 1px var(--line)}
+.day .n{font-size:13px;font-weight:800;color:var(--muted)}.day.today .n{color:var(--accent)}
+.ev{display:block;font-size:12px;font-weight:700;padding:2px 6px;border-radius:6px;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev.time_off{background:var(--good-bg);color:var(--good)}.ev.emergency{background:var(--info-bg);color:var(--info)}
+.ev.pending{background:transparent;color:var(--warn);box-shadow:inset 0 0 0 1.5px var(--warn)}.ev.holiday{background:#e53935;color:#fff}
+.cal-list{display:none}
+@media (max-width:700px){.cal-grid{display:none}.cal-list{display:block}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after,::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important;transition:none!important}}
 @media (max-width:860px){
   .sidebar{position:fixed;z-index:20;left:0;top:0;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px rgba(0,0,0,.3)}
@@ -285,6 +303,30 @@ const SCRIPT = `<script type="speculationrules">{"prefetch":[{"where":{"href_mat
       if (none) none.style.display = shown ? 'none' : 'block';
     });
   });
+  // Pages with data-autorefresh (Today) reload their content every minute, keeping open rows open.
+  var live = document.querySelector('[data-autorefresh]');
+  function stamp() {
+    var s = document.querySelector('[data-updated]');
+    if (s) s.textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+  stamp();
+  if (live) setInterval(function () {
+    if (document.hidden) return;
+    var a = document.activeElement;
+    if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
+    fetch(location.href, { credentials: 'same-origin' }).then(function (r) {
+      return r.ok && !r.redirected ? r.text() : null;
+    }).then(function (html) {
+      if (!html) return;
+      var fresh = new DOMParser().parseFromString(html, 'text/html').querySelector('[data-autorefresh]');
+      if (!fresh) return;
+      var open = {};
+      live.querySelectorAll('details[data-key]').forEach(function (d) { open[d.dataset.key] = d.open; });
+      fresh.querySelectorAll('details[data-key]').forEach(function (d) { if (d.dataset.key in open) d.open = open[d.dataset.key]; });
+      fresh.style.animation = 'none';
+      live.replaceWith(fresh); live = fresh; stamp();
+    }).catch(function () {});
+  }, 60000);
   // Phone menu: close it when a link inside it is tapped.
   var toggle = document.getElementById('nav-toggle');
   if (toggle) document.querySelectorAll('.sidebar a').forEach(function (a) {
@@ -297,7 +339,10 @@ export function layout({ title, user, active, message, body }) {
   const msg = MESSAGES[message];
   const toast = msg ? `<div class="toast ${msg[0]}" role="status">${msg[0] === 'good' ? icon('check') : ''}${esc(msg[1])}</div>` : '';
   const head = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#008069"><title>${esc(title)} · InoVA Check-in</title>
+<meta name="theme-color" content="#008069"><link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="InoVA"><meta name="apple-mobile-web-app-status-bar-style" content="default"><title>${esc(title)} · InoVA Check-in</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>${CSS}</style></head><body>`;
 
@@ -308,7 +353,7 @@ export function layout({ title, user, active, message, body }) {
   const groups = [];
   if (user.is_va) groups.push(['Me', [['/va', 'My day', 'sun']]]);
   if (user.is_admin) {
-    groups.push(['Daily', [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/history', 'History', 'history']]]);
+    groups.push(['Daily', [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/calendar', 'Calendar', 'calendar'], ['/admin/history', 'History', 'history']]]);
     groups.push(['Setup', [['/admin/projects', 'Projects', 'projects'], ['/admin/people', 'People', 'people'],
       ['/admin/holidays', 'Holidays', 'holidays'], ['/admin/settings', 'Settings', 'settings']]]);
   }
@@ -449,6 +494,14 @@ export function vaPage({ user, day, today, requests, history, formUrl, message }
     })}
     ${section({ title: 'My requests', count: requests.length, open: pendingCount > 0, body: requestCards(requests, false) })}
     ${section({
+      title: 'Tips', open: false,
+      body: `<div style="padding:0 8px 8px">
+        <p><strong>${icon('phone')} Put this app on your phone.</strong><br>
+        <span class="small">iPhone: open this page in Safari, tap Share, then "Add to Home Screen". Android: open it in Chrome, tap the three dots, then "Install app" or "Add to Home screen".</span></p>
+        ${user.slack_user_id ? `<p><strong>Check in from Slack.</strong><br><span class="small">Type <code>/checkin</code> in any Slack channel. To call out, type <code>/callout</code> and a short reason.</span></p>` : ''}
+      </div>`,
+    })}
+    ${section({
       title: 'My last 30 days', count: history.length, open: false,
       body: history.length ? history.map((h) => item({
         title: esc(formatDate(h.work_date)),
@@ -588,7 +641,7 @@ export function todayStatus(row, day, now) {
   return { label: 'Not started yet', tone: 'muted', group: 'upcoming' };
 }
 
-export function adminTodayPage({ user, rows, message }) {
+export function adminTodayPage({ user, rows, week, message }) {
   const groups = [
     ['attention', 'Needs attention', 'attention', true],
     ['in', 'Checked in', '', true],
@@ -600,7 +653,7 @@ export function adminTodayPage({ user, rows, message }) {
   const summary = groups.filter(([g]) => by(g).length).map(([g, label]) =>
     chip(`${by(g).length} ${label.toLowerCase()}`, g === 'attention' ? 'bad' : g === 'in' ? 'good' : 'muted')).join('');
   const rowHtml = (r) => item({
-    name: r.name,
+    name: r.name, key: `va-${r.name}`,
     title: esc(r.name),
     sub: `${esc(r.projects || 'No projects today')}${r.startLabel ? ` · check in by ${esc(r.startLabel)}` : ''}`,
     side: chip(r.status.label, r.status.tone),
@@ -610,11 +663,30 @@ export function adminTodayPage({ user, rows, message }) {
   });
   return layout({
     title: 'Today', user, active: '/admin', message,
-    body: rows.length ? `<div class="summary-chips">${summary}</div>
+    body: `<div data-autorefresh>
+      <p class="updated">Updates by itself every minute · last updated <span data-updated></span></p>
+      ${week ? weekCard(week) : ''}
+      ${rows.length ? `<div class="summary-chips">${summary}</div>
       ${groups.filter(([g]) => by(g).length).map(([g, title, tone, open]) =>
-        section({ title, count: by(g).length, open, tone, body: by(g).map(rowHtml).join('') })).join('')}`
-      : `<div class="card">${empty('No active VAs yet. Go to People and click "Sync with Zoho now".')}</div>`,
+        section({ title, count: by(g).length, open, tone, key: `group-${g}`, body: by(g).map(rowHtml).join('') })).join('')}`
+      : `<div class="card">${empty('No active VAs yet. Go to People and click "Sync with Zoho now".')}</div>`}
+    </div>`,
   });
+}
+
+// "This week" at the top of Today: on-time rate, counts, and anyone late or missing more than once.
+function weekCard(w) {
+  const flagged = w.flagged.map((p) => chip(`${p.name.split(' ')[0]} ${p.name.split(' ')[1]?.[0] || ''}. · ${p.total}`, 'bad')).join('');
+  return `<div class="card week">
+    <div class="rate" style="--p:${w.rate ?? 0}" title="On-time rate"><div>${w.rate === null ? '–' : `${w.rate}%`}</div></div>
+    <div class="grow">
+      <h2>This week</h2>
+      <p class="small" style="margin:0 0 6px">${esc(w.label)} · on time, out of all check-ins that were due</p>
+      <div class="chips">${chip(`${w.onTime} on time`, 'good')}${chip(`${w.late} late`, w.late ? 'warn' : 'muted')}${chip(`${w.missed} no check-in`, w.missed ? 'bad' : 'muted')}${chip(`${w.calledOut} call-outs`, 'muted')}${chip(`${w.daysOff} days off`, 'muted')}</div>
+      ${w.flagged.length ? `<div class="chips" style="margin-top:8px"><span class="small" style="align-self:center">Late or missing 2+ times:</span>${flagged}
+        <a class="small" style="align-self:center" href="/admin/history">See History</a></div>` : ''}
+    </div>
+  </div>`;
 }
 
 export function historyPage({ user, month, prev, next, dates, vas, cells }) {
@@ -690,11 +762,21 @@ export function timeOffPage({ user, pending, current, recent, vas, unmatched, va
 export function peoplePage({ user, people, onDeck = [], message, tempPassword }) {
   const vas = people.filter((p) => p.is_va);
   const admins = people.filter((p) => p.is_admin);
-  const tempBox = tempPassword
-    ? `<div class="toast info" style="display:block">Temporary password for <strong>${esc(tempPassword.name)}</strong>: <code style="font-size:16px">${esc(tempPassword.password)}</code><br>
-       <span class="small">Share it with them privately. They choose their own password when they log in. It is not shown again.</span></div>` : '';
-  const loginText = (p) => (p.password_hash ? (p.must_change_password ? 'Temporary password' : 'Has logged in') : 'No password yet');
-  const resetBtn = (p) => `<form method="post" action="/admin/people/${p.id}/temp-password" data-confirm="${esc(`Set a new temporary password for ${p.name}? Their current password stops working.`)}"><button class="sm plain">${icon('key')} Set temporary password</button></form>`;
+  let tempBox = '';
+  if (tempPassword && 'emailed' in tempPassword) {
+    const where = [tempPassword.emailed && `email (${esc(tempPassword.email)})`, tempPassword.slacked && 'Slack'].filter(Boolean).join(' and ');
+    tempBox = `<div class="toast ${where ? 'good' : 'bad'}" style="display:block">
+      ${where ? `${icon('send')} Login invite sent to <strong>${esc(tempPassword.name)}</strong> by ${where}.` : `The invite for <strong>${esc(tempPassword.name)}</strong> could not be sent (see Settings, "Last email problem").`}<br>
+      <span class="small">If they can't find it, their temporary password is <code style="font-size:15px">${esc(tempPassword.password)}</code>. It is not shown again.</span></div>`;
+  } else if (tempPassword) {
+    tempBox = `<div class="toast info" style="display:block">Temporary password for <strong>${esc(tempPassword.name)}</strong>: <code style="font-size:16px">${esc(tempPassword.password)}</code><br>
+       <span class="small">Share it with them privately. They choose their own password when they log in. It is not shown again.</span></div>`;
+  }
+  const loginText = (p) => (!p.password_hash ? 'Not invited yet'
+    : !p.must_change_password ? 'Has logged in'
+    : p.invited_at ? `Invited ${formatDate(p.invited_at.slice(0, 10))}` : 'Temporary password');
+  const resetBtn = (p) => `<form method="post" action="/admin/people/${p.id}/invite" data-confirm="${esc(`Send ${p.name} a login invite${p.slack_user_id ? ' by email and Slack' : ' by email'}? It includes a new temporary password, so any current password stops working.`)}"><button class="sm">${icon('send')} ${p.password_hash && !p.must_change_password ? 'Send new login invite' : 'Send login invite'}</button></form>
+    <form method="post" action="/admin/people/${p.id}/temp-password" data-confirm="${esc(`Show a new temporary password for ${p.name} here, without sending it? Their current password stops working.`)}"><button class="sm plain">${icon('key')} Just show a temporary password</button></form>`;
 
   // Whether the app checks this VA, why, and a button to exempt them or remove the exemption.
   const checked = (p) => {
@@ -898,5 +980,61 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
     }) : ''}
     ${section({ title: 'Projects', count: assigned.length, open: true, body: assigned.length ? assigned.map((p) => projectRow(p)).join('') : empty('No projects yet. Click "Sync with Zoho now".') })}
     </div><div id="projects-none" class="card empty no-results">No project matches your search.</div>`,
+  });
+}
+
+// ---- Calendar page ----
+
+// events: [{ date, name, kind, status, backup, id }]; holidays: [{ date, name }].
+export function calendarPage({ user, month, prev, next, today, events, holidays, message }) {
+  const [y, m] = month.split('-').map(Number);
+  const monthName = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' });
+  const first = new Date(Date.UTC(y, m - 1, 1));
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const lead = (first.getUTCDay() + 6) % 7; // Monday first
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const cells = [];
+  for (let i = -lead; i < Math.ceil((lead + daysInMonth) / 7) * 7 - lead; i++) cells.push(new Date(Date.UTC(y, m - 1, 1 + i)));
+  const byDate = new Map();
+  for (const e of events) { if (!byDate.has(e.date)) byDate.set(e.date, []); byDate.get(e.date).push(e); }
+  const holidayOn = new Map(holidays.map((h) => [h.date, h.name]));
+  const short = (name) => `${name.split(' ')[0]} ${name.split(' ')[1]?.[0] ? `${name.split(' ')[1][0]}.` : ''}`.trim();
+  const label = (e) => `${e.name}: ${e.kind === 'emergency' ? 'Emergency' : 'Time off'}${e.status === 'pending' ? ' (waiting for a decision)' : ''}${e.backup ? `, covered by ${e.backup}` : ''}`;
+  const evHtml = (e) => `<a class="ev ${e.status === 'pending' ? 'pending' : e.kind}" href="/admin/time-off" title="${esc(label(e))}">${esc(short(e.name))}${e.backup ? ' ⇄' : ''}</a>`;
+
+  const grid = `<div class="cal-grid">
+    ${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => `<div class="dow">${d}</div>`).join('')}
+    ${cells.map((d) => {
+      const date = iso(d);
+      const wd = d.getUTCDay();
+      const cls = [d.getUTCMonth() !== m - 1 && 'out', date === today && 'today', (wd === 0 || wd === 6) && 'weekend'].filter(Boolean).join(' ');
+      return `<div class="day ${cls}"><span class="n">${d.getUTCDate()}</span>
+        ${holidayOn.has(date) ? `<span class="ev holiday" title="${esc(holidayOn.get(date))}">${esc(holidayOn.get(date))}</span>` : ''}
+        ${(byDate.get(date) || []).map(evHtml).join('')}</div>`;
+    }).join('')}
+  </div>`;
+
+  const listDays = cells.map(iso).filter((d) => d.slice(0, 7) === month && (byDate.has(d) || holidayOn.has(d)));
+  const list = `<div class="cal-list">${listDays.length ? listDays.map((d) => item({
+    title: esc(formatDate(d)),
+    sub: [holidayOn.has(d) && `🎉 ${esc(holidayOn.get(d))}`, ...(byDate.get(d) || []).map((e) => esc(label(e)))].filter(Boolean).join('<br>'),
+  })).join('') : empty('Nobody is off this month.')}</div>`;
+
+  const legend = `<div class="legend"><span><span class="ev time_off" style="display:inline-block">Name</span> Time off</span>
+    <span><span class="ev emergency" style="display:inline-block">Name</span> Emergency</span>
+    <span><span class="ev pending" style="display:inline-block">Name</span> Waiting for a decision</span>
+    <span>⇄ someone covers</span><span><span class="ev holiday" style="display:inline-block">Holiday</span></span></div>`;
+
+  return layout({
+    title: 'Calendar', user, active: '/admin/calendar', message,
+    body: `<div class="card">
+      <div class="row" style="align-items:center">
+        <div><a class="btn plain" href="/admin/calendar?month=${prev}" style="margin:0">← Earlier</a></div>
+        <div style="text-align:center;font-weight:800;font-size:18px">${esc(monthName)}</div>
+        <div style="text-align:right"><a class="btn plain" href="/admin/calendar?month=${next}" style="margin:0">Later →</a></div>
+      </div>
+      ${legend}${grid}${list}
+      <p class="small">Click a name to open the Time off page. Point at a name to see the details.</p>
+    </div>`,
   });
 }

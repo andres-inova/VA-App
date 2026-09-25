@@ -28,12 +28,19 @@ export async function dayInfo(env, user, now = new Date()) {
   const today = String(weekdayIndex(local.weekday));
 
   const { results: assignments } = await env.DB.prepare(
-    `SELECT a.project_id, a.start_time, a.days, p.client FROM assignments a JOIN projects p ON p.id = a.project_id
-     WHERE a.user_id = ? AND p.active = 1 ORDER BY a.start_time IS NULL, a.start_time, p.client`
+    `SELECT a.project_id, a.start_time, a.time_zone, a.days, p.client FROM assignments a JOIN projects p ON p.id = a.project_id
+     WHERE a.user_id = ? AND p.active = 1 ORDER BY p.client`
   ).bind(user.id).all();
+  // Each start time is in the assignment's own time zone, or the VA's when none is set.
   const allToday = assignments
     .filter((a) => a.days.split(',').includes(today))
-    .map((a) => ({ id: a.project_id, client: a.client, start: parseHHMM(a.start_time) }));
+    .map((a) => {
+      const start = parseHHMM(a.start_time);
+      const label = zoneFor(a.time_zone) ? a.time_zone : zoneLabel;
+      const at = start ? zonedTimeToUtc(local.date, start.hour, start.minute, zoneFor(label)) : null;
+      return { id: a.project_id, client: a.client, start, zoneLabel: label, at, startLabel: start ? `${formatHM(start)} ${label}` : null };
+    })
+    .sort((x, y) => (x.at && y.at ? x.at - y.at : x.at ? -1 : y.at ? 1 : x.client.localeCompare(y.client)));
 
   // Approved time off today. A request with no project list covers the whole day;
   // one with a project list covers only those projects.
@@ -49,12 +56,13 @@ export async function dayInfo(env, user, now = new Date()) {
   // On a day off, keep today's projects so the day is still recorded (as time off) in History.
   const projects = onTimeOff ? allToday : working;
   const timed = projects.filter((p) => p.start);
-  const start = timed.length ? timed[0].start : null; // already sorted, so the first is the earliest
+  const first = timed[0] || null; // already sorted, so the first is the earliest
+  const start = first ? first.start : null;
 
   const exempt = isExempt(user);
   const holiday = await env.DB.prepare('SELECT name FROM holidays WHERE date = ?').bind(local.date).first();
   const expected = Boolean(start) && !holiday && !exempt;
-  const scheduled = expected ? zonedTimeToUtc(local.date, start.hour, start.minute, zone) : null;
+  const scheduled = expected ? first.at : null;
   const offKind = (wholeDayOff || offs[0])?.kind;
   return {
     zone, zoneLabel, local, start, holiday, expected, scheduled, exempt,
@@ -63,7 +71,7 @@ export async function dayInfo(env, user, now = new Date()) {
     projects,
     projectNames: projects.map((p) => p.client).join(', '),
     projectsOffNames: onTimeOff ? '' : projectsOff.map((p) => p.client).join(', '),
-    startLabel: start ? `${formatHM(start)} ${zoneLabel}` : null,
+    startLabel: first ? first.startLabel : null,
   };
 }
 

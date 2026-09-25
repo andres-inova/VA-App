@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS assignments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   project_id TEXT NOT NULL REFERENCES projects(id),
   user_id INTEGER NOT NULL REFERENCES users(id),
-  start_time TEXT,                  -- "HH:MM" in the VA's time zone; empty means no fixed start (no late alerts)
+  start_time TEXT,                  -- "HH:MM"; empty means no fixed start (no late alerts)
+  time_zone TEXT,                   -- PST, MST, CST or EST for start_time; empty = the VA's own time zone
   days TEXT NOT NULL DEFAULT '1,2,3,4,5',  -- work days: 0 = Sunday, 1 = Monday ... 6 = Saturday
   UNIQUE (project_id, user_id)
 );

@@ -581,7 +581,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
   if (path === '/admin/projects' && method === 'GET') {
     const { results: projects } = await env.DB.prepare('SELECT * FROM projects WHERE active = 1 ORDER BY client, name').all();
     const { results: assignments } = await env.DB.prepare(
-      `SELECT a.*, u.name AS va_name, u.time_zone FROM assignments a JOIN users u ON u.id = a.user_id
+      `SELECT a.*, u.name AS va_name, u.time_zone AS va_zone FROM assignments a JOIN users u ON u.id = a.user_id
        JOIN projects p ON p.id = a.project_id WHERE p.active = 1 ORDER BY u.name`
     ).all();
     const { results: vas } = await env.DB.prepare('SELECT id, name, time_zone FROM users WHERE is_va = 1 ORDER BY name').all();
@@ -593,8 +593,8 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     const project = await env.DB.prepare('SELECT id FROM projects WHERE id = ?').bind(m[1]).first();
     if (va && project) {
       await env.DB.batch([
-        env.DB.prepare('INSERT OR IGNORE INTO assignments (project_id, user_id, start_time, days) VALUES (?, ?, ?, ?)')
-          .bind(project.id, va.id, isTime(field('start_time')) ? field('start_time') : null, cleanDays(fieldAll('days'))),
+        env.DB.prepare('INSERT OR IGNORE INTO assignments (project_id, user_id, start_time, time_zone, days) VALUES (?, ?, ?, ?, ?)')
+          .bind(project.id, va.id, isTime(field('start_time')) ? field('start_time') : null, cleanZone(field('time_zone')), cleanDays(fieldAll('days'))),
         env.DB.prepare('UPDATE projects SET assignment_locked = 1 WHERE id = ?').bind(project.id),
       ]);
     }
@@ -602,8 +602,8 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
   }
 
   if ((m = path.match(/^\/admin\/assignments\/(\d+)$/)) && method === 'POST') {
-    await env.DB.prepare('UPDATE assignments SET start_time = ?, days = ? WHERE id = ?')
-      .bind(isTime(field('start_time')) ? field('start_time') : null, cleanDays(fieldAll('days')), m[1]).run();
+    await env.DB.prepare('UPDATE assignments SET start_time = ?, time_zone = ?, days = ? WHERE id = ?')
+      .bind(isTime(field('start_time')) ? field('start_time') : null, cleanZone(field('time_zone')), cleanDays(fieldAll('days')), m[1]).run();
     return redirect('/admin/projects?msg=saved');
   }
 
@@ -749,6 +749,9 @@ async function makeChecklist(env, requestId) {
 }
 
 // Checkbox values ["1", "3", "5"] -> "1,3,5" (only valid day numbers, in order).
+// "PST", "MST", "CST" or "EST"; anything else means the VA's own time zone.
+const cleanZone = (value) => (['PST', 'MST', 'CST', 'EST'].includes(value) ? value : null);
+
 function cleanDays(values) {
   return [...new Set(values.filter((v) => /^[0-6]$/.test(v)))].sort().join(',');
 }

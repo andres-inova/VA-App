@@ -276,6 +276,7 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 - See their own time-off requests and the last 30 days of check-ins.
 
 **Admins**
+- **Projects**: each VA's start time has a time zone picker next to it (PST, MST, CST, EST, or the VA's own zone from Zoho, the default). A VA with projects in different zones checks in by whichever starts first in real time.
 - **Today**: a **This week** summary (on-time rate, counts, and anyone late or missing 2+ times), then every VA's projects today, their check-in time and status, grouped into Needs attention, Checked in, Not started yet, Off today and Not checked today. It updates by itself every minute.
 - **Calendar**: a month view of who is off (time off, emergencies, requests waiting for a decision, and who covers) and company holidays.
 - **History**: a month grid showing each VA's status per work day, with totals.

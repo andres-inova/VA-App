@@ -521,7 +521,7 @@ export function vaPage({ user, day, today, requests, history, formUrl, message }
   }
   const checkedIn = Boolean(today?.checked_in_at);
   const projects = day.projects.length
-    ? `<div class="chips" style="justify-content:center">${day.projects.map((p) => chip(`${p.client}${p.start ? ` · ${formatHM(p.start)}` : ''}`, 'muted')).join('')}</div>
+    ? `<div class="chips" style="justify-content:center">${day.projects.map((p) => chip(`${p.client}${p.startLabel ? ` · ${p.startLabel}` : ''}`, 'muted')).join('')}</div>
        ${day.projects.length > 1 ? '<p class="small">One check-in covers all of these. It is due at the earliest start time.</p>' : ''}`
     : '';
 
@@ -1002,12 +1002,19 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
   const unassigned = projects.filter((p) => !byProject.get(p.id).length);
   const assigned = projects.filter((p) => byProject.get(p.id).length);
 
+  // The time zone for a start time. "" means the VA's own zone from Zoho.
+  const zoneSelect = (selected, vaZone) => `<select name="time_zone" aria-label="Time zone">
+    <option value="">${vaZone ? `VA's zone (${esc(vaZone)})` : "VA's zone"}</option>
+    ${['PST', 'MST', 'CST', 'EST'].map((z) => `<option value="${z}" ${z === selected ? 'selected' : ''}>${z}</option>`).join('')}</select>`;
+  const vaZoneOf = (a) => (zoneFor(a.va_zone) ? a.va_zone : 'EST');
+  const zoneOf = (a) => (zoneFor(a.time_zone) ? a.time_zone : vaZoneOf(a));
+
   const assignmentRow = (a) => `
     <div class="assign">
       <form method="post" action="/admin/assignments/${a.id}" class="assign" style="border:0;padding:0;flex:1">
         <span class="who">${avatar(a.va_name)}${esc(a.va_name)}</span>
         <input type="time" name="start_time" value="${esc(a.start_time || '')}" aria-label="Start time">
-        <span class="small">${esc(zoneFor(a.time_zone) ? a.time_zone : 'EST')}</span>
+        ${zoneSelect(zoneFor(a.time_zone) ? a.time_zone : '', vaZoneOf(a))}
         ${dayBoxes(a.days)}
         <button class="sm plain" style="margin:0">Save</button>
       </form>
@@ -1020,6 +1027,7 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
       <form method="post" action="/admin/projects/${esc(p.id)}/assign" class="assign" style="border:0;padding:0 16px 14px">
         <select name="user_id" required aria-label="VA"><option value="">Choose a VA</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}</select>
         <input type="time" name="start_time" aria-label="Start time">
+        ${zoneSelect('', '')}
         ${dayBoxes()}
         <button class="sm" style="margin:0">Add</button>
       </form>
@@ -1028,7 +1036,7 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
   const projectRow = (p, open = false) => {
     const list = byProject.get(p.id);
     const missingTime = list.some((a) => !parseHHMM(a.start_time));
-    const who = list.map((a) => `${esc(a.va_name)}${a.start_time ? ` · ${esc(formatHM(parseHHMM(a.start_time) || { hour: 0, minute: 0 }))}` : ''}`).join(', ');
+    const who = list.map((a) => `${esc(a.va_name)}${parseHHMM(a.start_time) ? ` · ${esc(formatHM(parseHHMM(a.start_time)))} ${esc(zoneOf(a))}` : ''}`).join(', ');
     return item({
       name: p.client, title: esc(p.client), sub: esc(who || 'No VA assigned'),
       side: !list.length ? chip('No VA', 'warn') : missingTime ? chip('Needs a start time', 'warn') : chip(`${list.length} VA${list.length > 1 ? 's' : ''}`, 'good'),
@@ -1040,7 +1048,7 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
   return layout({
     title: 'Projects', user, active: '/admin/projects', message,
     body: `<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
-      <p class="lead" style="margin:0;flex:1;min-width:240px">Projects come from Zoho Projects every hour. A new project is given to the VA named after the " - " in its name, with their Zoho start time. Start times are in each VA's own time zone. A VA with several projects checks in once a day, by the earliest start.</p>
+      <p class="lead" style="margin:0;flex:1;min-width:240px">Projects come from Zoho Projects every hour. A new project is given to the VA named after the " - " in its name, with their Zoho start time. Each start time uses the time zone chosen next to it (by default, the VA's own time zone from Zoho). A VA with several projects checks in once a day, by the earliest start.</p>
       <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/projects"><button style="margin:0">${icon('sync')} Sync with Zoho now</button></form>
     </div>
     <label class="search" for="find-project">${icon('projects')}<input id="find-project" type="search" placeholder="Search projects or VAs" autocomplete="off" data-filter="#projects-list .item" data-empty="#projects-none"></label>

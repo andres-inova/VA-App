@@ -252,6 +252,7 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 
 **VAs**
 - Log in with email and password. The email is the VA's email in Zoho.
+- **Keep me logged in** (ticked by default on the login page): the app stays logged in on that device for a year, and each visit extends it, so people who use the app are not asked to log in again. Untick it on a shared computer: the login then ends when the browser is closed, or after 12 hours. The login page also fills in the last email used on that device. Logging out, or an admin sending a new login invite or temporary password, ends the login.
 - See **today's projects** and the time they need to check in by.
 - **Check in** once per day. One check-in covers all of that day's projects. The app records whether it was on time.
 - **Call out** with a required reason. The reason is posted in the VA's management channel.

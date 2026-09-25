@@ -1,7 +1,7 @@
 // The app's entry point: decides what happens for each web address,
 // and runs the scheduled job every minute.
 
-import { checkLogin, startSession, currentUser, endSession, hashPassword, verifyPassword, passwordProblem } from './auth.js';
+import { checkLogin, startSession, currentUser, endSession, renewedCookie, rememberedEmail, rememberEmailCookie, hashPassword, verifyPassword, passwordProblem } from './auth.js';
 import { dayInfo, getGraceMinutes, runEveryMinute, reportPeriod, sendReport, getReportRecipients, checkInStats, flaggedVAs } from './jobs.js';
 import { syncFromZoho } from './zoho.js';
 import { handleFormWebhook } from './forms.js';
@@ -16,7 +16,13 @@ import * as views from './views.js';
 export default {
   async fetch(request, env) {
     try {
-      return await handle(request, env);
+      let response = await handle(request, env);
+      const cookie = renewedCookie(request);
+      if (cookie) {
+        response = new Response(response.body, response);
+        response.headers.append('Set-Cookie', cookie);
+      }
+      return response;
     } catch (err) {
       console.error(err.stack || err.message);
       return page(views.layout({ title: 'Error', body: '<div class="card"><h1>Something went wrong</h1><p>Please go back and try again. If it keeps happening, tell an admin.</p></div>' }), 500);
@@ -55,11 +61,15 @@ async function handle(request, env) {
   if (path === '/login') {
     if (method === 'GET') {
       if (await needsSetup(env)) return redirect('/setup');
-      return page(views.loginPage());
+      if (await currentUser(request, env)) return redirect('/');
+      return page(views.loginPage(null, rememberedEmail(request)));
     }
-    const result = await checkLogin(env, field('email').toLowerCase(), field('password'));
-    if (result.error) return page(views.loginPage(result.error), 401);
-    return redirect('/', await startSession(env, result.user.id));
+    const email = field('email').toLowerCase();
+    const result = await checkLogin(env, email, field('password'));
+    if (result.error) return page(views.loginPage(result.error, email), 401);
+    const response = redirect('/', await startSession(env, result.user.id, field('remember') === '1'));
+    response.headers.append('Set-Cookie', rememberEmailCookie(email));
+    return response;
   }
 
   if (path === '/logout' && method === 'POST') return redirect('/login', await endSession(request, env));

@@ -388,7 +388,7 @@ export function layout({ title, user, active, message, body }) {
 
 // ---- Login pages ----
 
-export function loginPage(error) {
+export function loginPage(error, email = '') {
   const errors = { wrong: 'That email and password do not match.', locked: 'Too many tries. Please wait 15 minutes and try again.', inactive: 'This account is not active. Please contact an admin.' };
   return layout({
     title: 'Log in',
@@ -398,8 +398,10 @@ export function loginPage(error) {
       <p class="lead">Log in to the InoVA check-in app.</p>
       ${error ? `<div class="toast bad">${esc(errors[error] || error)}</div>` : ''}
       <form method="post" action="/login">
-        <label for="email">Email</label><input id="email" name="email" type="email" required autocomplete="username">
-        <label for="password">Password</label><input id="password" name="password" type="password" required autocomplete="current-password">
+        <label for="email">Email</label><input id="email" name="email" type="email" required autocomplete="username" value="${esc(email)}"${email ? '' : ' autofocus'}>
+        <label for="password">Password</label><input id="password" name="password" type="password" required autocomplete="current-password"${email ? ' autofocus' : ''}>
+        <label class="check"><input type="checkbox" name="remember" value="1" checked> Keep me logged in on this device</label>
+        <p class="small" style="margin:4px 0 0 26px">Untick this on a shared computer.</p>
         <button style="width:100%;justify-content:center">Log in</button>
       </form>
       <p class="small" style="margin-top:14px">Forgot your password? Ask an admin to set a temporary one for you.</p>

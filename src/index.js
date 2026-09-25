@@ -6,7 +6,7 @@ import { dayInfo, getGraceMinutes, runEveryMinute, reportPeriod, sendReport, get
 import { syncFromZoho } from './zoho.js';
 import { handleFormWebhook } from './forms.js';
 import { handleSlackCommand } from './slack-commands.js';
-import { checkIn, callOut } from './actions.js';
+import { checkIn } from './actions.js';
 import { sendInvite, newTemporaryPassword } from './invites.js';
 import { createCoverageChecklist, clickupReady } from './clickup.js';
 import { formatTimeIn, formatDate, addDays, partsIn, weekdayIndex, weekdayOf, REPORT_ZONE } from './time.js';
@@ -43,7 +43,7 @@ async function handle(request, env) {
 
   // Responses from the Google Form come from Google, not from the app's pages. They are checked with a secret instead.
   if (path === '/api/form/time-off' && method === 'POST') return handleFormWebhook(request, env);
-  // Slack slash commands (/checkin, /callout) come from Slack and are checked with Slack's signature instead.
+  // The Slack /checkin command comes from Slack and are checked with Slack's signature instead.
   if (path === '/api/slack/command' && method === 'POST') return handleSlackCommand(request, env);
 
   // Only accept form submissions that come from this app's own pages.
@@ -170,11 +170,6 @@ async function vaRoutes(env, user, path, method, field, message) {
 
   if (path === '/va/checkin' && method === 'POST') {
     const r = await checkIn(env, user, now);
-    return redirect(`/va?msg=${r.result}`);
-  }
-
-  if (path === '/va/callout' && method === 'POST') {
-    const r = await callOut(env, user, field('reason'), now);
     return redirect(`/va?msg=${r.result}`);
   }
 

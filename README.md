@@ -1,6 +1,6 @@
 # InoVA VA App: check-in tracker
 
-A web app where InoVA Local VAs check in at the start of each work day, call out, and request time off. Check-ins come from the projects each VA is assigned to. Admins see who checked in on time, approve time off, and get Slack alerts and reports.
+A web app where InoVA Local VAs check in at the start of each work day, track tasks and time in Zoho Projects, and see their time-off requests. Check-ins come from the projects each VA is assigned to. Admins see who checked in on time, approve time off, and get Slack alerts and reports.
 
 **Live address:** https://inova-va-app.andres-261.workers.dev
 
@@ -28,7 +28,7 @@ A web app where InoVA Local VAs check in at the start of each work day, call out
 4. ~~Create the Gmail key~~ (done)
 5. ~~Connect the time-off/coverage Google Form~~ (done)
 6. ~~Connect ClickUp~~ (done)
-7. [Set up the Slack commands](#slack-commands-checkin-and-callout): 5 minutes
+7. [Set up the Slack command](#slack-command-checkin): 5 minutes
 8. Send everyone a login invite from the **People** page
 9. [Test everything](#5-test-everything): 5 minutes
 
@@ -189,9 +189,9 @@ The Checklists space ID (`90137115341`), the workspace ID (`90131247934`) and St
 
 If creating a checklist fails, the request is still approved. The reason appears on the request with a **Create ClickUp checklist** button to try again.
 
-## Slack commands: /checkin and /callout
+## Slack command: /checkin
 
-VAs can check in by typing `/checkin` in any Slack channel, and call out with `/callout` plus a short reason (for example `/callout I have a fever`). Only they see the app's reply. The app finds the VA by their **Slack ID** in Zoho, so that field must be filled in.
+VAs can check in by typing `/checkin` in any Slack channel. Only they see the app's reply. (There is no `/callout`: VAs who can't work message their management channel.) The app finds the VA by their **Slack ID** in Zoho, so that field must be filled in.
 
 Setup, done once in the Slack app you created (VA App):
 
@@ -201,7 +201,6 @@ Setup, done once in the Slack app you created (VA App):
    - Request URL: `https://inova-va-app.andres-261.workers.dev/api/slack/command`
    - Short description: `Check in for today`
    - Click **Save**.
-3. Create a second command the same way: `/callout`, the same Request URL, description `Call out for today`, usage hint `[reason]`.
 4. **App Home**: under **Show Tabs**, turn on **Messages Tab** and tick **Allow users to send Slash commands and messages from the messages tab**. This also lets the app send login invites to VAs as a direct message.
 5. **Basic Information → App Credentials → Signing Secret**: click **Show**, copy it, and run:
    ```bash
@@ -271,7 +270,7 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 - **Keep me logged in** (ticked by default on the login page): the app stays logged in on that device for a year, and each visit extends it, so people who use the app are not asked to log in again. Untick it on a shared computer: the login then ends when the browser is closed, or after 12 hours. The login page also fills in the last email used on that device. Logging out, or an admin sending a new login invite or temporary password, ends the login.
 - See **today's projects** and the time they need to check in by.
 - **Check in** once per day. One check-in covers all of that day's projects. The app records whether it was on time.
-- **Call out** with a required reason. The reason is posted in the VA's management channel.
+- **No call-outs in the app.** Time off is requested with the form at least 2 weeks ahead. For anything sooner, or a day they can't work, VAs message their management channel on Slack; the My day page links to it. Requests sent with less than 2 weeks' notice are marked "Less than 2 weeks' notice" for admins (not refused).
 - **Request time off or coverage** with a button that opens the Google Form. Their requests and the admins' decisions then show on their page.
 - See their own time-off requests and the last 30 days of check-ins.
 
@@ -337,8 +336,8 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 | `src/clickup.js` | Creates the ClickUp coverage checklist from the "VA Backup Checklist" template |
 | `src/messages.js` | The standard format for every email and Slack message |
 | `src/invites.js` | Login invites (temporary password by email and Slack) |
-| `src/actions.js` | Check-in and call-out, shared by the app and the Slack commands |
-| `src/slack-commands.js` | The `/checkin` and `/callout` Slack commands |
+| `src/actions.js` | Check-in, shared by the app, the Slack command and the first timer of the day |
+| `src/slack-commands.js` | The `/checkin` Slack command |
 | `public/` | The app icons and the install file for phones (`manifest.webmanifest`) |
 | `src/forms.js` | Receives responses from the time-off/coverage Google Form |
 | `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |

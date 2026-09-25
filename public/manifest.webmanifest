@@ -1,7 +1,7 @@
 {
   "name": "InoVA Check-in",
   "short_name": "InoVA",
-  "description": "Check in, call out and request time off at InoVA Local.",
+  "description": "Check in, track tasks and time, and see time off at InoVA Local.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

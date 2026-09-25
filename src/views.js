@@ -12,8 +12,6 @@ import { formatDate, formatTimeIn, formatHM, parseHHMM, zoneFor, weekdayOf, DAY_
 const MESSAGES = {
   'checked-in': ['good', 'You are checked in. Have a good shift!'],
   'already-in': ['info', 'You already checked in today.'],
-  'called-out': ['good', 'Your call-out was sent to your management channel.'],
-  'reason-needed': ['bad', 'Please write a short reason for calling out.'],
   'bad-dates': ['bad', 'Please choose a start date and an end date that is the same or later.'],
   'approved': ['good', 'Request approved.'],
   'denied': ['good', 'Request denied.'],
@@ -278,6 +276,12 @@ button.busy::after{content:"";width:14px;height:14px;border-radius:50%;border:2p
   #nav-toggle:checked~.app .scrim{display:block;position:fixed;inset:0;z-index:15;background:rgba(0,0,0,.35)}
   .topbar{background:var(--brand);color:#fff;border:0;padding:12px 16px}.topbar .menu{display:inline-flex;color:#fff}
   main{padding:16px 16px 96px}.item-body{padding-left:12px}
+  .row{flex-direction:column;align-items:stretch;gap:0}.row>*{min-width:0;width:100%}
+  input,select,textarea{font-size:16px}
+  .inline-add{flex-wrap:wrap}.inline-add input{flex:1 1 12em;min-width:0}
+  .item-head .chip{white-space:normal;text-align:center}
+  .item.stack>.item-head{flex-wrap:wrap;row-gap:8px}.item.stack>.item-head>.grow{flex:1 1 100%}.item.stack>.item-head>.grow+*{margin-left:auto}
+  .sec-title{min-width:0;hyphens:auto;-webkit-hyphens:auto;overflow-wrap:break-word}
   .tabbar{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:10;background:var(--surface);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
   .tabbar a,.tabbar label{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;font-weight:700;color:var(--muted);text-decoration:none;position:relative;cursor:pointer;margin:0}
   .tabbar .on{color:var(--brand)}.tabbar .badge{position:absolute;top:-4px;left:52%;font-size:10px;padding:0 6px}
@@ -532,18 +536,13 @@ export function vaPage({ user, day, today, requests, history, formUrl, message }
       ${day.projects.length ? `<a class="btn plain" href="/va/work">${icon('tasks')} Tasks &amp; time</a><p class="small">Starting a timer there also checks you in.</p>` : ''}
     </div>
     ${section({
-      title: "Can't work today? Call out", open: false,
-      hint: 'Your reason is sent to your management channel on Slack.',
-      body: `<form method="post" action="/va/callout" style="padding:0 8px" data-confirm="Send this call-out to your management channel?">
-        <label for="reason">What happened?</label>
-        <textarea id="reason" name="reason" required maxlength="1000" placeholder="A short explanation"></textarea>
-        <button>Send call-out</button></form>`,
-    })}
-    ${section({
-      title: 'Need time off or coverage?', open: false,
-      hint: 'Please send the request form at least 2 weeks before the first day you need covered.',
-      body: `<div style="padding:0 8px"><a class="btn" href="${esc(formUrl || '#')}" target="_blank" rel="noopener">${icon('external')} Open the request form</a>
-        <p class="small">Type your name exactly as it appears here: <strong>${esc(user.name)}</strong>. Your request shows up below once it is received.</p></div>`,
+      title: 'Need time off?', open: false,
+      body: `<div style="padding:0 8px 8px">
+        <p class="meta"><b>At least 2 weeks ahead:</b> send the request form. Type your name exactly as it appears here: <strong>${esc(user.name)}</strong>. Your request shows up below once it is received.</p>
+        <a class="btn" href="${esc(formUrl || '#')}" target="_blank" rel="noopener">${icon('external')} Open the request form</a>
+        <p class="meta" style="margin-top:18px"><b>Sooner than 2 weeks, or can't work today?</b> Message your management channel on Slack right away, so your team can plan coverage.</p>
+        ${user.slack_channel_id ? `<a class="btn plain" href="https://slack.com/app_redirect?channel=${encodeURIComponent(user.slack_channel_id)}" target="_blank" rel="noopener">${icon('external')} Open my management channel</a>` : ''}
+      </div>`,
     })}
     ${section({ title: 'My requests', count: requests.length, open: pendingCount > 0, body: requestCards(requests, false) })}
     ${section({
@@ -551,7 +550,7 @@ export function vaPage({ user, day, today, requests, history, formUrl, message }
       body: `<div style="padding:0 8px 8px">
         <p><strong>${icon('phone')} Put this app on your phone.</strong><br>
         <span class="small">iPhone: open this page in Safari, tap Share, then "Add to Home Screen". Android: open it in Chrome, tap the three dots, then "Install app" or "Add to Home screen".</span></p>
-        ${user.slack_user_id ? `<p><strong>Check in from Slack.</strong><br><span class="small">Type <code>/checkin</code> in any Slack channel. To call out, type <code>/callout</code> and a short reason.</span></p>` : ''}
+        ${user.slack_user_id ? `<p><strong>Check in from Slack.</strong><br><span class="small">Type <code>/checkin</code> in any Slack channel.</span></p>` : ''}
       </div>`,
     })}
     ${section({
@@ -579,7 +578,8 @@ function requestCards(requests, forAdmin, ctx = {}) {
     const coverage = r.needs_coverage
       ? (needsBackup(r) ? (r.backup_name ? `Covered by ${esc(r.backup_name)}` : '<span style="color:var(--warn);font-weight:700">Backup not chosen</span>') : 'Coverage needed')
       : 'No coverage needed';
-    const sub = `${esc(dateRange(r.start_date, r.end_date))} · ${coverage}`;
+    const shortNotice = !r.added_by_admin && r.created_at && r.start_date < addDays(r.created_at.slice(0, 10), 14);
+    const sub = `${esc(dateRange(r.start_date, r.end_date))} · ${coverage}${shortNotice ? ` · <span style="color:var(--warn);font-weight:700">Less than 2 weeks' notice</span>` : ''}`;
     const body = `
       ${r.details || r.note ? `<div class="bubble">${esc([r.details, r.note].filter(Boolean).join('\n'))}</div>` : ''}
       <p class="meta">${r.added_by_admin ? 'Added by an admin' : r.source === 'form' ? 'From the request form' : 'Request'}
@@ -1171,6 +1171,7 @@ export function workPage({ user, day, projects, project, lists, logs, week, this
   </div>`;
   const logItems = logs.map((l) => item({
     title: esc(l.title),
+    tone: 'stack',
     sub: `${esc(formatDate(l.date))}${l.start && l.end ? ` · ${esc(clock(l.start))}–${esc(clock(l.end))}` : ''} · ${esc(l.hours)} h`,
     side: chip(l.billable ? 'Billable' : 'Non Billable', l.billable ? 'good' : 'muted'),
     key: `log-${l.id}`,
@@ -1197,6 +1198,7 @@ export function workPage({ user, day, projects, project, lists, logs, week, this
     return item({
       title: esc(x.name),
       sub: esc(x.prefix),
+      tone: 'stack',
       side: running ? chip('Running', 'good') : `<button class="sm" form="start-${esc(x.id)}" ${t ? 'disabled title="Stop or save your current timer first"' : ''}>${icon('play')} Start</button>`,
       key: `task-${x.id}`,
       body: `<form method="post" action="/va/work/task/edit">

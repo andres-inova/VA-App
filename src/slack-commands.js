@@ -1,8 +1,8 @@
-// Slack slash commands: /checkin and /callout <reason>.
+// Slack slash command: /checkin. (Call-outs are not done in the app: VAs message their management channel.)
 // Slack sends each command here; the app checks it really came from Slack (SLACK_SIGNING_SECRET),
 // finds the VA by their Slack ID (the "Slack ID" field in Zoho), and replies privately to them.
 
-import { checkIn, callOut } from './actions.js';
+import { checkIn } from './actions.js';
 import { STATUS } from './views.js';
 
 const reply = (text) => new Response(JSON.stringify({ response_type: 'ephemeral', text }), {
@@ -30,7 +30,6 @@ export async function handleSlackCommand(request, env) {
   if (!(await signedBySlack(env, request, body))) return new Response('Not from Slack.', { status: 401 });
   const form = new URLSearchParams(body);
   const command = form.get('command') || '';
-  const text = form.get('text') || '';
   const user = await env.DB.prepare('SELECT * FROM users WHERE slack_user_id = ? AND is_va = 1').bind(form.get('user_id')).first();
   if (!user) {
     return reply("I couldn't find you in the InoVA check-in app. Please ask your VA Lead to check that your Slack ID is filled in on Zoho.");
@@ -45,10 +44,8 @@ export async function handleSlackCommand(request, env) {
   }
 
   if (command === '/callout') {
-    const r = await callOut(env, user, text);
-    if (r.result === 'reason-needed') return reply('Please add a short reason, for example: `/callout I have a fever`');
-    return reply('Your call-out was sent to your management channel. Feel better soon. 💙');
+    return reply("Call-outs aren't done through the app. Please message your management channel right away. Time off needs the request form at least 2 weeks ahead.");
   }
 
-  return reply('I only know `/checkin` and `/callout <reason>`.');
+  return reply('I only know `/checkin`.');
 }

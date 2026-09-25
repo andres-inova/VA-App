@@ -202,6 +202,30 @@ button.danger{background:transparent;color:var(--bad);box-shadow:inset 0 0 0 1.5
 .auth .logo{width:52px;height:52px;font-size:20px;margin-bottom:10px}
 .tabbar{display:none}
 .scrim{display:none}#nav-toggle{display:none}
+/* Page changes: the content fades and slides slightly while the menu and bars stay still. */
+@view-transition{navigation:auto}
+.sidebar{view-transition-name:sidebar}.topbar{view-transition-name:topbar}.tabbar{view-transition-name:tabbar}
+::view-transition-old(root){animation:vt-out .16s ease-in both}::view-transition-new(root){animation:vt-in .24s cubic-bezier(.2,.8,.2,1) both}
+@keyframes vt-out{to{opacity:0;transform:translateY(-4px)}}@keyframes vt-in{from{opacity:0;transform:translateY(8px)}}
+/* Sections slide open and closed (in browsers that support it; others just open). */
+@supports selector(::details-content){:root{interpolate-size:allow-keywords}
+  details::details-content{height:0;overflow:clip;transition:height .24s cubic-bezier(.2,.8,.2,1),content-visibility .24s allow-discrete}
+  details[open]::details-content{height:auto}}
+main>*{animation:rise .28s cubic-bezier(.2,.8,.2,1) both}main>*:nth-child(2){animation-delay:.03s}main>*:nth-child(3){animation-delay:.06s}main>*:nth-child(n+4){animation-delay:.09s}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}}
+button,.btn,.side-link,details>summary,.chip{transition:background-color .15s,color .15s,transform .1s,box-shadow .15s,filter .15s}
+button:active,.btn:active{transform:scale(.97)}
+:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 60%,transparent);outline-offset:2px;border-radius:10px}
+button.busy{pointer-events:none;opacity:.8}
+button.busy::after{content:"";width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin .7s linear infinite}
+.checkin.busy::after{width:22px;height:22px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{transition:opacity .4s,transform .4s,max-height .4s,margin .4s,padding .4s;max-height:200px;overflow:hidden}
+.toast.hide{opacity:0;transform:translateY(-6px);max-height:0;margin:0;padding-top:0;padding-bottom:0}
+.search{display:flex;align-items:center;gap:8px;background:var(--surface);border-radius:99px;box-shadow:var(--shadow);padding:4px 16px;margin-bottom:16px}
+.search input{border:0;box-shadow:none;background:transparent;padding:10px 0}.search input:focus{box-shadow:none}
+.no-results{display:none}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after,::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important;transition:none!important}}
 @media (max-width:860px){
   .sidebar{position:fixed;z-index:20;left:0;top:0;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px rgba(0,0,0,.3)}
   #nav-toggle:checked~.app .sidebar{transform:none}
@@ -216,6 +240,59 @@ button.danger{background:transparent;color:var(--bad);box-shadow:inset 0 0 0 1.5
 
 // ---- Page frame ----
 
+const SCRIPT = `<script type="speculationrules">{"prefetch":[{"where":{"href_matches":"/*"},"eagerness":"moderate"}]}</script>
+<script>
+(function () {
+  // A page animation is skipped when the window isn't visible; that's fine, so don't report it as an error.
+  function quiet(e) {
+    var t = e.viewTransition;
+    if (t) ['ready', 'finished', 'updateCallbackDone'].forEach(function (k) { if (t[k]) t[k].catch(function () {}); });
+  }
+  window.addEventListener('pagereveal', quiet);
+  window.addEventListener('pageswap', quiet);
+  // Buttons: ask first when needed, show a spinner, and ignore a second click while the page loads.
+  document.addEventListener('submit', function (e) {
+    var form = e.target, button = e.submitter;
+    var question = (button && button.dataset.confirm) || form.dataset.confirm;
+    if (question && !window.confirm(question)) { e.preventDefault(); return; }
+    if (form.dataset.busy) { e.preventDefault(); return; }
+    form.dataset.busy = '1';
+    if (button) button.classList.add('busy');
+  });
+  // Coming back with the Back button: make the buttons usable again.
+  window.addEventListener('pageshow', function () {
+    document.querySelectorAll('form[data-busy]').forEach(function (f) {
+      delete f.dataset.busy;
+      f.querySelectorAll('.busy').forEach(function (b) { b.classList.remove('busy'); });
+    });
+  });
+  // Success messages fade away; the message is removed from the address so a refresh doesn't repeat it.
+  var toast = document.querySelector('.toast.good[role=status], .toast.info[role=status]');
+  if (toast) setTimeout(function () { toast.classList.add('hide'); }, 5000);
+  if (/[?&]msg=/.test(location.search)) {
+    var url = new URL(location.href); url.searchParams.delete('msg');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+  }
+  // Search boxes: hide rows that don't contain the typed text.
+  document.querySelectorAll('[data-filter]').forEach(function (input) {
+    input.addEventListener('input', function () {
+      var q = input.value.trim().toLowerCase(), shown = 0;
+      document.querySelectorAll(input.dataset.filter).forEach(function (row) {
+        var match = !q || row.textContent.toLowerCase().indexOf(q) !== -1;
+        row.hidden = !match; if (match) shown++;
+      });
+      var none = document.querySelector(input.dataset.empty);
+      if (none) none.style.display = shown ? 'none' : 'block';
+    });
+  });
+  // Phone menu: close it when a link inside it is tapped.
+  var toggle = document.getElementById('nav-toggle');
+  if (toggle) document.querySelectorAll('.sidebar a').forEach(function (a) {
+    a.addEventListener('click', function () { toggle.checked = false; });
+  });
+})();
+</script>`;
+
 export function layout({ title, user, active, message, body }) {
   const msg = MESSAGES[message];
   const toast = msg ? `<div class="toast ${msg[0]}" role="status">${msg[0] === 'good' ? icon('check') : ''}${esc(msg[1])}</div>` : '';
@@ -225,7 +302,7 @@ export function layout({ title, user, active, message, body }) {
 <style>${CSS}</style></head><body>`;
 
   // Log-in and set-up pages: a simple centered card.
-  if (!user) return `${head}<div class="auth"><div>${toast}${body}</div></div></body></html>`;
+  if (!user) return `${head}<div class="auth"><div>${toast}${body}</div></div>${SCRIPT}</body></html>`;
 
   const pending = user.pending_requests || 0;
   const groups = [];
@@ -261,7 +338,7 @@ export function layout({ title, user, active, message, body }) {
     <header class="topbar"><label for="nav-toggle" class="menu" aria-label="Open menu">${icon('menu')}</label><h1>${esc(title)}</h1></header>
     <main>${toast}${body}</main>
   </div>
-</div>${tabbar}</body></html>`;
+</div>${tabbar}${SCRIPT}</body></html>`;
 }
 
 // ---- Login pages ----
@@ -359,7 +436,7 @@ export function vaPage({ user, day, today, requests, history, formUrl, message }
     ${section({
       title: "Can't work today? Call out", open: false,
       hint: 'Your reason is sent to your management channel on Slack.',
-      body: `<form method="post" action="/va/callout" style="padding:0 8px">
+      body: `<form method="post" action="/va/callout" style="padding:0 8px" data-confirm="Send this call-out to your management channel?">
         <label for="reason">What happened?</label>
         <textarea id="reason" name="reason" required maxlength="1000" placeholder="A short explanation"></textarea>
         <button>Send call-out</button></form>`,
@@ -419,13 +496,13 @@ function requestActions(r, ctx) {
   if (r.status === 'pending') {
     if (needsBackup(r) && !r.backup_name) buttons.push('<span class="small">Choose who covers (Edit) before approving.</span>');
     buttons.push(`<form method="post" action="/admin/time-off/${r.id}/approve"><button class="sm">${icon('check')} Approve</button></form>`);
-    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/deny"><button class="sm danger">Deny</button></form>`);
+    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/deny" data-confirm="Deny this request?"><button class="sm danger">Deny</button></form>`);
   }
   if (r.status === 'approved' && needsBackup(r) && !r.clickup_list_url) {
     buttons.push(`<form method="post" action="/admin/time-off/${r.id}/clickup"><button class="sm plain">Create ClickUp checklist</button></form>`);
   }
   if (r.status === 'approved' && r.cancellable) {
-    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/cancel"><button class="sm danger">Cancel</button></form>`);
+    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/cancel" data-confirm="Cancel this time off? Check-ins will be expected again from today."><button class="sm danger">Cancel time off</button></form>`);
   }
   const edit = ['pending', 'approved'].includes(r.status) && ctx.vas ? editForm(r, ctx) : '';
   return `<div class="actions">${buttons.join('')}</div>${edit}`;
@@ -483,7 +560,7 @@ function unmatchedCards(unmatched, vas, vaProjects) {
         }).join('')}
         <div class="actions"><button class="sm">Assign</button></div>
       </form>
-      <form method="post" action="/admin/form-unmatched/${u.id}/discard" class="actions"><button class="sm danger">Discard</button></form>`,
+      <form method="post" action="/admin/form-unmatched/${u.id}/discard" class="actions" data-confirm="Discard this form response? It can't be brought back."><button class="sm danger">Discard</button></form>`,
   })).join('');
 }
 
@@ -617,7 +694,7 @@ export function peoplePage({ user, people, onDeck = [], message, tempPassword })
     ? `<div class="toast info" style="display:block">Temporary password for <strong>${esc(tempPassword.name)}</strong>: <code style="font-size:16px">${esc(tempPassword.password)}</code><br>
        <span class="small">Share it with them privately. They choose their own password when they log in. It is not shown again.</span></div>` : '';
   const loginText = (p) => (p.password_hash ? (p.must_change_password ? 'Temporary password' : 'Has logged in') : 'No password yet');
-  const resetBtn = (p) => `<form method="post" action="/admin/people/${p.id}/temp-password"><button class="sm plain">${icon('key')} Set temporary password</button></form>`;
+  const resetBtn = (p) => `<form method="post" action="/admin/people/${p.id}/temp-password" data-confirm="${esc(`Set a new temporary password for ${p.name}? Their current password stops working.`)}"><button class="sm plain">${icon('key')} Set temporary password</button></form>`;
 
   // Whether the app checks this VA, why, and a button to exempt them or remove the exemption.
   const checked = (p) => {
@@ -629,7 +706,7 @@ export function peoplePage({ user, people, onDeck = [], message, tempPassword })
     const byZoho = affiliation !== 'InoVA Local';
     // VAs exempt because of Zoho are changed in Zoho; the button only exempts (or un-exempts) InoVA Local VAs.
     const button = byZoho && !p.exempt ? '<span class="small">Change the affiliation in Zoho to check this VA.</span>' : `
-      <form method="post" action="/admin/people/${p.id}/exempt">
+      <form method="post" action="/admin/people/${p.id}/exempt" data-confirm="${esc(p.exempt ? `Start checking ${p.name} again?` : `Stop checking ${p.name}? They won't get late alerts or appear in reports.`)}">
         <input type="hidden" name="exempt" value="${p.exempt ? 0 : 1}">
         <button class="sm plain">${p.exempt ? 'Remove exemption' : 'Exempt this VA'}</button>
       </form>`;
@@ -660,7 +737,7 @@ export function peoplePage({ user, people, onDeck = [], message, tempPassword })
 
   const adminRow = (p) => item({
     name: p.name, title: esc(p.name), sub: esc(p.email), side: chip(loginText(p), p.password_hash ? 'good' : 'muted'),
-    body: `<div class="actions">${resetBtn(p)}${p.id !== user.id ? `<form method="post" action="/admin/people/${p.id}/remove-admin"><button class="sm danger">Remove admin</button></form>` : ''}</div>`,
+    body: `<div class="actions">${resetBtn(p)}${p.id !== user.id ? `<form method="post" action="/admin/people/${p.id}/remove-admin" data-confirm="${esc(`Remove ${p.name} as an admin?`)}"><button class="sm danger">Remove admin</button></form>` : ''}</div>`,
   });
 
   return layout({
@@ -670,6 +747,8 @@ export function peoplePage({ user, people, onDeck = [], message, tempPassword })
       <p class="lead" style="margin:0;flex:1;min-width:240px">VAs come from Zoho CRM and update every hour. To change a VA's details, change them in Zoho, then sync. Projects and start times are on the <a href="/admin/projects">Projects</a> page.</p>
       <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/people"><button style="margin:0">${icon('sync')} Sync with Zoho now</button></form>
     </div>
+    <label class="search" for="find-person">${icon('people')}<input id="find-person" type="search" placeholder="Search people" autocomplete="off" data-filter="#people .item" data-empty="#people-none"></label>
+    <div id="people">
     ${section({ title: 'Active VAs', count: vas.length, open: true, body: vas.length ? vas.map(vaRow).join('') : empty('No active VAs yet.') })}
     ${section({ title: 'On Deck VAs', count: onDeck.length, open: true, body: onDeck.length ? onDeck.map(onDeckRow).join('') : empty('No On Deck VAs in Zoho.') })}
     ${section({
@@ -680,7 +759,8 @@ export function peoplePage({ user, people, onDeck = [], message, tempPassword })
           <div><label for="ae">Email</label><input id="ae" name="email" type="email" required></div>
           <div style="flex:0"><button>${icon('plus')} Add</button></div>
         </form>`,
-    })}`,
+    })}
+    </div><div id="people-none" class="card empty no-results">Nobody matches your search.</div>`,
   });
 }
 
@@ -705,7 +785,7 @@ export function holidaysPage({ user, holidays, message }) {
       title: 'Holidays', count: holidays.length, open: true,
       body: holidays.length ? holidays.map((h) => `<div class="item flat"><div class="item-head">${cal(h.date)}
         <div class="grow"><div class="title">${esc(h.name)}</div><div class="sub">${esc(formatDate(h.date, true))}</div></div>
-        <form method="post" action="/admin/holidays/${esc(h.date)}/delete"><button class="sm danger" style="margin:0">Remove</button></form></div></div>`).join('')
+        <form method="post" action="/admin/holidays/${esc(h.date)}/delete" data-confirm="${esc(`Remove ${h.name}?`)}"><button class="sm danger" style="margin:0">Remove</button></form></div></div>`).join('')
         : empty('No holidays added.'),
     })}`,
   });
@@ -777,7 +857,7 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
         ${dayBoxes(a.days)}
         <button class="sm plain" style="margin:0">Save</button>
       </form>
-      <form method="post" action="/admin/assignments/${a.id}/delete"><button class="sm danger" style="margin:0">Remove</button></form>
+      <form method="post" action="/admin/assignments/${a.id}/delete" data-confirm="${esc(`Take ${a.va_name} off this project?`)}"><button class="sm danger" style="margin:0">Remove</button></form>
       ${parseHHMM(a.start_time) ? '' : `<div style="width:100%">${chip('No start time: no check-in or late alerts for this project', 'warn')}</div>`}
     </div>`;
 
@@ -809,11 +889,14 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
       <p class="lead" style="margin:0;flex:1;min-width:240px">Projects come from Zoho Projects every hour. A new project is given to the VA named after the " - " in its name, with their Zoho start time. Start times are in each VA's own time zone. A VA with several projects checks in once a day, by the earliest start.</p>
       <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/projects"><button style="margin:0">${icon('sync')} Sync with Zoho now</button></form>
     </div>
+    <label class="search" for="find-project">${icon('projects')}<input id="find-project" type="search" placeholder="Search projects or VAs" autocomplete="off" data-filter="#projects-list .item" data-empty="#projects-none"></label>
+    <div id="projects-list">
     ${unassigned.length ? section({
       title: 'Projects with no VA', count: unassigned.length, open: true, tone: 'attention',
       hint: 'No active VA matched the name in these projects. Open one to add a VA if someone should check in for it.',
       body: unassigned.map((p) => projectRow(p)).join(''),
     }) : ''}
-    ${section({ title: 'Projects', count: assigned.length, open: true, body: assigned.length ? assigned.map((p) => projectRow(p)).join('') : empty('No projects yet. Click "Sync with Zoho now".') })}`,
+    ${section({ title: 'Projects', count: assigned.length, open: true, body: assigned.length ? assigned.map((p) => projectRow(p)).join('') : empty('No projects yet. Click "Sync with Zoho now".') })}
+    </div><div id="projects-none" class="card empty no-results">No project matches your search.</div>`,
   });
 }

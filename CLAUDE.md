@@ -12,3 +12,4 @@ Check-in tracker for InoVA Local VAs: a Cloudflare Worker (`src/`) with a D1 dat
 
 ## Handoff notes
 After each completed step, update HANDOFF.md with: goal, current status, files changed, key decisions, open issues, and the next step. Keep it short.
+After a compaction or at the start of a session, read HANDOFF.md before continuing (if its contents aren't already in context).

@@ -11,6 +11,7 @@ import { sendInvite, newTemporaryPassword } from './invites.js';
 import { createCoverageChecklist, deleteChecklist, clickupReady } from './clickup.js';
 import { formatTimeIn, formatDate, addDays, partsIn, weekdayIndex, weekdayOf, REPORT_ZONE } from './time.js';
 import { redirect, page, isDate, isTime } from './util.js';
+import { isNearby, nearbyText } from './timeoff.js';
 import * as work from './work.js';
 import * as views from './views.js';
 
@@ -761,16 +762,44 @@ async function timeOffData(env) {
   const { results: allProjects } = await env.DB.prepare('SELECT id, client FROM projects').all();
   const clientById = new Map(allProjects.map((p) => [p.id, p.client]));
   const coverage = await coverageByRequest(env);
+  // Approved and waiting requests, to list each VA's other time off within a week of a request.
+  const { results: open } = await env.DB.prepare(
+    "SELECT id, user_id, start_date, end_date, kind, status FROM time_off_requests WHERE status IN ('pending', 'approved') ORDER BY start_date"
+  ).all();
   const withDetails = (rows) => rows.map((r) => ({
     ...r,
     project_names: r.project_ids ? r.project_ids.split(',').map((id) => clientById.get(id) || id).join(', ') : '',
     coverage: coverage.get(r.id) || [],
+    nearby: ['pending', 'approved'].includes(r.status)
+      ? open.filter((o) => o.user_id === r.user_id && o.id !== r.id && isNearby(r, o)).map((o) => nearbyText(r, o)) : [],
   }));
   const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'backup_hidden'").first();
   const hidden = new Set(row ? JSON.parse(row.value) : []);
   const { results } = await env.DB.prepare('SELECT * FROM backup_candidates ORDER BY status, name').all();
   const allBackups = results.map((b) => ({ ...b, hidden: hidden.has(b.zoho_id) ? 1 : 0 }));
-  return { vas, vaProjects, withDetails, backups: allBackups.filter((b) => !b.hidden), allBackups };
+  return { vas, vaProjects, withDetails, backups: allBackups.filter((b) => !b.hidden), allBackups, history: await coverageHistory(env, vaProjects) };
+}
+
+// Who has covered which project before: a Map of "<backup Zoho id>|<project id>" -> [{ request_id, end_date }],
+// from approved coverage that has started. Older "All projects" coverage counts for each project of the
+// request (or of the VA, if the request had no project list).
+async function coverageHistory(env, vaProjects) {
+  const { results } = await env.DB.prepare(
+    `SELECT c.backup_zoho_id, c.project_id, r.id AS request_id, r.user_id, r.project_ids, r.end_date
+     FROM coverage_projects c JOIN time_off_requests r ON r.id = c.request_id
+     WHERE r.status = 'approved' AND r.kind != 'emergency' AND c.backup_zoho_id IS NOT NULL AND r.start_date <= ?
+     ORDER BY r.end_date`
+  ).bind(partsIn(REPORT_ZONE).date).all();
+  const history = new Map();
+  for (const c of results) {
+    const projects = c.project_id ? [c.project_id]
+      : c.project_ids ? c.project_ids.split(',') : vaProjects.filter((p) => p.user_id === c.user_id).map((p) => p.id);
+    for (const p of projects) {
+      const key = `${c.backup_zoho_id}|${p}`;
+      history.set(key, [...(history.get(key) || []), { request_id: c.request_id, end_date: c.end_date }]);
+    }
+  }
+  return history;
 }
 
 // Deletes a cancelled request's ClickUp checklists. Returns false if any could not be deleted.

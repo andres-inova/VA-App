@@ -598,20 +598,35 @@ function coverableProjects(r, vaProjects) {
   return list.length ? list : [{ id: '', client: 'All work' }];
 }
 
+// How often a backup has covered a project before, leaving out the request being looked at:
+// "never covered this client" or "covered this client 2 times, last Fri, Oct 2". '' for "All work".
+// history: Map "<backup Zoho id>|<project id>" -> [{ request_id, end_date }] (coverageHistory in index.js).
+function historyText(history, zohoId, projectId, requestId) {
+  if (!history || !projectId || !zohoId) return '';
+  const past = (history.get(`${zohoId}|${projectId}`) || []).filter((h) => h.request_id !== requestId);
+  if (!past.length) return 'never covered this client';
+  return `covered this client ${past.length === 1 ? 'once' : `${past.length} times`}, last ${formatDate(past[past.length - 1].end_date)}`;
+}
+
 // One "who covers" list per project, named cover_<va id>_<project id>. The VA taking time off is left out.
-// A backup already chosen stays in the list even if an admin has since hidden them.
-function coverageSelects(va, projects, backups, coverage = []) {
+// A backup already chosen stays in the list even if an admin has since hidden them. Each name shows
+// how often that VA has covered the project before.
+function coverageSelects(va, projects, backups, coverage = [], history = null, requestId = 0) {
   const choices = backups.filter((b) => !va || (b.zoho_id !== va.zoho_id && b.name !== va.name));
   return projects.map((p) => {
     const c = coverage.find((x) => x.project_id === p.id);
     const chosen = c ? c.backup_zoho_id || 'open' : '';
+    const past = (zohoId) => {
+      const text = historyText(history, zohoId, p.id, requestId);
+      return text ? ` · ${text}` : '';
+    };
     const kept = chosen && chosen !== 'open' && !choices.some((b) => b.zoho_id === chosen)
-      ? `<option value="${esc(chosen)}" selected>${esc(c.backup_name || 'Chosen backup')}</option>` : '';
+      ? `<option value="${esc(chosen)}" selected>${esc(c.backup_name || 'Chosen backup')}${esc(past(chosen))}</option>` : '';
     return `<label>${esc(p.client)}</label>
       <select name="cover_${va.id}_${esc(p.id || 'all')}" aria-label="${esc(`Who covers ${p.client}`)}">
         <option value="">No coverage needed</option>
         <option value="open" ${chosen === 'open' ? 'selected' : ''}>Needs coverage, backup not chosen yet</option>
-        ${kept}${choices.map((b) => `<option value="${esc(b.zoho_id)}" ${b.zoho_id === chosen ? 'selected' : ''}>${esc(b.name)} (${esc(b.status)})</option>`).join('')}
+        ${kept}${choices.map((b) => `<option value="${esc(b.zoho_id)}" ${b.zoho_id === chosen ? 'selected' : ''}>${esc(b.name)} (${esc(b.status)})${esc(past(b.zoho_id))}</option>`).join('')}
       </select>`;
   }).join('');
 }
@@ -623,7 +638,12 @@ function requestCards(requests, forAdmin, ctx = {}) {
   return requests.map((r) => {
     const [label, tone] = requestStatus(r);
     const shortNotice = !r.added_by_admin && r.created_at && r.start_date < addDays(r.created_at.slice(0, 10), 14);
-    const sub = `${esc(dateRange(r.start_date, r.end_date))} · ${coverageText(r)}${shortNotice ? ` · <span style="color:var(--warn);font-weight:700">Less than 2 weeks' notice</span>` : ''}`;
+    const warn = (text) => ` · <span style="color:var(--warn);font-weight:700">${text}</span>`;
+    const sub = `${esc(dateRange(r.start_date, r.end_date))} · ${coverageText(r)}${shortNotice ? warn("Less than 2 weeks' notice") : ''}`
+      + (forAdmin && r.nearby?.length ? warn(`Also off within a week: ${esc(r.nearby.join('; '))}`) : '');
+    // For example "Shianne Catalano has never covered this client (Cleaning Ninjas)".
+    const histories = forAdmin && ctx.history && r.kind !== 'emergency' ? (r.coverage || []).filter((c) => c.backup_zoho_id && c.project_id).map((c) =>
+      `${esc(c.backup_name)} has ${esc(historyText(ctx.history, c.backup_zoho_id, c.project_id, r.id))} (${esc(c.client)})`) : [];
     const checklists = forAdmin ? (r.coverage || []).map((c) => {
       const name = c.project_id ? ` (${esc(c.client)})` : '';
       return [
@@ -637,6 +657,7 @@ function requestCards(requests, forAdmin, ctx = {}) {
         · ${r.project_names ? `Only these projects: <b>${esc(r.project_names)}</b>` : 'All projects'}
         ${r.decided_by_name ? ` · ${esc(r.status)} by <b>${esc(r.decided_by_name)}</b>` : ''}
         ${forAdmin && !ctx.back ? ` · <a href="/admin/time-off/${r.id}">Details and next steps</a>` : ''}</p>
+      ${histories.length ? `<p class="meta">Coverage history: ${histories.join(' · ')}</p>` : ''}
       ${checklists}
       ${forAdmin ? requestActions(r, ctx) : ''}`;
     return item({
@@ -671,7 +692,7 @@ function requestActions(r, ctx) {
 }
 
 // The admin form to change a request's VA, type, dates, and who covers each project.
-function editForm(r, { vas, backups, vaProjects, back }) {
+function editForm(r, { vas, backups, vaProjects, back, history }) {
   const requester = vas.find((v) => v.id === r.user_id) || { id: r.user_id };
   return `<details class="section" style="margin:12px 0 0;box-shadow:none;background:var(--surface-2)"><summary>Edit${icon('chevron', 'chev')}</summary>
     <form method="post" action="/admin/time-off/${r.id}/edit" style="padding:0 16px 14px">
@@ -688,7 +709,7 @@ function editForm(r, { vas, backups, vaProjects, back }) {
       </div>
       <p class="small" style="margin:12px 0 0"><b>Coverage, per project.</b> Each project that needs coverage gets its own ClickUp checklist when approved.
         Emergencies have no coverage. After changing the VA, save, then choose coverage for the new VA's projects.</p>
-      ${coverageSelects(requester, coverableProjects(r, vaProjects), backups, r.coverage)}
+      ${coverageSelects(requester, coverableProjects(r, vaProjects), backups, r.coverage, history, r.id)}
       <button>Save changes</button>
     </form></details>`;
 }
@@ -718,14 +739,14 @@ function nextSteps(r) {
 }
 
 // One request on its own page, with its next steps. The calendar links here.
-export function requestPage({ user, request: r, vas, backups, vaProjects, message }) {
+export function requestPage({ user, request: r, vas, backups, vaProjects, history, message }) {
   const back = `/admin/time-off/${r.id}`;
   return layout({
     title: `${r.name} · ${KIND_LABEL[r.kind] || 'Time off'}`, user, active: '/admin/time-off', message,
     body: `<p class="lead"><a href="/admin/time-off">← All time off</a> · <a href="/admin/calendar?month=${esc(r.start_date.slice(0, 7))}">Calendar</a></p>
     ${section({ title: 'Next steps', open: true, tone: requestStatus(r)[1] === 'warn' ? 'attention' : '',
       body: `<ul style="margin:0 8px 8px;padding-left:20px;line-height:1.7">${nextSteps(r).map((s) => `<li>${s}</li>`).join('')}</ul>` })}
-    ${section({ title: 'Request', open: true, body: requestCards([r], true, { vas, backups, vaProjects, back, open: true }) })}`,
+    ${section({ title: 'Request', open: true, body: requestCards([r], true, { vas, backups, vaProjects, history, back, open: true }) })}`,
   });
 }
 
@@ -867,8 +888,8 @@ export function historyPage({ user, month, prev, next, dates, vas, cells }) {
   });
 }
 
-export function timeOffPage({ user, pending, current, recent, vas, unmatched, vaProjects, backups, allBackups = backups, clickupReady, formUrl, message }) {
-  const ctx = { vas, backups, vaProjects };
+export function timeOffPage({ user, pending, current, recent, vas, unmatched, vaProjects, backups, allBackups = backups, history, clickupReady, formUrl, message }) {
+  const ctx = { vas, backups, vaProjects, history };
   const waiting = unmatched.length + pending.length;
   return layout({
     title: 'Time off', user, active: '/admin/time-off', message,
@@ -894,7 +915,7 @@ export function timeOffPage({ user, pending, current, recent, vas, unmatched, va
         </div>
         ${vas.map((v) => `<div data-va="${v.id}" hidden>
           <p class="small" style="margin:12px 0 0"><b>Coverage, per project</b> (not used for emergencies)</p>
-          ${coverageSelects(v, coverableProjects({ user_id: v.id }, vaProjects), backups)}
+          ${coverageSelects(v, coverableProjects({ user_id: v.id }, vaProjects), backups, [], history)}
         </div>`).join('')}
         <label for="pn">Note (optional)</label><input id="pn" name="note" type="text" maxlength="1000">
         <button>${icon('plus')} Add</button>

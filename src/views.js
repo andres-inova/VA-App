@@ -263,6 +263,7 @@ button.busy::after{content:"";width:14px;height:14px;border-radius:50%;border:2p
 .timerbar a{color:inherit;text-decoration:none}.timerbar form{margin:0}.timerbar button{margin:0}
 .timerbar.stopped{background:var(--warn-bg);color:var(--warn);padding:12px 14px}
 #timer{scroll-margin-top:80px}[data-since],.bigtime{font-variant-numeric:tabular-nums}.bigtime{font-size:36px;font-weight:800;line-height:1.2}
+a.item.pick{display:block;color:inherit;text-decoration:none;border-radius:12px}a.item.pick:hover{background:var(--surface-2)}a.item.pick .item-head{cursor:pointer}
 .proj-tabs{margin:0 0 16px}.proj-tabs .chip{text-decoration:none;font-size:14px;padding:7px 14px;box-shadow:var(--shadow)}.proj-tabs .chip.on{background:var(--accent);color:#fff}
 .inline-add{display:flex;gap:8px;align-items:center;padding:8px}.inline-add input{flex:1}.inline-add button{margin:0}
 .list-opts{margin:4px 8px 0}.list-opts>summary{cursor:pointer;color:var(--muted);font-size:13px;font-weight:700;list-style:none;padding:4px 0}
@@ -372,6 +373,19 @@ const SCRIPT = `<script type="speculationrules">{"prefetch":[{"where":{"href_mat
       live.replaceWith(fresh); live = fresh; stamp();
     }).catch(function () {});
   }, 60000);
+  // Pages with data-remember (Tasks & time) start with everything closed, but keep the sections
+  // a person opened during this visit open after a save reloads the page.
+  document.querySelectorAll('[data-remember]').forEach(function (box) {
+    var key = 'open:' + box.dataset.remember, open = {};
+    try { open = JSON.parse(sessionStorage.getItem(key) || '{}'); } catch (e) {}
+    box.querySelectorAll('details[data-key]').forEach(function (d) {
+      if (open[d.dataset.key]) d.open = true;
+      d.addEventListener('toggle', function () {
+        if (d.open) open[d.dataset.key] = 1; else delete open[d.dataset.key];
+        try { sessionStorage.setItem(key, JSON.stringify(open)); } catch (e) {}
+      });
+    });
+  });
   // Running timers count up every second.
   function tick() {
     document.querySelectorAll('[data-since]').forEach(function (el) {
@@ -1291,8 +1305,8 @@ export function workPage({ user, day, projects, project, lists, logs, week, this
 
   const error = zohoError ? `<div class="toast bad" role="alert">${esc(zohoError)}</div>` : '';
   const switcher = projects.length > 1
-    ? `<nav class="chips proj-tabs" aria-label="Projects">${projects.map((p) =>
-      `<a class="chip ${p.id === project.id ? 'on' : 'muted'}" href="/va/work?project=${encodeURIComponent(p.id)}">${esc(p.client)}</a>`).join('')}</nav>`
+    ? `<nav class="chips proj-tabs" aria-label="Projects"><a class="chip muted" href="/va/work">‹ All projects</a>${projects.map((p) =>
+      `<a class="chip ${p.id === project.id ? 'on' : 'muted'}" href="/va/work?project=${encodeURIComponent(p.id)}" ${p.id === project.id ? 'aria-current="page"' : ''}>${esc(p.client)}</a>`).join('')}</nav>`
     : '';
 
   const taskOptions = `<option value="">General (no task)</option>${lists.filter((l) => l.tasks.length).map((l) =>
@@ -1392,7 +1406,7 @@ export function workPage({ user, day, projects, project, lists, logs, week, this
     });
   };
   const listSections = lists.map((l) => section({
-    title: l.name, count: l.tasks.length, key: `list-${l.id || 'other'}`,
+    title: l.name, count: l.tasks.length, key: `list-${l.id || 'other'}`, open: false,
     body: `${l.tasks.map((x) => taskRow(x, l)).join('') || empty('No open tasks in this list.')}
       <form class="inline-add" method="post" action="/va/work/task/add">${hidden()}<input type="hidden" name="list" value="${esc(l.id)}">
         <input type="text" name="name" required maxlength="500" placeholder="Add a task to ${esc(l.name)}" aria-label="New task name"><button class="sm">${icon('plus')} Add</button></form>
@@ -1406,7 +1420,7 @@ export function workPage({ user, day, projects, project, lists, logs, week, this
 
   return layout({
     title, user, active: '/va/work', message,
-    body: `${error}${switcher}${timerCard}
+    body: `${error}${switcher}${timerCard}<div data-remember="work-${esc(project.id)}">
     ${section({
       title: 'Log time', open: false, key: 'log-time',
       hint: 'Add time you worked without the timer. It is saved in Zoho under your name.',
@@ -1417,7 +1431,7 @@ export function workPage({ user, day, projects, project, lists, logs, week, this
         <button>${icon('check')} Save to Zoho</button></form>`,
     })}
     ${section({
-      title: `My time · ${formatDate(week, false)} – ${formatDate(addDays(week, 6), false)}`, count: `${asHours(total)} h`, key: 'my-time',
+      title: `My time · ${formatDate(week, false)} – ${formatDate(addDays(week, 6), false)}`, count: `${asHours(total)} h`, key: 'my-time', open: false,
       hint: `Billable ${asHours(billable)} h · Non billable ${asHours(total - billable)} h. Zoho only accepts time from recent days (up to 10 hours a day and 50 a week).`,
       body: `${logsError ? `<div class="toast bad" style="margin:0 8px 10px">${esc(logsError)}</div>` : ''}${weekNav}${logItems || (logsError ? '' : empty('No time logged this week.'))}`,
     })}
@@ -1426,8 +1440,26 @@ export function workPage({ user, day, projects, project, lists, logs, week, this
       title: 'Add a task list', open: false, key: 'add-list',
       body: `<form class="inline-add" method="post" action="/va/work/list/add">${hidden()}
         <input type="text" name="name" required maxlength="500" placeholder="Task list name" aria-label="Task list name"><button class="sm">${icon('plus')} Add list</button></form>`,
-    })}
+    })}</div>
     ${startForms}`,
+  });
+}
+
+// Tasks & time for a VA with more than one project: choose the project first.
+export function workPickPage({ user, day, projects, message }) {
+  const t = user.timer;
+  const today = new Map(day.projects.map((p) => [p.id, p]));
+  const rows = projects.map((p) => {
+    const running = t && t.project_id === p.id;
+    const sub = today.has(p.id) ? `Today${today.get(p.id).startLabel ? ` · starts ${today.get(p.id).startLabel}` : ''}` : 'Not scheduled today';
+    return `<a class="item flat pick" href="/va/work?project=${encodeURIComponent(p.id)}"><div class="item-head">${avatar(p.client)}
+      <div class="grow"><div class="title">${esc(p.client)}</div><div class="sub">${esc(sub)}</div></div>
+      ${running ? chip(t.stopped_at ? 'Timer to save' : 'Timer running', t.stopped_at ? 'warn' : 'good') : ''}${icon('chevron', 'chev')}</div></a>`;
+  }).join('');
+  return layout({
+    title: 'Tasks & time', user, active: '/va/work', message,
+    body: `${timerBar(user)}<p class="lead">Choose the project you want to log time or work on.</p>
+    <div class="card" style="padding:8px">${rows}</div>`,
   });
 }
 

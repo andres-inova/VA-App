@@ -204,6 +204,8 @@ async function workRoutes(env, user, path, method, field, message, url) {
   const back = (params) => redirect(`/va/work?${new URLSearchParams({ project: projectId, ...params })}`);
 
   if (path === '/va/work' && method === 'GET') {
+    // A VA with more than one project chooses the project first.
+    if (!url.searchParams.get('project') && projects.length > 1) return page(views.workPickPage({ user, day, projects, message }));
     // Weeks run Sunday to Saturday, as in Zoho.
     const weekParam = url.searchParams.get('week');
     const today = day.local.date;

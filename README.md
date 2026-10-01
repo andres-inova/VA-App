@@ -211,7 +211,7 @@ Setup, done once in the Slack app you created (VA App):
 
 ## Tasks & time (Zoho Projects)
 
-VAs open **Tasks & time** in the menu (on phones, in the bottom bar). Everything they do there is saved straight into Zoho Projects, on the project the app assigned to them. A VA with several projects switches between them with the buttons at the top.
+VAs open **Tasks & time** in the menu (on phones, in the bottom bar). Everything they do there is saved straight into Zoho Projects, on the project the app assigned to them. A VA with several projects first chooses the project from a list (with today's start time for each); inside a project, the buttons at the top switch to another project or go back to the list. Every section on the page (Log time, My time, each task list) starts closed; sections the VA opens stay open while they use the page, even after saving.
 
 - **Tasks and task lists**: the same lists and open tasks as in Zoho. VAs can add, rename, move and trash tasks, and add, rename and trash task lists. New task lists are visible to clients (External), like the existing ones.
 - **Timer**: **Start** next to a task (or **Start a general timer**). The timer keeps running on the app's server, so closing the app or locking the phone doesn't stop it. A bar at the top of every page shows it. **Stop** opens a form with the date, start and end times already filled in; the VA adds notes, picks Billable or Non Billable, and clicks **Save to Zoho** (or **Discard**). A timer that runs 8 hours stops by itself and waits to be saved the same way.

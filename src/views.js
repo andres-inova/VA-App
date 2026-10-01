@@ -45,6 +45,15 @@ const MESSAGES = {
   'list-added': ['good', 'Task list added in Zoho.'],
   'list-updated': ['good', 'Task list renamed in Zoho.'],
   'list-deleted': ['good', 'Task list trashed in Zoho.'],
+  'sop-unreadable': ['bad', 'The SOP could not be saved. Please try again.'],
+  'sop-empty': ['bad', 'Saved, but not marked complete yet: please fill in your steps first.'],
+  'sop-draft': ['good', 'Saved. It is not marked complete yet; come back any time to finish it.'],
+  'sop-complete': ['good', 'Saved and marked complete. Thank you!'],
+  'sop-uploaded': ['good', 'File uploaded. The SOP for this project is done.'],
+  'sop-no-file': ['bad', 'Please choose a file to upload.'],
+  'sop-file-type': ['bad', "That kind of file can't be uploaded. Please use a PDF, Word, Excel or text file, or a picture."],
+  'sop-file-big': ['bad', 'That file is too big. The limit is 15 MB.'],
+  'sop-file-missing': ['bad', 'The file could not be found. Please upload it again.'],
 };
 
 // Status of a day: [label, color, symbol for the History grid].
@@ -88,6 +97,8 @@ const ICON_PATHS = {
   play: '<path d="M7 4.5v15l12-7.5z"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  doc: '<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h8"/>',
+  upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
 };
 
 const icon = (name, cls = '') =>
@@ -394,10 +405,11 @@ export function layout({ title, user, active, message, body }) {
 
   const pending = user.pending_requests || 0;
   const groups = [];
-  if (user.is_va) groups.push(['Me', [['/va', 'My day', 'sun'], ['/va/work', 'Tasks & time', 'tasks']]]);
+  const sopsToDo = user.sops_todo?.length || 0;
+  if (user.is_va) groups.push(['Me', [['/va', 'My day', 'sun'], ['/va/work', 'Tasks & time', 'tasks'], ['/va/sops', 'Coverage SOPs', 'doc', sopsToDo]]]);
   if (user.is_admin) {
     groups.push(['Daily', [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/calendar', 'Calendar', 'calendar'], ['/admin/history', 'History', 'history']]]);
-    groups.push(['Setup', [['/admin/projects', 'Projects', 'projects'], ['/admin/people', 'People', 'people'],
+    groups.push(['Setup', [['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'Coverage SOPs', 'doc'], ['/admin/people', 'People', 'people'],
       ['/admin/holidays', 'Holidays', 'holidays'], ['/admin/settings', 'Settings', 'settings']]]);
   }
   const link = ([href, label, ic, badge]) =>
@@ -415,7 +427,7 @@ export function layout({ title, user, active, message, body }) {
   // Phone bottom bar: the most-used pages, plus "Menu" for the rest.
   const tabs = user.is_admin
     ? [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/projects', 'Projects', 'projects'], ['/admin/people', 'People', 'people']]
-    : [['/va', 'My day', 'sun'], ['/va/work', 'Tasks & time', 'tasks']];
+    : [['/va', 'My day', 'sun'], ['/va/work', 'Tasks & time', 'tasks'], ['/va/sops', 'SOPs', 'doc', sopsToDo]];
   const tabbar = `<nav class="tabbar" aria-label="Main pages">${tabs.map(([href, label, ic, badge]) =>
     `<a href="${href}" class="${href === active ? 'on' : ''}">${icon(ic)}${label}${badge ? `<span class="badge">${badge}</span>` : ''}</a>`).join('')}
     <label for="nav-toggle">${icon('menu')}Menu</label></nav>`;
@@ -424,7 +436,7 @@ export function layout({ title, user, active, message, body }) {
 <div class="app">${sidebar}<label for="nav-toggle" class="scrim" aria-hidden="true"></label>
   <div class="main-col">
     <header class="topbar"><label for="nav-toggle" class="menu" aria-label="Open menu">${icon('menu')}</label><h1>${esc(title)}</h1></header>
-    <main>${toast}${active === '/va/work' ? '' : timerBar(user)}${body}</main>
+    <main>${toast}${active === '/va/work' ? '' : timerBar(user)}${active === '/va/sops' ? '' : sopBanner(user)}${body}</main>
   </div>
 </div>${tabbar}${SCRIPT}</body></html>`;
 }
@@ -440,6 +452,15 @@ function timerBar(user) {
   }
   return `<div class="timerbar">${icon('timer')}<a class="grow" href="${href}"><b data-since="${esc(t.started_at)}">0:00:00</b> · ${where}</a>
     <form method="post" action="/va/work/timer/stop"><input type="hidden" name="project" value="${esc(t.project_id)}"><button class="sm">${icon('stop')} Stop</button></form></div>`;
+}
+
+// A reminder on every VA page while any of their projects has no Coverage SOP yet.
+function sopBanner(user) {
+  const todo = user.sops_todo || [];
+  if (!todo.length) return '';
+  const names = todo.map((s) => s.client).join(', ');
+  return `<a class="timerbar stopped" href="/va/sops">${icon('doc')}<span class="grow"><b>Please complete your Coverage SOP${todo.length > 1 ? 's' : ''}</b> for ${esc(names)}.
+    A backup VA follows it when you are off. Fill in the template or upload your own.</span>${icon('chevron')}</a>`;
 }
 
 // ---- Login pages ----
@@ -651,6 +672,9 @@ function requestCards(requests, forAdmin, ctx = {}) {
         c.clickup_error && r.status !== 'pending' && `<p class="meta" style="color:var(--bad)">ClickUp${name}: ${esc(c.clickup_error)}</p>`,
       ].filter(Boolean).join('');
     }).join('') : '';
+    // Each covered project's Coverage SOP, so the backup knows what to do. For example "Pool Partners: Uploaded".
+    const sops = forAdmin && r.kind !== 'emergency' ? (r.coverage || []).filter((c) => c.sop).map((c) =>
+      `<a href="/sops/${esc(encodeURIComponent(c.project_id))}">${esc(c.client)}</a>: ${c.sop.done ? esc(c.sop.label) : `<span style="color:var(--warn);font-weight:700">${esc(c.sop.label)}</span>`}`) : [];
     const body = `
       ${r.details || r.note ? `<div class="bubble">${esc([r.details, r.note].filter(Boolean).join('\n'))}</div>` : ''}
       <p class="meta">${r.added_by_admin ? 'Added by an admin' : r.source === 'form' ? 'From the request form' : 'Request'}
@@ -658,6 +682,7 @@ function requestCards(requests, forAdmin, ctx = {}) {
         ${r.decided_by_name ? ` · ${esc(r.status)} by <b>${esc(r.decided_by_name)}</b>` : ''}
         ${forAdmin && !ctx.back ? ` · <a href="/admin/time-off/${r.id}">Details and next steps</a>` : ''}</p>
       ${histories.length ? `<p class="meta">Coverage history: ${histories.join(' · ')}</p>` : ''}
+      ${sops.length ? `<p class="meta">Coverage SOP: ${sops.join(' · ')}</p>` : ''}
       ${checklists}
       ${forAdmin ? requestActions(r, ctx) : ''}`;
     return item({
@@ -733,6 +758,8 @@ function nextSteps(r) {
     if (!c.backup_name) steps.push(`Find a backup VA${where(c)}, then choose them under <b>Edit</b>.`);
     if (!c.clickup_list_url) steps.push(`Create the ClickUp checklist${where(c)} (it could not be created yet).`);
     else steps.push(`Work through the <a href="${esc(c.clickup_list_url)}" target="_blank" rel="noopener">ClickUp checklist</a>${where(c)}.`);
+    if (c.sop && !c.sop.done) steps.push(`Ask ${esc(r.name)} to finish the <a href="/sops/${esc(encodeURIComponent(c.project_id))}">Coverage SOP</a>${where(c)} before the time off (now: ${esc(c.sop.label.toLowerCase())}).`);
+    else if (c.sop && c.sop.key !== 'not_needed') steps.push(`Share the <a href="/sops/${esc(encodeURIComponent(c.project_id))}">Coverage SOP</a>${where(c)} with the backup VA.`);
   }
   if (covered.every((c) => c.backup_name)) steps.unshift('Coverage is confirmed: every project has a backup VA.');
   return steps;
@@ -1401,5 +1428,276 @@ export function workPage({ user, day, projects, project, lists, logs, week, this
         <input type="text" name="name" required maxlength="500" placeholder="Task list name" aria-label="Task list name"><button class="sm">${icon('plus')} Add list</button></form>`,
     })}
     ${startForms}`,
+  });
+}
+
+// ---- Coverage SOPs ----
+
+const sopHref = (id) => `/sops/${esc(encodeURIComponent(id))}`;
+const FILE_ACCEPT = '.pdf,.doc,.docx,.odt,.rtf,.txt,.xls,.xlsx,.ods,.png,.jpg,.jpeg';
+const fileSize = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+
+// The VA's projects and whether each has its Coverage SOP, plus the SOPs of clients they are covering.
+export function vaSopsPage({ user, sops, covering = [], message }) {
+  const todo = sops.filter((s) => !s.status.done);
+  const done = sops.filter((s) => s.status.done);
+  const row = (s) => item({
+    title: esc(s.client),
+    sub: s.status.key === 'not_needed' ? 'An admin decided this project does not need one.' : s.file_name ? `File: ${esc(s.file_name)}` : '',
+    side: chip(s.status.label, s.status.tone),
+    open: !s.status.done,
+    body: `<div class="actions">
+      <a class="btn sm" href="${sopHref(s.id)}">${icon('doc')} ${s.has_content ? 'Open my SOP' : 'Fill in the template'}</a>
+      <a class="btn sm plain" href="${sopHref(s.id)}#upload">${icon('upload')} ${s.file_key ? 'Replace my file' : 'Upload my own'}</a>
+      ${s.file_key ? `<a class="btn sm plain" href="${sopHref(s.id)}/file" target="_blank" rel="noopener">${icon('external')} Open my file</a>` : ''}
+    </div>`,
+  });
+  const coverRow = (c) => {
+    const readable = c.has_content || c.file_key;
+    return item({
+      name: c.va_name,
+      title: `${esc(c.client)} · for ${esc(c.va_name)}`,
+      sub: esc(dateRange(c.start_date, c.end_date)),
+      side: chip(readable ? 'SOP ready' : 'No SOP yet', readable ? 'good' : 'warn'),
+      body: readable
+        ? `<div class="actions">${c.has_content ? `<a class="btn sm" href="${sopHref(c.id)}">${icon('doc')} Read the SOP</a>` : ''}
+            ${c.file_key ? `<a class="btn sm plain" href="${sopHref(c.id)}/file" target="_blank" rel="noopener">${icon('external')} Open the file</a>` : ''}</div>`
+        : `<p class="meta">${esc(c.va_name)} has not written it yet. Ask them or the VA lead for the steps.</p>`,
+    });
+  };
+  return layout({
+    title: 'Coverage SOPs', user, active: '/va/sops', message,
+    body: `<p class="lead">Each of your clients needs a Coverage SOP: the steps a backup VA follows to run that client's day when you are off.
+      For each client, <b>fill in the template</b> here in the app, or <b>upload your own file</b> (PDF, Word, Excel or a picture). Either one counts.</p>
+    ${section({ title: 'Still to do', count: todo.length, tone: todo.length ? 'attention' : '', body: todo.length ? todo.map(row).join('') : empty('All done. Thank you!') })}
+    ${section({ title: 'Done', count: done.length, open: !todo.length, body: done.length ? done.map(row).join('') : empty('None yet.') })}
+    ${covering.length ? section({
+      title: 'Clients you are covering', count: covering.length,
+      hint: 'You are the backup for these. Read their SOP before the time off starts.',
+      body: covering.map(coverRow).join(''),
+    }) : ''}`,
+  });
+}
+
+// The page for one project's SOP: upload a file, or fill in the template (sections of tables).
+// kinds: KINDS from sops.js. readOnly: a backup VA reading it.
+export function sopEditPage({ user, project, sop, status, content, kinds, readOnly = false, vas, message }) {
+  const here = sopHref(project.id);
+  const vaOnly = user.is_va && !user.is_admin;
+  const done = Boolean(sop?.completed_at);
+  // The SOP as JSON for the script. "<" is escaped so the text can't end the script early.
+  const data = JSON.stringify({ content, kinds, readOnly }).replace(/</g, '\\u003c');
+  const fileLine = sop?.file_key
+    ? `<p class="meta"><a href="${here}/file" target="_blank" rel="noopener">${icon('external')} ${esc(sop.file_name)}</a>
+        · ${esc(fileSize(sop.file_size || 0))} · uploaded ${esc(formatDate(sop.uploaded_at.slice(0, 10)))}</p>`
+    : '';
+  const upload = readOnly ? fileLine || empty('No file uploaded.') : `${fileLine}
+    <form method="post" action="${here}/upload" enctype="multipart/form-data">
+      <label for="sop-file">${sop?.file_key ? 'Replace it with another file' : 'Choose your file'}</label>
+      <input id="sop-file" type="file" name="file" accept="${FILE_ACCEPT}" required>
+      <p class="small">PDF, Word, Excel, text or a picture, up to 15 MB. Uploading a file marks this SOP as done.</p>
+      <div class="actions"><button class="sm">${icon('upload')} Upload</button></div>
+    </form>
+    ${sop?.file_key ? `<form method="post" action="${here}/remove-file" class="actions" data-confirm="Remove this file? It can't be brought back."><button class="sm danger">Remove the file</button></form>` : ''}`;
+  const tips = `<ul class="small" style="margin:0 0 10px;padding-left:20px;line-height:1.7">
+    <li>Write it for someone who has never worked with this client: every step, in order, with where to click.</li>
+    <li>Add the start and end times of the day, with the time zone.</li>
+    <li>Rename, move or remove any section, and add your own (for example "Emergency protocol" or "Handling tough situations").</li>
+    <li>Passwords are hidden on screen; press Show to see one. Only admins, this project's VAs, and a backup VA covering it can open this SOP.</li>
+    <li>Save as often as you like. Press "Save and mark complete" when it is finished.</li></ul>`;
+  const buttons = readOnly ? '' : `<div class="actions sop-save">
+      ${done ? `<button name="complete" value="1">${icon('check')} Save changes</button>`
+        : `<button name="complete" value="0" class="plain">Save</button><button name="complete" value="1">${icon('check')} Save and mark complete</button>`}
+    </div>`;
+  return layout({
+    title: `Coverage SOP · ${project.client}`, user, active: vaOnly ? '/va/sops' : '/admin/sops', message,
+    body: `<p class="lead"><a href="${vaOnly ? '/va/sops' : '/admin/sops'}">← All Coverage SOPs</a> · ${esc(project.name)}${vas.length ? ` · VA: ${esc(vas.join(', '))}` : ''}
+      · ${chip(status.label, status.tone)}${sop?.updated_at ? ` <span class="small">Last saved ${esc(formatDate(sop.updated_at.slice(0, 10)))}</span>` : ''}</p>
+    ${readOnly ? '' : '<p class="lead">Do <b>one</b> of these: upload your own SOP file, or fill in the template below. Either one counts.</p>'}
+    <div id="upload">${section({ title: readOnly ? 'Uploaded file' : 'Upload your own SOP', open: Boolean(sop?.file_key) || readOnly, body: `<div style="padding:0 8px 8px">${upload}</div>` })}</div>
+    ${section({
+      title: readOnly ? 'SOP' : 'Fill in the template', tone: 'sop-section', open: !sop?.file_key || Boolean(sop?.content),
+      body: `<div style="padding:0 8px 8px">${readOnly ? '' : tips}
+        <form method="post" action="${here}/save" id="sop-form">
+          <input type="hidden" name="content">
+          <div id="sop-editor" class="sop"><p class="small">Loading the template…</p></div>
+          ${buttons}
+        </form></div>`,
+    })}
+    <script type="application/json" id="sop-data">${data}</script>
+    <style>${SOP_CSS}</style>
+    <script>${SOP_SCRIPT}</script>`,
+  });
+}
+
+const SOP_CSS = `
+/* Lets the Save buttons stay in view while scrolling. */
+.section.sop-section{overflow:visible}
+.sop-sec{border:1.5px solid var(--line);border-radius:14px;padding:12px;margin:0 0 14px;background:var(--surface)}
+.sop-top{display:flex;gap:6px;align-items:center}.sop-top input{font-weight:800}.sop-top button{margin:0;flex:none}
+.sop-sec h3{margin:0 0 8px;font-size:16px}
+.sop-kind{font-size:12px;color:var(--muted);margin:4px 2px 8px}
+.sop-head,.sop-row{display:grid;grid-template-columns:repeat(var(--cols),minmax(0,1fr)) 34px;gap:6px;align-items:start}
+.sop.ro .sop-head,.sop.ro .sop-row{grid-template-columns:repeat(var(--cols),minmax(0,1fr))}
+.sop-head{font-size:13px;font-weight:800;color:var(--muted);padding:0 2px 4px}
+.sop-row{padding:4px 0}.sop-row+.sop-row{border-top:1px dashed var(--line)}
+.sop textarea{min-height:42px;resize:none;overflow:hidden;padding:8px 10px;font-size:14px}
+.sop .sop-cell label{display:none;margin:0 0 2px;font-size:12px;color:var(--muted)}
+.sop .pw{display:flex;gap:4px;align-items:center}.sop .pw input{padding:8px 10px;font-size:14px}.sop .pw button{margin:0;padding:6px 10px;flex:none}
+.sop .rotext{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;padding:6px 2px}
+.sop .x{margin:4px 0 0;padding:6px;width:34px;height:34px;justify-content:center;background:transparent;color:var(--muted)}
+.sop .x:hover{color:var(--bad)}.sop .add-row{margin-top:8px}
+.sop-add{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 4px}.sop-add select{width:auto}.sop-add button{margin:0}
+.sop-save{position:sticky;bottom:12px;background:var(--surface);padding:10px;border-radius:99px;box-shadow:var(--shadow);width:max-content;max-width:100%}
+@media (max-width:860px){.sop-head{display:none}.sop-row,.sop.ro .sop-row{grid-template-columns:1fr;gap:4px;padding:8px 0}.sop .sop-cell label{display:block}
+  .sop .x{justify-self:end}.sop-save{bottom:80px}}
+`;
+
+// Builds the editor from the JSON in #sop-data, and puts the edited SOP back in the form's
+// "content" field when it is saved. Text is set with .value and .textContent, never as HTML.
+const SOP_SCRIPT = `
+(function () {
+  var data = JSON.parse(document.getElementById('sop-data').textContent);
+  var kinds = data.kinds, ro = data.readOnly, root = document.getElementById('sop-editor');
+  var form = document.getElementById('sop-form'), dirty = false;
+  var HIDDEN = '\\u2022\\u2022\\u2022\\u2022\\u2022\\u2022\\u2022\\u2022';
+  if (ro) root.classList.add('ro');
+  function el(tag, props, kids) {
+    var e = document.createElement(tag);
+    for (var k in props || {}) {
+      if (k === 'text') e.textContent = props[k];
+      else if (k === 'className' || k === 'value' || k === 'type') e[k] = props[k];
+      else e.setAttribute(k, props[k]);
+    }
+    (kids || []).forEach(function (c) { if (c) e.appendChild(c); });
+    return e;
+  }
+  function grow(t) { t.style.height = 'auto'; t.style.height = (t.scrollHeight + 3) + 'px'; }
+  function button(text, title, onclick, cls) {
+    var b = el('button', { type: 'button', className: 'sm plain ' + (cls || ''), text: text, title: title, 'aria-label': title });
+    b.addEventListener('click', function () { onclick(); dirty = true; });
+    return b;
+  }
+  function showButton(onToggle) {
+    var b = el('button', { type: 'button', className: 'sm plain', text: 'Show' });
+    b.addEventListener('click', function () { var on = b.textContent === 'Show'; onToggle(on); b.textContent = on ? 'Hide' : 'Show'; });
+    return b;
+  }
+  function textBox(value, label, max, cls) {
+    var t = el('textarea', { value: value, rows: '1', 'aria-label': label, maxlength: String(max), className: cls || '' });
+    t.addEventListener('input', function () { grow(t); });
+    setTimeout(function () { grow(t); });
+    return t;
+  }
+  function field(value, column) {
+    if (column === 'Password') {
+      if (ro) {
+        if (!value) return el('div', { className: 'rotext', text: '-' });
+        var shown = el('span', { className: 'rotext', text: HIDDEN });
+        return el('div', { className: 'pw' }, [shown, showButton(function (on) { shown.textContent = on ? value : HIDDEN; })]);
+      }
+      var input = el('input', { type: 'password', value: value, autocomplete: 'off', 'data-lpignore': 'true', 'aria-label': column, maxlength: '5000' });
+      return el('div', { className: 'pw' }, [input, showButton(function (on) { input.type = on ? 'text' : 'password'; })]);
+    }
+    return ro ? el('div', { className: 'rotext', text: value || '-' }) : textBox(value, column, 5000);
+  }
+  function addRow(sec, cells, body) {
+    var cols = kinds[sec.dataset.kind].columns;
+    var row = el('div', { className: 'sop-row' }, cols.map(function (c, i) {
+      return el('div', { className: 'sop-cell' }, [el('label', { text: c }), field(cells[i] || '', c)]);
+    }));
+    if (!ro) row.appendChild(button('\\u00d7', 'Remove this row', function () { row.remove(); }, 'x'));
+    body.appendChild(row);
+    return row;
+  }
+  function sectionEl(s) {
+    var kind = kinds[s.kind];
+    var sec = el('div', { className: 'sop-sec' });
+    sec.dataset.kind = s.kind;
+    if (ro) sec.appendChild(el('h3', { text: s.title || kind.label }));
+    else {
+      var title = el('input', { type: 'text', value: s.title || '', placeholder: 'Section name', maxlength: '200', 'aria-label': 'Section name', className: 'sop-title' });
+      sec.appendChild(el('div', { className: 'sop-top' }, [title,
+        button('\\u2191', 'Move this section up', function () { if (sec.previousElementSibling) root.insertBefore(sec, sec.previousElementSibling); }),
+        button('\\u2193', 'Move this section down', function () { var n = sec.nextElementSibling; if (n) root.insertBefore(n, sec); }),
+        button('Remove', 'Remove this section', function () {
+          if (confirm('Remove the section "' + (title.value || kind.label) + '" and everything in it?')) sec.remove();
+        }, 'danger')]));
+      sec.appendChild(el('div', { className: 'sop-kind', text: kind.label }));
+    }
+    if (s.kind === 'text') {
+      if (ro) sec.appendChild(el('div', { className: 'rotext', text: s.text || '-' }));
+      else { var t = textBox(s.text || '', s.title || 'Text', 20000, 'sop-text'); t.style.minHeight = '120px'; sec.appendChild(t); }
+      return sec;
+    }
+    sec.style.setProperty('--cols', kind.columns.length);
+    sec.appendChild(el('div', { className: 'sop-head' }, kind.columns.map(function (c) { return el('div', { text: c }); })));
+    var body = el('div', { className: 'sop-rows' });
+    (s.rows || []).forEach(function (r) { addRow(sec, r, body); });
+    if (ro && !(s.rows || []).length) body.appendChild(el('p', { className: 'small', text: 'Nothing here.' }));
+    sec.appendChild(body);
+    if (!ro) sec.appendChild(button('+ Add a row', 'Add a row', function () {
+      var f = addRow(sec, [], body).querySelector('textarea,input'); if (f) f.focus();
+    }, 'add-row'));
+    return sec;
+  }
+  root.textContent = '';
+  data.content.sections.forEach(function (s) { if (kinds[s.kind]) root.appendChild(sectionEl(s)); });
+  if (ro) return;
+  // Adding a section of the chosen kind at the end.
+  var pick = el('select', { 'aria-label': 'Kind of section' }, Object.keys(kinds).map(function (k) { return el('option', { value: k, text: kinds[k].label }); }));
+  root.after(el('div', { className: 'sop-add' }, [el('span', { className: 'small', text: 'Add a section:' }), pick,
+    button('+ Add section', 'Add a section', function () {
+      var k = pick.value, s = { kind: k, title: '', text: '', rows: k === 'text' ? [] : [kinds[k].columns.map(function () { return ''; })] };
+      var sec = sectionEl(s); root.appendChild(sec); sec.querySelector('.sop-title').focus();
+    })]));
+  root.addEventListener('input', function () { dirty = true; });
+  // Reads the page back into { sections: [...] } for saving.
+  form.addEventListener('submit', function () {
+    var sections = Array.prototype.map.call(root.querySelectorAll('.sop-sec'), function (sec) {
+      var kind = sec.dataset.kind, title = sec.querySelector('.sop-title').value;
+      if (kind === 'text') return { kind: kind, title: title, text: sec.querySelector('.sop-text').value };
+      return { kind: kind, title: title, rows: Array.prototype.map.call(sec.querySelectorAll('.sop-row'), function (row) {
+        return Array.prototype.map.call(row.querySelectorAll('.sop-cell textarea, .sop-cell input'), function (f) { return f.value; });
+      }) };
+    });
+    form.elements.content.value = JSON.stringify({ sections: sections });
+    dirty = false;
+  });
+  window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+})();
+`;
+
+// Admins: every active project with a VA, and whether its Coverage SOP is done.
+export function adminSopsPage({ user, sops, message }) {
+  const todo = sops.filter((s) => !s.status.done);
+  const done = sops.filter((s) => s.status.done);
+  const count = (key) => sops.filter((s) => s.status.key === key).length;
+  const row = (s) => item({
+    name: s.client,
+    title: esc(s.client),
+    sub: `${esc(s.va_names || 'No VA')}${s.updated_at ? ` · last saved ${esc(formatDate(s.updated_at.slice(0, 10)))}${s.updated_by_name ? ` by ${esc(s.updated_by_name)}` : ''}` : ''}`,
+    side: chip(s.status.label, s.status.tone),
+    tone: 'stack',
+    body: `<p class="meta">${esc(s.name)}${s.file_name ? ` · File: ${esc(s.file_name)}` : ''}</p>
+      <div class="actions">
+        <a class="btn sm" href="${sopHref(s.id)}">${icon('doc')} Open</a>
+        ${s.file_key ? `<a class="btn sm plain" href="${sopHref(s.id)}/file" target="_blank" rel="noopener">${icon('external')} Open the file</a>` : ''}
+        <form method="post" action="/admin/sops/${esc(encodeURIComponent(s.id))}/needed">
+          <input type="hidden" name="not_needed" value="${s.not_needed ? '0' : '1'}">
+          <button class="sm plain">${s.not_needed ? 'It needs an SOP after all' : 'Mark as not needed'}</button>
+        </form>
+      </div>`,
+  });
+  return layout({
+    title: 'Coverage SOPs', user, active: '/admin/sops', message,
+    body: `<p class="lead">One Coverage SOP per project. VAs fill in the template in the app or upload their own file; either one counts as done.
+      VAs see a reminder until theirs are done.</p>
+    <div class="summary-chips">${chip(`${done.length - count('not_needed')} done`, 'good')}${chip(`${count('draft')} started`, 'warn')}${chip(`${count('missing')} not started`, 'bad')}${count('not_needed') ? chip(`${count('not_needed')} not needed`, 'muted') : ''}</div>
+    <label class="search" for="find-sop">${icon('projects')}<input id="find-sop" type="search" placeholder="Search clients or VAs" autocomplete="off" data-filter="#sop-list .item" data-empty="#sop-none"></label>
+    <div id="sop-list">
+    ${section({ title: 'Not done yet', count: todo.length, tone: todo.length ? 'attention' : '', body: todo.length ? todo.map(row).join('') : empty('Every project has its SOP.') })}
+    ${section({ title: 'Done', count: done.length, open: !todo.length, body: done.length ? done.map(row).join('') : empty('None yet.') })}
+    </div><div class="empty no-results" id="sop-none">No projects match.</div>`,
   });
 }

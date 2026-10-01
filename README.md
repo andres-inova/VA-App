@@ -274,6 +274,8 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 - **Pause all check-ins** (Settings → Check-ins, or the banner on Today): while paused, no check-ins are expected, no late alerts are sent, no days count as missed, and the automatic reports are not sent. VAs can still check in and log time. After **Resume**, only shifts that start after that moment count, so nobody gets a late alert for earlier that day.
 - **Request time off or coverage** with a button that opens the Google Form. Their requests and the admins' decisions then show on their page.
 - See their own time-off requests and the last 30 days of check-ins.
+- **Coverage SOPs** (menu: Coverage SOPs): one SOP per project, the steps a backup VA follows to run that client's day. For each project the VA either **fills in the template** in the app or **uploads their own file** (PDF, Word, Excel, text or a picture, up to 15 MB). Either one counts as done. The template comes from the "Coverage Checklist Template" Google Doc: tables of steps, login information, helpful resources and do not dos. VAs can rename, move, remove and add sections and rows, including free-text sections. Passwords are saved as typed and hidden on screen until **Show** is pressed. "Save" keeps a draft; "Save and mark complete" finishes it. Until every project has its SOP, VAs see a reminder at the top of each page and a number on the menu.
+- **Clients they are covering**: a backup VA chosen for an approved time off can read (not change) that client's SOP, from the day it is approved until a day after the time off ends. These show on their Coverage SOPs page.
 
 **Admins**
 - **Projects**: each VA's start time has a time zone picker next to it (PST, MST, CST, EST, or the VA's own zone from Zoho, the default). A VA with projects in different zones checks in by whichever starts first in real time.
@@ -283,6 +285,7 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 - **Projects**: the active projects from Zoho Projects and who is assigned to each, with a start time and work days per assignment. Admins can add, change or remove assignments.
 - **Time off**: approve or deny requests from the Google Form. Each new request sends one email to the admins who have notifications turned on. Admins can also add a **time-off or coverage period** for any VA directly, which applies right away, and cancel it later.
 - **People**: send **login invites**; sync from Zoho; **Active VAs** (with their projects and whether the app checks them), **On Deck VAs** (for reference; they can be chosen to cover), and **Admins**. Exempt a VA, set temporary passwords, add or remove admins.
+- **Coverage SOPs** (under Setup): every active project with a VA, split into **Not done yet** and **Done**, with counts at the top: done, started, not started. Each row shows the VAs, the status (Not started, Started not finished, Filled in, Uploaded), and who saved it last. Admins can open, edit or upload any SOP, and mark a project as **not needing** an SOP. On the Time off page and on each request's next steps, every covered project shows its SOP status, with a reminder to ask the VA to finish it.
 - **Holidays**: dates when nobody is expected to check in.
 - **Settings**: turn your time-off emails on or off, set the grace period, choose who gets the report emails, send a report now, and see the last email error.
 
@@ -344,6 +347,7 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 | `src/actions.js` | Check-in, shared by the app, the Slack command and the first timer of the day |
 | `src/slack-commands.js` | The `/checkin` Slack command |
 | `public/` | The app icons and the install file for phones (`manifest.webmanifest`) |
+| `src/sops.js` | Coverage SOPs: the template, saving, file uploads and who may open each one |
 | `src/timeoff.js` | Finds a VA's other time off within a week of a request |
 | `src/forms.js` | Receives responses from the time-off/coverage Google Form |
 | `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |
@@ -353,7 +357,7 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 | `src/time.js` | Time zone and date calculations |
 | `schema.sql` | The database tables, plus the 4 starting admins (used to create a new database) |
 | `migrations/` | Changes to apply to an existing database. Already applied to the online database. |
-| `wrangler.jsonc` | Cloudflare settings: app name, database, schedule, Slack IDs, sender email |
+| `wrangler.jsonc` | Cloudflare settings: app name, database, file storage for SOPs (`inova-va-sops`), schedule, Slack IDs, sender email |
 
 ## Testing on this computer
 

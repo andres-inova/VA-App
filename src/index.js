@@ -13,6 +13,7 @@ import { formatTimeIn, formatDate, addDays, partsIn, weekdayIndex, weekdayOf, RE
 import { redirect, page, isDate, isTime } from './util.js';
 import { isNearby, nearbyText } from './timeoff.js';
 import * as work from './work.js';
+import { sopRoutes, adminSopRoutes, vaSops, allSops, coveringSops } from './sops.js';
 import * as views from './views.js';
 
 export default {
@@ -96,7 +97,12 @@ async function handle(request, env) {
 
   if (user.is_va) {
     user.timer = await env.DB.prepare('SELECT t.*, p.client FROM timers t LEFT JOIN projects p ON p.id = t.project_id WHERE t.user_id = ?').bind(user.id).first();
+    // Coverage SOPs the VA still has to fill in or upload (a badge in the menu, and a card on My day).
+    user.sops_todo = (await vaSops(env, user.id)).filter((s) => !s.status.done);
   }
+
+  // Coverage SOPs: the editor, saving and uploads, for the project's VAs and for admins.
+  if (path.startsWith('/sops/')) return sopRoutes(env, user, path, method, field, form, message);
 
   if (path === '/va/work' || path.startsWith('/va/work/')) {
     if (!user.is_va) return redirect('/admin');
@@ -169,6 +175,10 @@ async function vaRoutes(env, user, path, method, field, message) {
       'SELECT * FROM attendance WHERE user_id = ? AND work_date >= ? ORDER BY work_date DESC'
     ).bind(user.id, addDays(day.local.date, -30)).all();
     return page(views.vaPage({ user, day, today, requests, history, formUrl: env.TIME_OFF_FORM_URL, message }));
+  }
+
+  if (path === '/va/sops' && method === 'GET') {
+    return page(views.vaSopsPage({ user, sops: await vaSops(env, user.id), covering: await coveringSops(env, user), message }));
   }
 
   if (path === '/va/checkin' && method === 'POST') {
@@ -430,6 +440,8 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     request.cancellable = req.status === 'approved' && req.end_date >= addDays(now.toISOString().slice(0, 10), -1);
     return page(views.requestPage({ user, request, ...data, message }));
   }
+
+  if (path === '/admin/sops' || path.startsWith('/admin/sops/')) return adminSopRoutes(env, user, path, method, field, message);
 
   // Which backup VAs are shown in the "who covers" lists: ticked = able and willing to cover.
   if (path === '/admin/time-off/backups' && method === 'POST') {
@@ -766,10 +778,12 @@ async function timeOffData(env) {
   const { results: open } = await env.DB.prepare(
     "SELECT id, user_id, start_date, end_date, kind, status FROM time_off_requests WHERE status IN ('pending', 'approved') ORDER BY start_date"
   ).all();
+  // Each project's Coverage SOP state, shown next to the projects that need coverage.
+  const sops = new Map((await allSops(env)).map((s) => [s.id, s.status]));
   const withDetails = (rows) => rows.map((r) => ({
     ...r,
     project_names: r.project_ids ? r.project_ids.split(',').map((id) => clientById.get(id) || id).join(', ') : '',
-    coverage: coverage.get(r.id) || [],
+    coverage: (coverage.get(r.id) || []).map((c) => ({ ...c, sop: sops.get(c.project_id) || null })),
     nearby: ['pending', 'approved'].includes(r.status)
       ? open.filter((o) => o.user_id === r.user_id && o.id !== r.id && isNearby(r, o)).map((o) => nearbyText(r, o)) : [],
   }));
@@ -777,7 +791,7 @@ async function timeOffData(env) {
   const hidden = new Set(row ? JSON.parse(row.value) : []);
   const { results } = await env.DB.prepare('SELECT * FROM backup_candidates ORDER BY status, name').all();
   const allBackups = results.map((b) => ({ ...b, hidden: hidden.has(b.zoho_id) ? 1 : 0 }));
-  return { vas, vaProjects, withDetails, backups: allBackups.filter((b) => !b.hidden), allBackups, history: await coverageHistory(env, vaProjects) };
+  return { vas, vaProjects, withDetails, backups: allBackups.filter((b) => !b.hidden), allBackups, history: await coverageHistory(env, vaProjects), sops };
 }
 
 // Who has covered which project before: a Map of "<backup Zoho id>|<project id>" -> [{ request_id, end_date }],

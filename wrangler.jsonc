@@ -17,6 +17,11 @@
     }
   ],
 
+  // File storage for Coverage SOPs that VAs upload instead of filling in the template.
+  "r2_buckets": [
+    { "binding": "SOP_FILES", "bucket_name": "inova-va-sops" }
+  ],
+
   // Run the scheduled job every minute (late alerts, reports, Zoho sync).
   "triggers": { "crons": ["* * * * *"] },
 

@@ -81,10 +81,11 @@ export async function handleFormWebhook(request, env) {
 
   const { results: vas } = await env.DB.prepare('SELECT id, name FROM users WHERE is_va = 1').all();
   const va = matchVA(name, vas);
+  // Coverage is not assumed: an admin chooses which projects need it (and who covers) before approving.
   if (va) {
     await env.DB.prepare(
-      `INSERT INTO time_off_requests (user_id, start_date, end_date, needs_coverage, note, details, source, form_response_id)
-       VALUES (?, ?, ?, 1, ?, ?, 'form', ?)`
+      `INSERT INTO time_off_requests (user_id, start_date, end_date, note, details, source, form_response_id)
+       VALUES (?, ?, ?, ?, ?, 'form', ?)`
     ).bind(va.id, first, last, note, details, responseId).run();
   } else {
     await env.DB.prepare(

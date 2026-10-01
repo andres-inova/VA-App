@@ -23,7 +23,6 @@ const MESSAGES = {
   'password-changed': ['good', 'Your password was changed.'],
   'admin-added': ['good', 'Admin added. Use "Set temporary password" so they can log in.'],
   'removed': ['good', 'Removed.'],
-  'choose-backup': ['bad', 'This is time off that needs coverage: choose who covers (Edit) before approving.'],
   'clickup-failed': ['bad', 'Saved, but the ClickUp checklist could not be created. The reason is shown on the request; use "Create ClickUp checklist" to try again.'],
   'clickup-created': ['good', 'ClickUp checklist created.'],
   'choose-va': ['bad', 'Please choose a VA for the request.'],
@@ -570,26 +569,57 @@ export function vaPage({ user, day, today, requests, history, formUrl, message }
 
 const KIND_LABEL = { time_off: 'Time off', emergency: 'Emergency', coverage: 'Time off' };
 const REQUEST_TONE = { pending: 'warn', approved: 'good', denied: 'bad', cancelled: 'muted' };
-const needsBackup = (r) => r.kind !== 'emergency' && Boolean(r.needs_coverage);
+const NEEDS_BACKUP = '<span style="color:var(--warn);font-weight:700">needs a backup</span>';
+
+// Who covers each project, for example "Pool Partners: covered by Ana Diaz · Rise & Shine: needs a backup".
+function coverageText(r) {
+  const rows = r.coverage || [];
+  if (r.kind === 'emergency' || !rows.length) return 'No coverage';
+  return rows.map((c) => `${c.project_id ? `${esc(c.client)}: ` : ''}${c.backup_name ? `covered by ${esc(c.backup_name)}` : NEEDS_BACKUP}`).join(' · ');
+}
+
+// The projects a request can need coverage for (the same rule as coverableProjects in index.js).
+// vaProjects: [{ user_id, id, client }] of active projects.
+function coverableProjects(r, vaProjects) {
+  const only = r.project_ids ? r.project_ids.split(',') : null;
+  const list = vaProjects.filter((p) => p.user_id === r.user_id && (!only || only.includes(p.id))).map((p) => ({ id: p.id, client: p.client }));
+  for (const c of r.coverage || []) if (!list.some((p) => p.id === c.project_id)) list.push({ id: c.project_id, client: c.client });
+  return list.length ? list : [{ id: '', client: 'All work' }];
+}
+
+// One "who covers" list per project, named cover_<va id>_<project id>. The VA taking time off is left out.
+function coverageSelects(va, projects, backups, coverage = []) {
+  const choices = backups.filter((b) => !va || (b.zoho_id !== va.zoho_id && b.name !== va.name));
+  return projects.map((p) => {
+    const c = coverage.find((x) => x.project_id === p.id);
+    const chosen = c ? c.backup_zoho_id || 'open' : '';
+    return `<label>${esc(p.client)}</label>
+      <select name="cover_${va.id}_${esc(p.id || 'all')}" aria-label="${esc(`Who covers ${p.client}`)}">
+        <option value="">No coverage needed</option>
+        <option value="open" ${chosen === 'open' ? 'selected' : ''}>Needs coverage, backup not chosen yet</option>
+        ${choices.map((b) => `<option value="${esc(b.zoho_id)}" ${b.zoho_id === chosen ? 'selected' : ''}>${esc(b.name)} (${esc(b.status)})</option>`).join('')}
+      </select>`;
+  }).join('');
+}
 
 // Requests as clickable rows. Admins (ctx.vas set) also get actions and the edit form.
 function requestCards(requests, forAdmin, ctx = {}) {
   if (!requests.length) return empty('No requests.');
   return requests.map((r) => {
     const status = chip(r.status[0].toUpperCase() + r.status.slice(1), REQUEST_TONE[r.status]);
-    const coverage = r.needs_coverage
-      ? (needsBackup(r) ? (r.backup_name ? `Covered by ${esc(r.backup_name)}` : '<span style="color:var(--warn);font-weight:700">Backup not chosen</span>') : 'Coverage needed')
-      : 'No coverage needed';
     const shortNotice = !r.added_by_admin && r.created_at && r.start_date < addDays(r.created_at.slice(0, 10), 14);
-    const sub = `${esc(dateRange(r.start_date, r.end_date))} · ${coverage}${shortNotice ? ` · <span style="color:var(--warn);font-weight:700">Less than 2 weeks' notice</span>` : ''}`;
+    const sub = `${esc(dateRange(r.start_date, r.end_date))} · ${coverageText(r)}${shortNotice ? ` · <span style="color:var(--warn);font-weight:700">Less than 2 weeks' notice</span>` : ''}`;
+    const checklists = forAdmin ? (r.coverage || []).map((c) => {
+      const label = c.project_id ? ` (${esc(c.client)})` : '';
+      if (c.clickup_list_url) return `<p class="meta"><a href="${esc(c.clickup_list_url)}" target="_blank" rel="noopener">${icon('external')} Open the ClickUp checklist${label}</a></p>`;
+      return r.status === 'approved' && c.clickup_error ? `<p class="meta" style="color:var(--bad)">ClickUp${label}: ${esc(c.clickup_error)}</p>` : '';
+    }).join('') : '';
     const body = `
       ${r.details || r.note ? `<div class="bubble">${esc([r.details, r.note].filter(Boolean).join('\n'))}</div>` : ''}
       <p class="meta">${r.added_by_admin ? 'Added by an admin' : r.source === 'form' ? 'From the request form' : 'Request'}
         · ${r.project_names ? `Only these projects: <b>${esc(r.project_names)}</b>` : 'All projects'}
         ${r.decided_by_name ? ` · ${esc(r.status)} by <b>${esc(r.decided_by_name)}</b>` : ''}</p>
-      ${forAdmin && r.clickup_list_url ? `<p class="meta"><a href="${esc(r.clickup_list_url)}" target="_blank" rel="noopener">${icon('external')} Open the ClickUp checklist</a></p>` : ''}
-      ${forAdmin && r.status === 'approved' && needsBackup(r) && !r.clickup_list_url && r.clickup_error
-        ? `<p class="meta" style="color:var(--bad)">ClickUp: ${esc(r.clickup_error)}</p>` : ''}
+      ${checklists}
       ${forAdmin ? requestActions(r, ctx) : ''}`;
     return item({
       name: forAdmin ? r.name : undefined,
@@ -601,13 +631,16 @@ function requestCards(requests, forAdmin, ctx = {}) {
 
 function requestActions(r, ctx) {
   const buttons = [];
+  const covered = r.kind !== 'emergency' ? r.coverage || [] : [];
   if (r.status === 'pending') {
-    if (needsBackup(r) && !r.backup_name) buttons.push('<span class="small">Choose who covers (Edit) before approving.</span>');
+    buttons.push(`<span class="small">${covered.length
+      ? `Approving creates ${covered.length === 1 ? 'a ClickUp checklist' : `${covered.length} ClickUp checklists, one per project`}.`
+      : 'No coverage chosen, so no ClickUp checklist. If it needs coverage, choose the projects in Edit first.'}</span>`);
     buttons.push(`<form method="post" action="/admin/time-off/${r.id}/approve"><button class="sm">${icon('check')} Approve</button></form>`);
     buttons.push(`<form method="post" action="/admin/time-off/${r.id}/deny" data-confirm="Deny this request?"><button class="sm danger">Deny</button></form>`);
   }
-  if (r.status === 'approved' && needsBackup(r) && !r.clickup_list_url) {
-    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/clickup"><button class="sm plain">Create ClickUp checklist</button></form>`);
+  if (r.status === 'approved' && covered.some((c) => !c.clickup_list_url)) {
+    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/clickup"><button class="sm plain">Create missing ClickUp checklists</button></form>`);
   }
   if (r.status === 'approved' && r.cancellable) {
     buttons.push(`<form method="post" action="/admin/time-off/${r.id}/cancel" data-confirm="Cancel this time off? Check-ins will be expected again from today."><button class="sm danger">Cancel time off</button></form>`);
@@ -616,11 +649,9 @@ function requestActions(r, ctx) {
   return `<div class="actions">${buttons.join('')}</div>${edit}`;
 }
 
-// The admin form to change a request's VA, type, dates, coverage and backup VA.
-function editForm(r, { vas, backups }) {
-  const requester = vas.find((v) => v.id === r.user_id);
-  // The VA taking time off can't cover for themselves.
-  const choices = backups.filter((b) => !requester || (b.zoho_id !== requester.zoho_id && b.name !== requester.name));
+// The admin form to change a request's VA, type, dates, and who covers each project.
+function editForm(r, { vas, backups, vaProjects }) {
+  const requester = vas.find((v) => v.id === r.user_id) || { id: r.user_id };
   return `<details class="section" style="margin:12px 0 0;box-shadow:none;background:var(--surface-2)"><summary>Edit${icon('chevron', 'chev')}</summary>
     <form method="post" action="/admin/time-off/${r.id}/edit" style="padding:0 16px 14px">
       <div class="row">
@@ -633,10 +664,9 @@ function editForm(r, { vas, backups }) {
         <div><label>First day</label><input type="date" name="start_date" value="${esc(r.start_date)}" required></div>
         <div><label>Last day</label><input type="date" name="end_date" value="${esc(r.end_date)}" required></div>
       </div>
-      <label class="check"><input type="checkbox" name="needs_coverage" value="1" ${r.needs_coverage ? 'checked' : ''}> Coverage needed</label>
-      <label>Who covers (for time off that needs coverage)</label>
-      <select name="backup"><option value="">Not chosen yet</option>${choices.map((b) =>
-        `<option value="${esc(b.zoho_id)}" ${b.zoho_id === r.backup_zoho_id ? 'selected' : ''}>${esc(b.name)} (${esc(b.status)})</option>`).join('')}</select>
+      <p class="small" style="margin:12px 0 0"><b>Coverage, per project.</b> Each project that needs coverage gets its own ClickUp checklist when approved.
+        Emergencies have no coverage. After changing the VA, save, then choose coverage for the new VA's projects.</p>
+      ${coverageSelects(requester, coverableProjects(r, vaProjects), backups, r.coverage)}
       <button>Save changes</button>
     </form></details>`;
 }
@@ -780,7 +810,7 @@ export function historyPage({ user, month, prev, next, dates, vas, cells }) {
 }
 
 export function timeOffPage({ user, pending, current, recent, vas, unmatched, vaProjects, backups, clickupReady, formUrl, message }) {
-  const ctx = { vas, backups };
+  const ctx = { vas, backups, vaProjects };
   const waiting = unmatched.length + pending.length;
   return layout({
     title: 'Time off', user, active: '/admin/time-off', message,
@@ -792,19 +822,22 @@ export function timeOffPage({ user, pending, current, recent, vas, unmatched, va
     })}
     ${section({
       title: 'Add time off or an emergency', open: false,
-      hint: 'It applies right away, without approval. For time off that needs coverage, choose who covers; a ClickUp checklist is created.',
+      hint: 'It applies right away, without approval. Each project that needs coverage gets its own ClickUp checklist.',
       body: `<form method="post" action="/admin/time-off/add" style="padding:0 8px">
         <div class="row">
-          <div><label for="pv">VA</label><select id="pv" name="user_id" required><option value="">Choose a VA</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}</select></div>
+          <div><label for="pv">VA</label><select id="pv" name="user_id" required
+            onchange="var va = this.value; this.form.querySelectorAll('[data-va]').forEach(function (g) { g.hidden = g.dataset.va !== va; })">
+            <option value="">Choose a VA</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}</select></div>
           <div><label for="pk">Type</label><select id="pk" name="kind"><option value="time_off">Time off</option><option value="emergency">Emergency</option></select></div>
         </div>
         <div class="row">
           <div><label for="ps">First day</label><input id="ps" name="start_date" type="date" required></div>
           <div><label for="pe">Last day</label><input id="pe" name="end_date" type="date" required></div>
         </div>
-        <label class="check"><input type="checkbox" name="needs_coverage" value="1"> Coverage needed</label>
-        <label for="pb">Who covers (for time off that needs coverage)</label>
-        <select id="pb" name="backup"><option value="">Not needed</option>${backups.map((b) => `<option value="${esc(b.zoho_id)}">${esc(b.name)} (${esc(b.status)})</option>`).join('')}</select>
+        ${vas.map((v) => `<div data-va="${v.id}" hidden>
+          <p class="small" style="margin:12px 0 0"><b>Coverage, per project</b> (not used for emergencies)</p>
+          ${coverageSelects(v, coverableProjects({ user_id: v.id }, vaProjects), backups)}
+        </div>`).join('')}
         <label for="pn">Note (optional)</label><input id="pn" name="note" type="text" maxlength="1000">
         <button>${icon('plus')} Add</button>
       </form>`,
@@ -1079,7 +1112,7 @@ export function calendarPage({ user, month, prev, next, today, events, holidays,
   for (const e of events) { if (!byDate.has(e.date)) byDate.set(e.date, []); byDate.get(e.date).push(e); }
   const holidayOn = new Map(holidays.map((h) => [h.date, h.name]));
   const short = (name) => `${name.split(' ')[0]} ${name.split(' ')[1]?.[0] ? `${name.split(' ')[1][0]}.` : ''}`.trim();
-  const label = (e) => `${e.name}: ${e.kind === 'emergency' ? 'Emergency' : 'Time off'}${e.status === 'pending' ? ' (waiting for a decision)' : ''}${e.backup ? `, covered by ${e.backup}` : ''}`;
+  const label = (e) => `${e.name}: ${e.kind === 'emergency' ? 'Emergency' : 'Time off'}${e.status === 'pending' ? ' (waiting for a decision)' : ''}${e.backup ? `, coverage: ${e.backup}` : ''}`;
   const evHtml = (e) => `<a class="ev ${e.status === 'pending' ? 'pending' : e.kind}" href="/admin/time-off" title="${esc(label(e))}">${esc(short(e.name))}${e.backup ? ' ⇄' : ''}</a>`;
 
   const grid = `<div class="cal-grid">

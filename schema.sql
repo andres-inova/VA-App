@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS time_off_requests (
   user_id INTEGER NOT NULL REFERENCES users(id),
   start_date TEXT NOT NULL,
   end_date TEXT NOT NULL,
-  needs_coverage INTEGER NOT NULL DEFAULT 0,
+  needs_coverage INTEGER NOT NULL DEFAULT 0,  -- 1 when the request has rows in coverage_projects
   note TEXT,
   status TEXT NOT NULL DEFAULT 'pending',  -- pending, approved, denied, cancelled
   kind TEXT NOT NULL DEFAULT 'time_off',   -- time_off or emergency
@@ -87,16 +87,30 @@ CREATE TABLE IF NOT EXISTS time_off_requests (
   details TEXT,                            -- the form's answers: clients, shift times, template
   form_response_id TEXT,                   -- the Google Form response id
   project_ids TEXT,                        -- empty = whole day; otherwise only these projects (comma-separated ids)
-  backup_zoho_id TEXT,                     -- the VA who covers (Zoho record id)
+  backup_zoho_id TEXT,                     -- old, single-backup requests only; now in coverage_projects
   backup_name TEXT,
-  clickup_list_url TEXT,                   -- the ClickUp checklist created when a coverage request is approved
-  clickup_error TEXT,                      -- why creating the checklist failed, if it did
+  clickup_list_url TEXT,
+  clickup_error TEXT,
   decided_by INTEGER REFERENCES users(id),
   decided_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS time_off_form_response ON time_off_requests (form_response_id);
+
+-- Which projects (clients) of a time-off request need coverage, who covers each, and each one's ClickUp checklist.
+-- The checklist is created when the request is approved. No rows = no coverage, no checklist.
+CREATE TABLE IF NOT EXISTS coverage_projects (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id INTEGER NOT NULL REFERENCES time_off_requests(id),
+  project_id TEXT NOT NULL DEFAULT '',   -- Zoho project id; '' = all of the VA's work
+  client TEXT NOT NULL,
+  backup_zoho_id TEXT,                   -- empty = coverage needed, backup not chosen yet
+  backup_name TEXT,
+  clickup_list_url TEXT,
+  clickup_error TEXT,
+  UNIQUE (request_id, project_id)
+);
 
 -- Form responses whose name did not match an active VA, until an admin picks the VA.
 CREATE TABLE IF NOT EXISTS form_unmatched (

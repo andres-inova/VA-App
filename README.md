@@ -171,7 +171,7 @@ npx wrangler secret put FORM_SECRET
 
 ## Connect ClickUp (coverage checklists)
 
-When an admin approves **time off that needs coverage**, the app creates a new list in the **Checklists** space of InoVA Local's ClickUp, made from the list template **VA Backup Checklist**. It's named like "VA Backup Checklist - Tracy Saeman (Mon, Oct 19 to Fri, Oct 30)". The request's details (VA, backup VA, dates, clients, shift times, notes) go in the list description, and every task in it is assigned to Stephany. The Time off page links to the new list.
+When an admin approves **time off that needs coverage**, the app creates one new list **for each project (client) that needs coverage** in the **Checklists** space of InoVA Local's ClickUp, made from the list template **VA Backup Checklist**. Each is named like "VA Backup Checklist - Pool Partners - Tracy Saeman (Mon, Oct 19 to Fri, Oct 30)". The request's details (VA, client, backup VA, dates, shift times, notes) go in the list description, and every task in it is assigned to Stephany. The Time off page links to each new list. Time off without coverage, and emergencies, get no checklist.
 
 The app needs two things from ClickUp. Run each command in the project folder and paste the value when asked:
 
@@ -187,7 +187,7 @@ npx wrangler secret put CLICKUP_TEMPLATE_ID
 
 The Checklists space ID (`90137115341`), the workspace ID (`90131247934`) and Stephany's ClickUp user ID (`118139191`) are already in `wrangler.jsonc`.
 
-If creating a checklist fails, the request is still approved. The reason appears on the request with a **Create ClickUp checklist** button to try again.
+If creating a checklist fails, the request is still approved. The reason appears on the request with a **Create missing ClickUp checklists** button to try again.
 
 ## Slack command: /checkin
 
@@ -302,8 +302,8 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 - **No projects that day, or no start times**, means no check-in is expected and no late alerts are sent. The VA can still check in.
 - **Holidays**: no check-in is expected on dates listed under Holidays.
 - **Exempt VAs are never checked.** A VA is exempt when their Zoho **VA Company Affiliation** is anything other than "InoVA Local" (for example "Closers", or empty), or when an admin clicks **Exempt this VA** on the People page. Exempt VAs get no expected check-in, no late alerts, and don't appear in reports. They can still log in, check in and request time off. An empty affiliation shows a warning on the People page.
-- **Request types** are **Time off** and **Emergency**, and each request says whether **coverage** is needed. Form requests start as Time off with coverage needed. Admins can change the VA, type, dates, coverage and backup with **Edit** on the Time off page.
-- **Time off that needs coverage** must have a backup VA before it can be approved. The backup is chosen from VAs whose Zoho VA Status is **Active** or **On Deck** (never the VA taking time off). Approving it creates the ClickUp checklist (see "Connect ClickUp").
+- **Request types** are **Time off** and **Emergency**. Form requests start as Time off with **no coverage**. Admins can change the VA, type, dates and coverage with **Edit** on the Time off page.
+- **Coverage is chosen per project.** For each of the VA's projects (clients), an admin picks "No coverage needed", "Needs coverage, backup not chosen yet", or the backup VA. Backups are VAs whose Zoho VA Status is **Active** or **On Deck** (never the VA taking time off). A request can be approved before a backup is chosen; it then shows "needs a backup". Approving creates one ClickUp checklist per covered project (see "Connect ClickUp"). Emergencies have no coverage.
 - **Days off**: on any day inside an approved request or a period added by an admin, the VA is not expected to check in. A request assigned from an unknown name can cover only some of the VA's projects: on those days the VA is off only for the ticked projects, and still checks in by the earliest start among their other projects that day. If all their projects are ticked, it covers the whole day. The day shows as "Time off" or "Emergency" in History. If a period is cancelled, check-ins are expected again from that day on.
 - **Start times** are in the VA's Zoho **Time Zone** (PST, MST, CST or EST, with daylight saving time applied). If Time Zone is empty, the app uses Eastern.
 - **Automatic assignment:** when a new project appears in Zoho Projects, the app reads the name after the last " - " (for example "Pool Partners - **Tracy Saeman**") and assigns the project to the active VA with that name. Small differences are allowed: "Estefani Resendiz" matches "Estefani Resendiz Lopez", and "Nika Kedgbe-Davis" matches "Nika Kegbe-Davis". The first name must match, plus at least one other part of the name. If two VAs could match, nothing is assigned. The start time is taken from the VA's Zoho **Availability**, for example "8:30am - 4:30pm" means 8:30 AM. "Open availability" gives no start time.

@@ -1,6 +1,6 @@
-// Creates the ClickUp checklist for an approved coverage request: a new list in the
-// Checklists space, made from the "VA Backup Checklist" list template, with every task
-// assigned to the VA Lead.
+// Creates the ClickUp checklists for an approved coverage request, one for each project (client)
+// that needs coverage: a new list in the Checklists space, made from the "VA Backup Checklist"
+// list template, with every task assigned to the VA Lead.
 
 import { formatDate } from './time.js';
 
@@ -29,18 +29,21 @@ export function clickupReady(env) {
   return Boolean(env.CLICKUP_API_TOKEN && env.CLICKUP_TEMPLATE_ID && env.CLICKUP_SPACE_ID);
 }
 
-// request: a time_off_requests row with va_name and backup_name added. Returns the new list's link.
-export async function createCoverageChecklist(env, request) {
+// One checklist per covered project (client). request: a time_off_requests row with va_name added;
+// coverage: its coverage_projects row. Returns the new list's link.
+export async function createCoverageChecklist(env, request, coverage) {
   if (!clickupReady(env)) {
     throw new Error('ClickUp is not set up yet (CLICKUP_API_TOKEN or CLICKUP_TEMPLATE_ID is missing). See README.');
   }
   const dates = request.start_date === request.end_date
     ? formatDate(request.start_date)
     : `${formatDate(request.start_date)} to ${formatDate(request.end_date)}`;
-  const name = `VA Backup Checklist - ${request.va_name} (${dates})`;
+  const client = coverage.project_id ? coverage.client : '';
+  const name = `VA Backup Checklist - ${client ? `${client} - ` : ''}${request.va_name} (${dates})`;
   const content = [
     `VA requesting coverage: ${request.va_name}`,
-    `Backup VA: ${request.backup_name || 'not chosen yet'}`,
+    client && `Client: ${client}`,
+    `Backup VA: ${coverage.backup_name || 'not chosen yet'}`,
     `Dates: ${formatDate(request.start_date, true)} to ${formatDate(request.end_date, true)}`,
     request.details,
     request.note && `Extra notes: ${request.note}`,

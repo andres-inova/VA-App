@@ -800,13 +800,34 @@ async function timeOffData(env) {
   ).all();
   // Each project's Coverage SOP state, shown next to the projects that need coverage.
   const sops = new Map((await allSops(env)).map((s) => [s.id, s.status]));
-  const withDetails = (rows) => rows.map((r) => ({
+  // Time off of each possible backup (by Zoho id), to warn when a backup is off during a request.
+  const zohoOf = new Map(vas.map((v) => [v.id, v.zoho_id]));
+  const offByZoho = new Map();
+  for (const o of open) {
+    const z = zohoOf.get(o.user_id);
+    if (z) offByZoho.set(z, [...(offByZoho.get(z) || []), o]);
+  }
+  // { "<Zoho id>": [{ start_date, end_date, status }] } of backups who are off on some day of request r.
+  const backupsOff = (r) => {
+    if (!['pending', 'approved'].includes(r.status)) return {};
+    const out = {};
+    for (const [z, list] of offByZoho) {
+      const hits = list.filter((o) => o.id !== r.id && o.start_date <= r.end_date && o.end_date >= r.start_date);
+      if (hits.length) out[z] = hits.map((o) => ({ start_date: o.start_date, end_date: o.end_date, status: o.status }));
+    }
+    return out;
+  };
+  const withDetails = (rows) => rows.map((r) => {
+    const off = backupsOff(r);
+    return {
     ...r,
+    backups_off: off,
     project_names: r.project_ids ? r.project_ids.split(',').map((id) => clientById.get(id) || id).join(', ') : '',
-    coverage: (coverage.get(r.id) || []).map((c) => ({ ...c, sop: sops.get(c.project_id) || null })),
+    coverage: (coverage.get(r.id) || []).map((c) => ({ ...c, sop: sops.get(c.project_id) || null, backup_off: off[c.backup_zoho_id] || [] })),
     nearby: ['pending', 'approved'].includes(r.status)
       ? open.filter((o) => o.user_id === r.user_id && o.id !== r.id && isNearby(r, o)).map((o) => nearbyText(r, o)) : [],
-  }));
+    };
+  });
   const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'backup_hidden'").first();
   const hidden = new Set(row ? JSON.parse(row.value) : []);
   const { results } = await env.DB.prepare('SELECT * FROM backup_candidates ORDER BY status, name').all();

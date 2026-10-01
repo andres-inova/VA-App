@@ -634,20 +634,27 @@ const REQUEST_TONE = { pending: 'warn', approved: 'good', denied: 'bad', cancell
 const NEEDS_BACKUP = '<span style="color:var(--warn);font-weight:700">needs a backup</span>';
 
 // A request's status as [label, tone]. Approved time off with coverage reads "Coverage requested"
-// until every covered project has a backup, then "Coverage confirmed".
+// until every covered project has a backup, then "Coverage confirmed" ("Backup is off" when a chosen backup
+// has time off of their own during it).
 export function requestStatus(r) {
   const covered = r.kind !== 'emergency' ? r.coverage || [] : [];
   if (r.status === 'approved' && covered.length) {
+    if (covered.some((c) => c.backup_name && c.backup_off?.length)) return ['Backup is off', 'bad'];
     return covered.every((c) => c.backup_name) ? ['Coverage confirmed', 'good'] : ['Coverage requested', 'warn'];
   }
   return [r.status[0].toUpperCase() + r.status.slice(1), REQUEST_TONE[r.status]];
 }
 
+// A backup's own time off during a request, for example "Mon, Oct 5 – Tue, Oct 6 (waiting for a decision)".
+const offText = (list) => list.map((o) => `${dateRange(o.start_date, o.end_date, false)}${o.status === 'pending' ? ' (waiting for a decision)' : ''}`).join(', ');
+
 // Who covers each project, for example "Pool Partners: covered by Ana Diaz · Rise & Shine: needs a backup".
+// A backup who is off during the request is flagged: "covered by Ana Diaz (also off Oct 5)".
 function coverageText(r) {
   const rows = r.coverage || [];
   if (r.kind === 'emergency' || !rows.length) return 'No coverage';
-  return rows.map((c) => `${c.project_id ? `${esc(c.client)}: ` : ''}${c.backup_name ? `covered by ${esc(c.backup_name)}` : NEEDS_BACKUP}`).join(' · ');
+  return rows.map((c) => `${c.project_id ? `${esc(c.client)}: ` : ''}${c.backup_name ? `covered by ${esc(c.backup_name)}${c.backup_off?.length
+    ? ` <span style="color:var(--bad);font-weight:700">(also off ${esc(offText(c.backup_off))})</span>` : ''}` : NEEDS_BACKUP}`).join(' · ');
 }
 
 // The projects a request can need coverage for (the same rule as coverableProjects in index.js).
@@ -672,14 +679,15 @@ function historyText(history, zohoId, projectId, requestId) {
 // One "who covers" list per project, named cover_<va id>_<project id>. The VA taking time off is left out.
 // A backup already chosen stays in the list even if an admin has since hidden them. Each name shows
 // how often that VA has covered the project before.
-function coverageSelects(va, projects, backups, coverage = [], history = null, requestId = 0) {
+// offBy: { "<Zoho id>": [time off] } of backups who are off during the request; their names say so.
+function coverageSelects(va, projects, backups, coverage = [], history = null, requestId = 0, offBy = {}) {
   const choices = backups.filter((b) => !va || (b.zoho_id !== va.zoho_id && b.name !== va.name));
   return projects.map((p) => {
     const c = coverage.find((x) => x.project_id === p.id);
     const chosen = c ? c.backup_zoho_id || 'open' : '';
     const past = (zohoId) => {
       const text = historyText(history, zohoId, p.id, requestId);
-      return text ? ` · ${text}` : '';
+      return `${offBy[zohoId] ? ` · ⚠ also off ${offText(offBy[zohoId])}` : ''}${text ? ` · ${text}` : ''}`;
     };
     const kept = chosen && chosen !== 'open' && !choices.some((b) => b.zoho_id === chosen)
       ? `<option value="${esc(chosen)}" selected>${esc(c.backup_name || 'Chosen backup')}${esc(past(chosen))}</option>` : '';
@@ -774,7 +782,7 @@ function editForm(r, { vas, backups, vaProjects, back, history }) {
       </div>
       <p class="small" style="margin:12px 0 0"><b>Coverage, per project.</b> Each project that needs coverage gets its own ClickUp checklist when approved.
         Emergencies have no coverage. After changing the VA, save, then choose coverage for the new VA's projects.</p>
-      ${coverageSelects(requester, coverableProjects(r, vaProjects), backups, r.coverage, history, r.id)}
+      ${coverageSelects(requester, coverableProjects(r, vaProjects), backups, r.coverage, history, r.id, r.backups_off || {})}
       <button>Save changes</button>
     </form></details>`;
 }
@@ -801,7 +809,11 @@ function nextSteps(r) {
     if (c.sop && !c.sop.done) steps.push(`Ask ${esc(r.name)} to finish the <a href="/sops/${esc(encodeURIComponent(c.project_id))}">Coverage SOP</a>${where(c)} before the time off (now: ${esc(c.sop.label.toLowerCase())}).`);
     else if (c.sop && c.sop.key !== 'not_needed' && c.backup_name) steps.push(`Make sure ${esc(c.backup_name)} reads the <a href="/sops/${esc(encodeURIComponent(c.project_id))}">Coverage SOP</a>${where(c)}. If they log in to this app, it is on their Coverage SOPs page.`);
   }
-  if (covered.every((c) => c.backup_name)) steps.unshift('Coverage is confirmed: every project has a backup VA.');
+  if (covered.every((c) => c.backup_name && !c.backup_off?.length)) steps.unshift('Coverage is confirmed: every project has a backup VA.');
+  // A backup who is off during this time off can't cover it.
+  for (const c of covered.filter((x) => x.backup_name && x.backup_off?.length).reverse()) {
+    steps.unshift(`<b style="color:var(--bad)">${esc(c.backup_name)} is also off ${esc(offText(c.backup_off))}.</b> Choose another backup${where(c)} under <b>Edit</b>.`);
+  }
   return steps;
 }
 
@@ -811,7 +823,7 @@ export function requestPage({ user, request: r, vas, backups, vaProjects, histor
   return layout({
     title: `${r.name} · ${KIND_LABEL[r.kind] || 'Time off'}`, user, active: '/admin/time-off', message,
     body: `<p class="lead"><a href="/admin/time-off">← All time off</a> · <a href="/admin/calendar?month=${esc(r.start_date.slice(0, 7))}">Calendar</a></p>
-    ${section({ title: 'Next steps', open: true, tone: requestStatus(r)[1] === 'warn' ? 'attention' : '',
+    ${section({ title: 'Next steps', open: true, tone: ['warn', 'bad'].includes(requestStatus(r)[1]) ? 'attention' : '',
       body: `<ul style="margin:0 8px 8px;padding-left:20px;line-height:1.7">${nextSteps(r).map((s) => `<li>${s}</li>`).join('')}</ul>` })}
     ${section({ title: 'Request', open: true, body: requestCards([r], true, { vas, backups, vaProjects, history, back, open: true }) })}`,
   });
@@ -1271,7 +1283,7 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
     ${section({ title: 'Projects', count: assigned.length, open: true, body: assigned.length ? assigned.map((p) => projectRow(p)).join('') : empty('No projects yet. Click "Sync with Zoho now".') })}
     ${coverage.length ? section({
       title: 'Coverage projects', count: coverage.length, open: false, key: 'coverage-projects',
-      hint: 'Named "Client - VA - Coverage" in Zoho. The backup VA logs coverage time there. They need no Coverage SOP, and count for check-ins only on days that VA is the approved backup for the client.',
+      hint: 'Named "Client - VA - Coverage" in Zoho. The backup VA logs coverage time there. They need no Coverage SOP, and count for check-ins only on days that VA is the approved backup for the client. Their start time is copied from the regular VA of the client when the project first appears.',
       body: coverage.map((p) => projectRow(p)).join(''),
     }) : ''}
     </div><div id="projects-none" class="card empty no-results">No project matches your search.</div>`,

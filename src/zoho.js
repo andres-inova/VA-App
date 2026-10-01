@@ -1,6 +1,6 @@
 // Copies active VAs from Zoho CRM and active projects from Zoho Projects.
 
-import { parseStart } from './time.js';
+import { parseStart, ZONES } from './time.js';
 
 // Zoho fields the app reads. "Slack_Management_ID" is the VA's management
 // channel; "Slack_ID" is the VA's own Slack user ID (used to tag them). "VA_Company_Affiliation"
@@ -195,18 +195,34 @@ async function syncProjects(env, token) {
   statements.push(env.DB.prepare('UPDATE projects SET active = 0 WHERE id NOT IN (SELECT value FROM json_each(?))').bind(ids));
   await env.DB.batch(statements);
 
-  // Assign projects that have not been assigned yet to the VA named in them.
+  // Assign projects that have not been assigned yet to the VA named in them (normal projects first, so coverage projects can copy their start time).
   const { results: open } = await env.DB.prepare(
-    'SELECT * FROM projects WHERE active = 1 AND assignment_locked = 0 AND va_name IS NOT NULL'
+    'SELECT * FROM projects WHERE active = 1 AND assignment_locked = 0 AND va_name IS NOT NULL ORDER BY is_coverage'
   ).all();
   const { results: vas } = await env.DB.prepare('SELECT id, name, availability FROM users WHERE is_va = 1').all();
   let assigned = 0;
   for (const project of open) {
     const va = matchVA(project.va_name, vas);
     if (!va) continue;
+    // A coverage project starts when the client's regular VA starts (in that VA's time zone);
+    // otherwise, and for normal projects, at the start of the VA's Zoho availability.
+    let start = defaultStartTime(va.availability);
+    let zone = null;
+    if (project.is_coverage) {
+      const regular = await env.DB.prepare(
+        `SELECT a.start_time, a.time_zone, u.time_zone AS va_zone FROM assignments a
+         JOIN projects p ON p.id = a.project_id JOIN users u ON u.id = a.user_id
+         WHERE p.active = 1 AND p.is_coverage = 0 AND lower(p.client) = lower(?) AND a.start_time IS NOT NULL
+         ORDER BY a.start_time LIMIT 1`
+      ).bind(project.client).first();
+      if (regular) {
+        start = regular.start_time;
+        zone = ZONES[regular.time_zone] ? regular.time_zone : ZONES[regular.va_zone] ? regular.va_zone : null;
+      }
+    }
     await env.DB.batch([
-      env.DB.prepare('INSERT OR IGNORE INTO assignments (project_id, user_id, start_time) VALUES (?, ?, ?)')
-        .bind(project.id, va.id, defaultStartTime(va.availability)),
+      env.DB.prepare('INSERT OR IGNORE INTO assignments (project_id, user_id, start_time, time_zone) VALUES (?, ?, ?, ?)')
+        .bind(project.id, va.id, start, zone),
       env.DB.prepare('UPDATE projects SET assignment_locked = 1 WHERE id = ?').bind(project.id),
     ]);
     assigned++;

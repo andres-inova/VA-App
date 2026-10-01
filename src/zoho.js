@@ -125,12 +125,17 @@ async function fetchProjects(env, token) {
   return projects.filter((p) => !p.is_completed && !p.status?.is_closed_type);
 }
 
-// "Pool Partners - Tracy Saeman" -> { client: "Pool Partners", vaName: "Tracy Saeman" }
+// "Pool Partners - Tracy Saeman" -> { client: "Pool Partners", vaName: "Tracy Saeman", coverage: false }
+// "Pool Partners - Ana Diaz - Coverage" -> { client: "Pool Partners", vaName: "Ana Diaz", coverage: true }
+// (a coverage project: Ana logs the time she spends covering Pool Partners there).
 export function splitProjectName(name) {
-  const trimmed = name.trim();
+  let trimmed = name.trim();
+  const ending = trimmed.match(/\s+[-–]\s*\(?coverage\)?$/i);
+  const coverage = Boolean(ending) && ending.index > 0;
+  if (coverage) trimmed = trimmed.slice(0, ending.index).trim();
   const at = trimmed.lastIndexOf(' - ');
-  if (at === -1) return { client: trimmed, vaName: null };
-  return { client: trimmed.slice(0, at).trim(), vaName: trimmed.slice(at + 3).trim() || null };
+  if (at === -1) return { client: trimmed, vaName: null, coverage };
+  return { client: trimmed.slice(0, at).trim(), vaName: trimmed.slice(at + 3).trim() || null, coverage };
 }
 
 const nameParts = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -178,11 +183,12 @@ export function defaultStartTime(availability) {
 async function syncProjects(env, token) {
   const projects = await fetchProjects(env, token);
   const statements = projects.map((p) => {
-    const { client, vaName } = splitProjectName(p.name);
+    const { client, vaName, coverage } = splitProjectName(p.name);
     return env.DB.prepare(
-      `INSERT INTO projects (id, name, client, va_name, active) VALUES (?, ?, ?, ?, 1)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name, client = excluded.client, va_name = excluded.va_name, active = 1`
-    ).bind(String(p.id), p.name.trim(), client, vaName);
+      `INSERT INTO projects (id, name, client, va_name, is_coverage, active) VALUES (?, ?, ?, ?, ?, 1)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, client = excluded.client, va_name = excluded.va_name,
+         is_coverage = excluded.is_coverage, active = 1`
+    ).bind(String(p.id), p.name.trim(), client, vaName, coverage ? 1 : 0);
   });
   // Projects that are no longer open in Zoho stop counting.
   const ids = JSON.stringify(projects.map((p) => String(p.id)));

@@ -196,8 +196,8 @@ async function workRoutes(env, user, path, method, field, message, url) {
   const now = new Date();
   const day = await dayInfo(env, user, now);
   const { results: projects } = await env.DB.prepare(
-    `SELECT p.id, p.client, p.name FROM assignments a JOIN projects p ON p.id = a.project_id
-     WHERE a.user_id = ? AND p.active = 1 ORDER BY p.client`
+    `SELECT p.id, p.client, p.name, p.is_coverage FROM assignments a JOIN projects p ON p.id = a.project_id
+     WHERE a.user_id = ? AND p.active = 1 ORDER BY p.is_coverage, p.client`
   ).bind(user.id).all();
   const projectId = field('project') || url.searchParams.get('project') || user.timer?.project_id || projects[0]?.id || '';
   const project = projects.find((p) => p.id === projectId);
@@ -225,7 +225,11 @@ async function workRoutes(env, user, path, method, field, message, url) {
       if (a.status === 'fulfilled') lists = a.value; else zohoError = zohoError || `Tasks could not be loaded. ${problem(a.reason)}`;
       if (b.status === 'fulfilled') logs = b.value; else logsError = `Your time logs could not be loaded. ${problem(b.reason)}`;
     }
-    return page(views.workPage({ user, day, projects, project, lists, logs, week, thisWeek, today, message, zohoError, logsError }));
+    // In a coverage project, a link to the client's Coverage SOP while this VA is covering them.
+    const coverageSop = project?.is_coverage
+      ? (await coveringSops(env, user)).find((c) => c.client.toLowerCase() === project.client.toLowerCase() && (c.has_content || c.file_key)) || null
+      : null;
+    return page(views.workPage({ user, day, projects, project, coverageSop, lists, logs, week, thisWeek, today, message, zohoError, logsError }));
   }
 
   if (method !== 'POST' || !project) return redirect('/va/work');
@@ -358,7 +362,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
       `SELECT (SELECT COUNT(*) FROM coverage_projects cp JOIN time_off_requests r ON r.id = cp.request_id
                 WHERE r.status = 'approved' AND r.kind != 'emergency' AND r.end_date >= date('now', '-1 day')
                   AND COALESCE(cp.backup_zoho_id, '') = '') AS no_backup,
-              (SELECT COUNT(*) FROM projects p WHERE p.active = 1
+              (SELECT COUNT(*) FROM projects p WHERE p.active = 1 AND p.is_coverage = 0
                 AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.project_id = p.id)) AS no_va`
     ).first();
     const todo = {
@@ -534,7 +538,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
       const va = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND is_va = 1').bind(field('user_id')).first();
       if (!va) return redirect('/admin/time-off?msg=choose-va');
       const { results: theirs } = await env.DB.prepare(
-        'SELECT p.id FROM assignments a JOIN projects p ON p.id = a.project_id WHERE a.user_id = ? AND p.active = 1'
+        'SELECT p.id FROM assignments a JOIN projects p ON p.id = a.project_id WHERE a.user_id = ? AND p.active = 1 AND p.is_coverage = 0'
       ).bind(va.id).all();
       const theirIds = theirs.map((p) => p.id);
       const chosen = fieldAll(`projects_${va.id}`).filter((id) => theirIds.includes(id));
@@ -784,7 +788,7 @@ async function timeOffData(env) {
   // Each VA's active projects, for the project checkboxes and the per-project coverage lists.
   const { results: vaProjects } = await env.DB.prepare(
     `SELECT a.user_id, p.id, p.client FROM assignments a JOIN projects p ON p.id = a.project_id
-     WHERE p.active = 1 ORDER BY p.client`
+     WHERE p.active = 1 AND p.is_coverage = 0 ORDER BY p.client`
   ).all();
   // Project names for requests that cover only some projects.
   const { results: allProjects } = await env.DB.prepare('SELECT id, client FROM projects').all();
@@ -865,7 +869,7 @@ async function coverageByRequest(env) {
 // entry, '' ("All work").
 async function coverableProjects(env, userId, projectIds, existing = []) {
   const { results } = await env.DB.prepare(
-    'SELECT p.id, p.client FROM assignments a JOIN projects p ON p.id = a.project_id WHERE a.user_id = ? AND p.active = 1 ORDER BY p.client'
+    'SELECT p.id, p.client FROM assignments a JOIN projects p ON p.id = a.project_id WHERE a.user_id = ? AND p.active = 1 AND p.is_coverage = 0 ORDER BY p.client'
   ).bind(userId).all();
   const only = projectIds ? projectIds.split(',') : null;
   const list = only ? results.filter((p) => only.includes(p.id)) : results;

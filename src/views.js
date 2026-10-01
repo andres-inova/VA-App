@@ -1204,8 +1204,11 @@ function dayBoxes(days) {
 export function projectsPage({ user, projects, assignments, vas, message }) {
   const byProject = new Map(projects.map((p) => [p.id, []]));
   for (const a of assignments) byProject.get(a.project_id)?.push(a);
-  const unassigned = projects.filter((p) => !byProject.get(p.id).length);
-  const assigned = projects.filter((p) => byProject.get(p.id).length);
+  // Coverage projects get their own section, with or without a VA (the backup may not use this app).
+  const unassigned = projects.filter((p) => !byProject.get(p.id).length && !p.is_coverage);
+  const assigned = projects.filter((p) => byProject.get(p.id).length && !p.is_coverage);
+  const coverage = projects.filter((p) => p.is_coverage);
+  const coverageIds = new Set(projects.filter((p) => p.is_coverage).map((p) => p.id));
 
   // The time zone for a start time. "" means the VA's own zone from Zoho.
   const zoneSelect = (selected, vaZone) => `<select name="time_zone" aria-label="Time zone">
@@ -1220,7 +1223,9 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
         <span class="who">${avatar(a.va_name)}${esc(a.va_name)}</span>
         <input type="time" name="start_time" value="${esc(a.start_time || '')}" aria-label="Start time">
         ${zoneSelect(zoneFor(a.time_zone) ? a.time_zone : '', vaZoneOf(a))}
-        ${dayBoxes(a.days)}
+        ${coverageIds.has(a.project_id)
+          ? `${a.days.split(',').map((d) => `<input type="hidden" name="days" value="${esc(d)}">`).join('')}<span class="small">Only on days they cover this client</span>`
+          : dayBoxes(a.days)}
         <button class="sm" style="margin:0">Save</button>
       </form>
       <form method="post" action="/admin/assignments/${a.id}/delete" data-confirm="${esc(`Take ${a.va_name} off this project?`)}"><button class="sm danger" style="margin:0">Remove</button></form>
@@ -1243,7 +1248,7 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
     const missingTime = list.some((a) => !parseHHMM(a.start_time));
     const who = list.map((a) => `${esc(a.va_name)}${parseHHMM(a.start_time) ? ` · ${esc(formatHM(parseHHMM(a.start_time)))} ${esc(zoneOf(a))}` : ''}`).join(', ');
     return item({
-      name: p.client, title: esc(p.client), sub: esc(who || 'No VA assigned'),
+      name: p.client, title: `${esc(p.client)}${p.is_coverage ? ` ${chip('Coverage', 'info')}` : ''}`, sub: esc(who || 'No VA assigned'),
       side: !list.length ? chip('No VA', 'warn') : missingTime ? chip('Needs a start time', 'warn') : chip(`${list.length} VA${list.length > 1 ? 's' : ''}`, 'good'),
       open,
       body: `<p class="meta">${esc(p.name)}</p>${list.map(assignmentRow).join('')}${addForm(p)}`,
@@ -1264,6 +1269,11 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
       body: unassigned.map((p) => projectRow(p)).join(''),
     }) : ''}
     ${section({ title: 'Projects', count: assigned.length, open: true, body: assigned.length ? assigned.map((p) => projectRow(p)).join('') : empty('No projects yet. Click "Sync with Zoho now".') })}
+    ${coverage.length ? section({
+      title: 'Coverage projects', count: coverage.length, open: false, key: 'coverage-projects',
+      hint: 'Named "Client - VA - Coverage" in Zoho. The backup VA logs coverage time there. They need no Coverage SOP, and count for check-ins only on days that VA is the approved backup for the client.',
+      body: coverage.map((p) => projectRow(p)).join(''),
+    }) : ''}
     </div><div id="projects-none" class="card empty no-results">No project matches your search.</div>`,
   });
 }
@@ -1336,7 +1346,7 @@ const clock = (value) => { const t = parseHHMM(value); return t ? formatHM(t) : 
 const minutesOf = (hours) => { const m = /^(\d+):(\d{2})$/.exec(hours || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : 0; };
 const asHours = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
 
-export function workPage({ user, day, projects, project, lists, logs, week, thisWeek, today, message, zohoError, logsError = '' }) {
+export function workPage({ user, day, projects, project, coverageSop = null, lists, logs, week, thisWeek, today, message, zohoError, logsError = '' }) {
   const title = 'Tasks & time';
   if (!project) {
     return layout({ title, user, active: '/va/work', message, body: `<div class="card">${empty('You have no projects yet. An admin assigns them on the Projects page.')}</div>` });
@@ -1350,8 +1360,14 @@ export function workPage({ user, day, projects, project, lists, logs, week, this
   const error = zohoError ? `<div class="toast bad" role="alert">${esc(zohoError)}</div>` : '';
   const switcher = projects.length > 1
     ? `<nav class="chips proj-tabs" aria-label="Projects"><a class="chip muted" href="/va/work">‹ All projects</a>${projects.map((p) =>
-      `<a class="chip ${p.id === project.id ? 'on' : 'muted'}" href="/va/work?project=${encodeURIComponent(p.id)}" ${p.id === project.id ? 'aria-current="page"' : ''}>${esc(p.client)}</a>`).join('')}</nav>`
+      `<a class="chip ${p.id === project.id ? 'on' : 'muted'}" href="/va/work?project=${encodeURIComponent(p.id)}" ${p.id === project.id ? 'aria-current="page"' : ''}>${esc(p.client)}${p.is_coverage ? ' (coverage)' : ''}</a>`).join('')}</nav>`
     : '';
+  // A coverage project: what it is for, and the client's SOP.
+  const coverageNote = project.is_coverage ? `<div class="card coverage-note">${chip('Coverage', 'info')}
+      <p class="meta" style="margin:8px 0 0">Log the time you spend covering <b>${esc(project.client)}</b> here. It counts for check-ins only on days you are the backup for them.</p>
+      ${coverageSop ? `<div class="actions">${coverageSop.has_content ? `<a class="btn sm" href="/sops/${esc(encodeURIComponent(coverageSop.id))}">${icon('doc')} Read the Coverage SOP</a>` : ''}
+        ${coverageSop.file_key ? `<a class="btn sm plain" href="/sops/${esc(encodeURIComponent(coverageSop.id))}/file" target="_blank" rel="noopener">${icon('external')} Open the SOP file</a>` : ''}</div>` : ''}
+    </div>` : '';
 
   const taskOptions = `<option value="">General (no task)</option>${lists.filter((l) => l.tasks.length).map((l) =>
     `<optgroup label="${esc(l.name)}">${l.tasks.map((x) => `<option value="${esc(x.id)}|${esc(x.name)}">${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}`;
@@ -1464,7 +1480,7 @@ export function workPage({ user, day, projects, project, lists, logs, week, this
 
   return layout({
     title, user, active: '/va/work', message,
-    body: `${error}${switcher}${timerCard}<div data-remember="work-${esc(project.id)}">
+    body: `${error}${switcher}${coverageNote}${timerCard}<div data-remember="work-${esc(project.id)}">
     ${section({
       title: 'Log time', open: false, key: 'log-time',
       hint: 'Add time you worked without the timer. It is saved in Zoho under your name.',
@@ -1495,10 +1511,11 @@ export function workPickPage({ user, day, projects, message }) {
   const today = new Map(day.projects.map((p) => [p.id, p]));
   const rows = projects.map((p) => {
     const running = t && t.project_id === p.id;
-    const sub = today.has(p.id) ? `Today${today.get(p.id).startLabel ? ` · starts ${today.get(p.id).startLabel}` : ''}` : 'Not scheduled today';
+    const sub = today.has(p.id) ? `Today${today.get(p.id).startLabel ? ` · starts ${today.get(p.id).startLabel}` : ''}`
+      : p.is_coverage ? 'Only for days you cover this client' : 'Not scheduled today';
     return `<a class="item flat pick" href="/va/work?project=${encodeURIComponent(p.id)}"><div class="item-head">${avatar(p.client)}
       <div class="grow"><div class="title">${esc(p.client)}</div><div class="sub">${esc(sub)}</div></div>
-      ${running ? chip(t.stopped_at ? 'Timer to save' : 'Timer running', t.stopped_at ? 'warn' : 'good') : ''}${icon('chevron', 'chev')}</div></a>`;
+      ${p.is_coverage ? chip('Coverage', 'info') : ''}${running ? chip(t.stopped_at ? 'Timer to save' : 'Timer running', t.stopped_at ? 'warn' : 'good') : ''}${icon('chevron', 'chev')}</div></a>`;
   }).join('');
   return layout({
     title: 'Tasks & time', user, active: '/va/work', message,

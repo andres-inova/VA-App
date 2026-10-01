@@ -302,6 +302,11 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 
 - **Check-ins come from projects.** Each assignment of a VA to a project has a start time and work days. Days default to Monday to Friday.
 - **One check-in per day:** if a VA has several projects on the same day, they check in once, by the **earliest** start time, and that check-in counts for all of them. For example, Pool Partners at 9:00 and Rise & Shine at 11:00 means one check-in due by 9:00.
+- **Coverage projects** are named "[Client] - [backup VA] - Coverage" in Zoho (for example "Pool Partners - Ana Diaz - Coverage"). The app reads the client and the backup VA from the name and gives the project to that VA, so they can log their coverage time there. A coverage project:
+  - counts for check-ins **only on days that VA is the approved backup** for that client (on any day of the week); other days it is ignored. Its start time is set on the Projects page as usual.
+  - needs **no Coverage SOP** (the client's regular project has it), and is left out of the SOP lists, reminders and counts.
+  - can't be chosen when a VA asks for coverage, and doesn't raise "project has no VA" (the backup may not use this app).
+  - is listed under **Coverage projects** on the Projects page, labeled "(coverage)" on My day and Today, and in Tasks & time it links to the client's Coverage SOP while the VA is covering.
 - **No projects that day, or no start times**, means no check-in is expected and no late alerts are sent. The VA can still check in.
 - **Holidays**: no check-in is expected on dates listed under Holidays.
 - **Exempt VAs are never checked.** A VA is exempt when their Zoho **VA Company Affiliation** is anything other than "InoVA Local" (for example "Closers", or empty), or when an admin clicks **Exempt this VA** on the People page. Exempt VAs get no expected check-in, no late alerts, and don't appear in reports. They can still log in, check in and request time off. An empty affiliation shows a warning on the People page.

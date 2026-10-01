@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS projects (
   client TEXT NOT NULL,             -- the part before the last " - ", for example "Pool Partners"
   va_name TEXT,                     -- the part after the last " - ", for example "Tracy Saeman"
   active INTEGER NOT NULL DEFAULT 1,
-  assignment_locked INTEGER NOT NULL DEFAULT 0  -- 1 once assigned (automatically or by an admin), so syncs stop auto-assigning it
+  assignment_locked INTEGER NOT NULL DEFAULT 0,  -- 1 once assigned (automatically or by an admin), so syncs stop auto-assigning it
+  is_coverage INTEGER NOT NULL DEFAULT 0  -- 1 for "[client] - [backup VA] - Coverage": no SOP; check-ins only on days that VA covers the client
 );
 
 -- Which VA works on which project, and when. One check-in per day covers all of a VA's projects that day,

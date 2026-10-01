@@ -28,17 +28,28 @@ export async function dayInfo(env, user, now = new Date()) {
   const today = String(weekdayIndex(local.weekday));
 
   const { results: assignments } = await env.DB.prepare(
-    `SELECT a.project_id, a.start_time, a.time_zone, a.days, p.client FROM assignments a JOIN projects p ON p.id = a.project_id
+    `SELECT a.project_id, a.start_time, a.time_zone, a.days, p.client, p.is_coverage FROM assignments a JOIN projects p ON p.id = a.project_id
      WHERE a.user_id = ? AND p.active = 1 ORDER BY p.client`
   ).bind(user.id).all();
+  // Coverage projects count only on days this VA is the backup for that client on approved time off
+  // (whatever their work days are); other days they are ignored.
+  const covering = new Set();
+  if (user.zoho_id && assignments.some((a) => a.is_coverage)) {
+    const { results } = await env.DB.prepare(
+      `SELECT DISTINCT lower(cp.client) AS client FROM coverage_projects cp JOIN time_off_requests r ON r.id = cp.request_id
+       WHERE cp.backup_zoho_id = ? AND cp.project_id != '' AND r.status = 'approved' AND r.kind != 'emergency' AND ? BETWEEN r.start_date AND r.end_date`
+    ).bind(user.zoho_id, local.date).all();
+    for (const r of results) covering.add(r.client);
+  }
   // Each start time is in the assignment's own time zone, or the VA's when none is set.
   const allToday = assignments
-    .filter((a) => a.days.split(',').includes(today))
+    .filter((a) => (a.is_coverage ? covering.has(a.client.toLowerCase()) : a.days.split(',').includes(today)))
     .map((a) => {
       const start = parseHHMM(a.start_time);
       const label = zoneFor(a.time_zone) ? a.time_zone : zoneLabel;
       const at = start ? zonedTimeToUtc(local.date, start.hour, start.minute, zoneFor(label)) : null;
-      return { id: a.project_id, client: a.client, start, zoneLabel: label, at, startLabel: start ? `${formatHM(start)} ${label}` : null };
+      const client = a.is_coverage ? `${a.client} (coverage)` : a.client;
+      return { id: a.project_id, client, coverage: Boolean(a.is_coverage), start, zoneLabel: label, at, startLabel: start ? `${formatHM(start)} ${label}` : null };
     })
     .sort((x, y) => (x.at && y.at ? x.at - y.at : x.at ? -1 : y.at ? 1 : x.client.localeCompare(y.client)));
 

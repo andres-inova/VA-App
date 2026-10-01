@@ -91,19 +91,20 @@ export async function vaSops(env, userId) {
     `SELECT p.id, p.client, p.name, s.content IS NOT NULL AS has_content, s.completed_at, s.file_key, s.file_name,
        s.uploaded_at, s.not_needed, s.updated_at
      FROM assignments a JOIN projects p ON p.id = a.project_id LEFT JOIN sops s ON s.project_id = p.id
-     WHERE a.user_id = ? AND p.active = 1 ORDER BY p.client`
+     WHERE a.user_id = ? AND p.active = 1 AND p.is_coverage = 0 ORDER BY p.client`
   ).bind(userId).all();
   return results.map((r) => ({ ...r, status: sopStatus({ ...r, content: r.has_content ? '1' : null }) }));
 }
 
 // Every active project that has a VA, with its VAs and SOP state (for admins and the Time off pages).
+// Coverage projects ("... - Coverage") are left out: the client's regular project has the SOP.
 export async function allSops(env) {
   const { results } = await env.DB.prepare(
     `SELECT p.id, p.client, p.name, GROUP_CONCAT(u.name, ', ') AS va_names, s.content IS NOT NULL AS has_content,
        s.completed_at, s.file_key, s.file_name, s.uploaded_at, s.not_needed, s.updated_at, e.name AS updated_by_name
      FROM projects p JOIN assignments a ON a.project_id = p.id JOIN users u ON u.id = a.user_id
      LEFT JOIN sops s ON s.project_id = p.id LEFT JOIN users e ON e.id = s.updated_by
-     WHERE p.active = 1 AND u.is_va = 1 GROUP BY p.id ORDER BY p.client`
+     WHERE p.active = 1 AND p.is_coverage = 0 AND u.is_va = 1 GROUP BY p.id ORDER BY p.client`
   ).all();
   return results.map((r) => ({ ...r, status: sopStatus({ ...r, content: r.has_content ? '1' : null }) }));
 }

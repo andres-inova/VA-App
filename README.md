@@ -263,7 +263,7 @@ If something doesn't work, open the Cloudflare dashboard â†’ **Workers & Pages â
 
 ## What the app does
 
-The app works on computers and phones. On a computer, the menu is on the left. On a phone, tap **Menu** (top left or bottom right), and the most-used pages are in the bottom bar. Most lists are made of rows: click or tap a row to open its details and buttons. Sections can be opened and closed by clicking their title.
+The app works on computers and phones. On a computer, the menu is on the left. On a phone, tap **Menu** (top left or bottom right), and the most-used pages are in the bottom bar (for admins: Today, Time off, Projects, SOPs and People). Most lists are made of rows: click or tap a row to open its details and buttons. Sections can be opened and closed by clicking their title.
 
 **VAs**
 - Log in with email and password. The email is the VA's email in Zoho.
@@ -279,7 +279,7 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 
 **Admins**
 - **Projects**: each VA's start time has a time zone picker next to it (PST, MST, CST, EST, or the VA's own zone from Zoho, the default). A VA with projects in different zones checks in by whichever starts first in real time.
-- **Today**: a **This week** summary (on-time rate, counts, and anyone late or missing 2+ times), then every VA's projects today, their check-in time and status, grouped into Needs attention, Checked in, Not started yet, Off today and Not checked today. It updates by itself every minute.
+- **Today**: a **Needs your attention** card that links to whatever is waiting across the app (VAs late or not checked in, time-off requests waiting for a decision, approved coverage without a backup, projects with no VA, projects with no Coverage SOP), or "All caught up". Then a **This week** summary (on-time rate, counts, and anyone late or missing 2+ times), then every VA's projects today, their check-in time and status, grouped into Needs attention, Checked in, Not started yet, Off today and Not checked today. It updates by itself every minute.
 - **Calendar**: a month view of who is off (time off, emergencies, requests waiting for a decision, and who covers) and company holidays. Click a name to open that request's own page, with all its details and its **next steps** (for example "Find a backup VA for Long Island Maids").
 - **History**: a month grid showing each VA's status per work day, with totals.
 - **Projects**: the active projects from Zoho Projects and who is assigned to each, with a start time and work days per assignment. Admins can add, change or remove assignments.

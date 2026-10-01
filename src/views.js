@@ -104,7 +104,8 @@ const ICON_PATHS = {
 const icon = (name, cls = '') =>
   `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name]}</svg>`;
 
-const initials = (name) => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+// First letters of the first two words, skipping words like "&" or "-" ("Rise & Shine" gives "RS").
+const initials = (name) => (name || '?').split(/\s+/).filter((w) => /^[\p{L}\p{N}]/u.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 
 // A round avatar with the person's initials, in a color that always matches their name.
 function avatar(name, size = '') {
@@ -125,7 +126,7 @@ const dateRange = (start, end, year = true) =>
 
 // A collapsible section with a title, an optional count badge and an optional hint line.
 function section({ title, count, open = true, hint = '', body, tone = '', key = '' }) {
-  return `<details class="section ${tone}" ${open ? 'open' : ''} ${key ? `data-key="${esc(key)}"` : ''}>
+  return `<details class="section ${tone}" ${open ? 'open' : ''} ${key ? `data-key="${esc(key)}" id="${esc(key)}"` : ''}>
     <summary><span class="sec-title">${esc(title)}</span>${count !== undefined ? `<span class="count">${count}</span>` : ''}${icon('chevron', 'chev')}</summary>
     ${hint ? `<p class="hint">${hint}</p>` : ''}
     <div class="sec-body">${body}</div>
@@ -144,7 +145,7 @@ const empty = (text) => `<div class="empty">${text}</div>`;
 // ---- Styles ----
 
 const CSS = `
-:root{--bg:#efeae2;--surface:#fff;--surface-2:#f6f5f3;--text:#111b21;--muted:#667781;--line:#e6e2dc;
+:root{--bg:#efeae2;--surface:#fff;--surface-2:#f6f5f3;--text:#111b21;--muted:#54656f;--line:#e6e2dc;
 --brand:#008069;--accent:#00a884;--accent-ink:#fff;--accent-soft:#d9fdd3;
 --side:#0f2f2a;--side-ink:#d7ece7;--side-muted:#8fb3ab;--side-hover:#18413a;
 --good:#067647;--good-bg:#dcfae6;--warn:#935f00;--warn-bg:#fef0c7;--bad:#b42318;--bad-bg:#fee4e2;--info:#175cd3;--info-bg:#e0eaff;--muted-bg:#eef0f2;
@@ -171,7 +172,7 @@ a{color:var(--brand)}.ic{width:20px;height:20px;flex:none}
 .main-col{flex:1;min-width:0;display:flex;flex-direction:column}
 .topbar{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:12px 24px}
 .topbar h1{font-size:20px;margin:0;flex:1}.topbar .menu{display:none;cursor:pointer;color:var(--text)}
-main{padding:20px 24px 90px;max-width:1080px;width:100%}
+main{padding:20px 24px 90px;max-width:1080px;width:100%;margin:0 auto}
 .lead{color:var(--muted);margin:0 0 16px}
 .toast{display:flex;gap:10px;align-items:center;padding:12px 16px;border-radius:14px;margin-bottom:16px;font-weight:600;box-shadow:var(--shadow)}
 .toast.good{background:var(--good-bg);color:var(--good)}.toast.bad{background:var(--bad-bg);color:var(--bad)}.toast.info{background:var(--info-bg);color:var(--info)}
@@ -261,10 +262,16 @@ button.busy::after{content:"";width:14px;height:14px;border-radius:50%;border:2p
 .no-results{display:none}
 .timerbar{display:flex;align-items:center;gap:10px;background:var(--accent-soft);color:var(--text);border-radius:14px;padding:8px 10px 8px 14px;margin-bottom:16px;box-shadow:var(--shadow);text-decoration:none}
 .timerbar a{color:inherit;text-decoration:none}.timerbar form{margin:0}.timerbar button{margin:0}
-.timerbar.stopped{background:var(--warn-bg);color:var(--warn);padding:12px 14px}
+.timerbar.stopped{background:var(--warn-bg);color:var(--warn);padding:12px 14px}.timerbar.slim{padding:8px 14px}
+.attn-card h2{margin-bottom:4px}.attn{display:flex;align-items:center;gap:10px;padding:10px 6px;border-radius:10px;color:var(--text);text-decoration:none;font-weight:600}
+.attn+.attn{border-top:1px solid var(--line)}.attn:hover{background:var(--surface-2)}.attn>.ic{color:var(--muted)}
+.attn .dot{width:10px;height:10px;border-radius:50%;flex:none}.attn.bad .dot{background:var(--bad)}.attn.warn .dot{background:var(--warn)}.attn.muted .dot{background:var(--muted)}
+.attn.bad,.attn.warn,.attn.muted{background:none;color:var(--text)}.attn-card.done{display:flex;align-items:center;gap:8px;color:var(--good)}
+.loading{position:fixed;z-index:30;top:70px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;background:var(--surface);color:var(--text);
+  font-weight:700;padding:10px 18px;border-radius:99px;box-shadow:0 6px 24px rgba(0,0,0,.18);white-space:nowrap}.loading[hidden]{display:none}.loading .ic{animation:spin 1s linear infinite}
 #timer{scroll-margin-top:80px}[data-since],.bigtime{font-variant-numeric:tabular-nums}.bigtime{font-size:36px;font-weight:800;line-height:1.2}
 a.item.pick{display:block;color:inherit;text-decoration:none;border-radius:12px}a.item.pick:hover{background:var(--surface-2)}a.item.pick .item-head{cursor:pointer}
-.proj-tabs{margin:0 0 16px}.proj-tabs .chip{text-decoration:none;font-size:14px;padding:7px 14px;box-shadow:var(--shadow)}.proj-tabs .chip.on{background:var(--accent);color:#fff}
+.proj-tabs{margin:0 0 12px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:2px 2px 8px}.proj-tabs::-webkit-scrollbar{display:none}.proj-tabs .chip{flex:none}.proj-tabs .chip{text-decoration:none;font-size:14px;padding:7px 14px;box-shadow:var(--shadow)}.proj-tabs .chip.on{background:var(--accent);color:#fff}
 .inline-add{display:flex;gap:8px;align-items:center;padding:8px}.inline-add input{flex:1}.inline-add button{margin:0}
 .list-opts{margin:4px 8px 0}.list-opts>summary{cursor:pointer;color:var(--muted);font-size:13px;font-weight:700;list-style:none;padding:4px 0}
 .item-head .sm{margin:0}.item-head button:disabled{opacity:.4}
@@ -292,6 +299,7 @@ a.item.pick{display:block;color:inherit;text-decoration:none;border-radius:12px}
   main{padding:16px 16px 96px}.item-body{padding-left:12px}
   .row{flex-direction:column;align-items:stretch;gap:0}.row>*{min-width:0;width:100%}
   input,select,textarea{font-size:16px}
+  button.sm,.btn.sm{min-height:44px}.days span{padding:9px 12px}
   .inline-add{flex-wrap:wrap}.inline-add input{flex:1 1 12em;min-width:0}
   .item-head .chip{white-space:normal;text-align:center}
   .item.stack>.item-head{flex-wrap:wrap;row-gap:8px}.item.stack>.item-head>.grow{flex:1 1 100%}.item.stack>.item-head>.grow+*{margin-left:auto}
@@ -386,6 +394,20 @@ const SCRIPT = `<script type="speculationrules">{"prefetch":[{"where":{"href_mat
       });
     });
   });
+  // Tasks & time waits for Zoho before the page appears; say so if it takes a moment.
+  var loading = document.getElementById('loading'), loadingTimer;
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[href^="/va/work?"]');
+    if (!a || e.defaultPrevented || e.button || e.ctrlKey || e.metaKey || e.shiftKey || a.target) return;
+    loadingTimer = setTimeout(function () { if (loading) loading.hidden = false; }, 300);
+  });
+  window.addEventListener('pageshow', function () { clearTimeout(loadingTimer); if (loading) loading.hidden = true; });
+  // The project buttons scroll sideways on phones: keep the chosen one in view.
+  var onTab = document.querySelector('.proj-tabs .on');
+  if (onTab) {
+    var row = onTab.parentNode, over = onTab.getBoundingClientRect().right - row.getBoundingClientRect().right;
+    if (over > 0) row.scrollLeft += over + 16;
+  }
   // Running timers count up every second.
   function tick() {
     document.querySelectorAll('[data-since]').forEach(function (el) {
@@ -440,7 +462,7 @@ export function layout({ title, user, active, message, body }) {
 
   // Phone bottom bar: the most-used pages, plus "Menu" for the rest.
   const tabs = user.is_admin
-    ? [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/projects', 'Projects', 'projects'], ['/admin/people', 'People', 'people']]
+    ? [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'SOPs', 'doc'], ['/admin/people', 'People', 'people']]
     : [['/va', 'My day', 'sun'], ['/va/work', 'Tasks & time', 'tasks'], ['/va/sops', 'SOPs', 'doc', sopsToDo]];
   const tabbar = `<nav class="tabbar" aria-label="Main pages">${tabs.map(([href, label, ic, badge]) =>
     `<a href="${href}" class="${href === active ? 'on' : ''}">${icon(ic)}${label}${badge ? `<span class="badge">${badge}</span>` : ''}</a>`).join('')}
@@ -450,9 +472,9 @@ export function layout({ title, user, active, message, body }) {
 <div class="app">${sidebar}<label for="nav-toggle" class="scrim" aria-hidden="true"></label>
   <div class="main-col">
     <header class="topbar"><label for="nav-toggle" class="menu" aria-label="Open menu">${icon('menu')}</label><h1>${esc(title)}</h1></header>
-    <main>${toast}${active === '/va/work' ? '' : timerBar(user)}${active === '/va/sops' ? '' : sopBanner(user)}${body}</main>
+    <main>${toast}${active === '/va/work' ? '' : timerBar(user)}${active === '/va/sops' ? '' : sopBanner(user, active)}${body}</main>
   </div>
-</div>${tabbar}${SCRIPT}</body></html>`;
+</div>${tabbar}<div id="loading" class="loading" role="status" hidden>${icon('sync')} Loading from Zoho…</div>${SCRIPT}</body></html>`;
 }
 
 // A bar at the top of every page while a VA's timer runs (or waits to be saved).
@@ -469,9 +491,13 @@ function timerBar(user) {
 }
 
 // A reminder on every VA page while any of their projects has no Coverage SOP yet.
-function sopBanner(user) {
+// The full message on My day; one short line on the other pages.
+function sopBanner(user, active) {
   const todo = user.sops_todo || [];
   if (!todo.length) return '';
+  if (active !== '/va') {
+    return `<a class="timerbar stopped slim" href="/va/sops">${icon('doc')}<span class="grow"><b>${todo.length} Coverage SOP${todo.length > 1 ? 's' : ''} to do</b></span>${icon('chevron')}</a>`;
+  }
   const names = todo.map((s) => s.client).join(', ');
   return `<a class="timerbar stopped" href="/va/sops">${icon('doc')}<span class="grow"><b>Please complete your Coverage SOP${todo.length > 1 ? 's' : ''}</b> for ${esc(names)}.
     A backup VA follows it when you are off. Fill in the template or upload your own.</span>${icon('chevron')}</a>`;
@@ -846,7 +872,24 @@ export function todayStatus(row, day, now) {
   return { label: 'Not started yet', tone: 'muted', group: 'upcoming' };
 }
 
-export function adminTodayPage({ user, rows, week, message, paused = false }) {
+// What's waiting for an admin across the app, as links. todo: counts from the /admin route.
+function attentionCard(rows, todo) {
+  if (!todo) return '';
+  const late = rows.filter((r) => r.status.group === 'attention').length;
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const lines = [
+    late && [`#group-attention`, plural(late, 'VA is late or not checked in', 'VAs are late or not checked in'), 'bad'],
+    todo.pending && ['/admin/time-off', plural(todo.pending, 'time-off request is waiting for a decision', 'time-off requests are waiting for a decision'), 'warn'],
+    todo.noBackup && ['/admin/time-off', plural(todo.noBackup, 'approved coverage still needs a backup VA', 'approved coverages still need a backup VA'), 'warn'],
+    todo.noVa && ['/admin/projects', plural(todo.noVa, 'project has no VA', 'projects have no VA'), 'warn'],
+    todo.sopsMissing && ['/admin/sops', plural(todo.sopsMissing, 'project has no Coverage SOP yet', 'projects have no Coverage SOP yet'), 'muted'],
+  ].filter(Boolean);
+  if (!lines.length) return `<div class="card attn-card done">${icon('check')} <b>All caught up.</b> Nothing is waiting for you.</div>`;
+  return `<div class="card attn-card"><h2>Needs your attention</h2>${lines.map(([href, text, tone]) =>
+    `<a class="attn ${tone}" href="${href}"><span class="dot"></span><span class="grow">${esc(text)}</span>${icon('chevron')}</a>`).join('')}</div>`;
+}
+
+export function adminTodayPage({ user, rows, week, todo, message, paused = false }) {
   const groups = [
     ['attention', 'Needs attention', 'attention', true],
     ['in', 'Checked in', '', true],
@@ -870,6 +913,7 @@ export function adminTodayPage({ user, rows, week, message, paused = false }) {
     title: 'Today', user, active: '/admin', message,
     body: `${paused ? pauseCard(true, '/admin') : ''}<div data-autorefresh>
       <p class="updated">Updates by itself every minute · last updated <span data-updated></span></p>
+      ${attentionCard(rows, todo)}
       ${week ? weekCard(week) : ''}
       ${rows.length ? `<div class="summary-chips">${summary}</div>
       ${groups.filter(([g]) => by(g).length).map(([g, title, tone, open]) =>
@@ -1042,7 +1086,7 @@ export function peoplePage({ user, people, onDeck = [], message, tempPassword })
     title: 'People', user, active: '/admin/people', message,
     body: `${tempBox}
     <div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
-      <p class="lead" style="margin:0;flex:1;min-width:240px">VAs come from Zoho CRM and update every hour. To change a VA's details, change them in Zoho, then sync. Projects and start times are on the <a href="/admin/projects">Projects</a> page.</p>
+      <p class="lead" style="margin:0;flex:1;min-width:240px">VAs come from Zoho CRM every hour. To change a VA's details, change them in Zoho, then sync.</p>
       <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/people"><button style="margin:0">${icon('sync')} Sync with Zoho now</button></form>
     </div>
     <label class="search" for="find-person">${icon('people')}<input id="find-person" type="search" placeholder="Search people" autocomplete="off" data-filter="#people .item" data-empty="#people-none"></label>
@@ -1177,7 +1221,7 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
         <input type="time" name="start_time" value="${esc(a.start_time || '')}" aria-label="Start time">
         ${zoneSelect(zoneFor(a.time_zone) ? a.time_zone : '', vaZoneOf(a))}
         ${dayBoxes(a.days)}
-        <button class="sm plain" style="margin:0">Save</button>
+        <button class="sm" style="margin:0">Save</button>
       </form>
       <form method="post" action="/admin/assignments/${a.id}/delete" data-confirm="${esc(`Take ${a.va_name} off this project?`)}"><button class="sm danger" style="margin:0">Remove</button></form>
       ${parseHHMM(a.start_time) ? '' : `<div style="width:100%">${chip('No start time: no check-in or late alerts for this project', 'warn')}</div>`}
@@ -1209,7 +1253,7 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
   return layout({
     title: 'Projects', user, active: '/admin/projects', message,
     body: `<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
-      <p class="lead" style="margin:0;flex:1;min-width:240px">Projects come from Zoho Projects every hour. A new project is given to the VA named after the " - " in its name, with their Zoho start time. Each start time uses the time zone chosen next to it (by default, the VA's own time zone from Zoho). A VA with several projects checks in once a day, by the earliest start.</p>
+      <p class="lead" style="margin:0;flex:1;min-width:240px">Projects come from Zoho Projects every hour and go to the VA named after the " - " in the project name. A VA with several projects checks in once a day, by the earliest start.</p>
       <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/projects"><button style="margin:0">${icon('sync')} Sync with Zoho now</button></form>
     </div>
     <label class="search" for="find-project">${icon('projects')}<input id="find-project" type="search" placeholder="Search projects or VAs" autocomplete="off" data-filter="#projects-list .item" data-empty="#projects-none"></label>
@@ -1503,8 +1547,7 @@ export function vaSopsPage({ user, sops, covering = [], message }) {
   };
   return layout({
     title: 'Coverage SOPs', user, active: '/va/sops', message,
-    body: `<p class="lead">Each of your clients needs a Coverage SOP: the steps a backup VA follows to run that client's day when you are off.
-      For each client, <b>fill in the template</b> here in the app, or <b>upload your own file</b> (PDF, Word, Excel or a picture). Either one counts.</p>
+    body: `<p class="lead">For each client, fill in the template or upload your own file. A backup VA follows it when you are off.</p>
     ${!sops.length ? section({ title: 'My clients', body: empty('You have no projects yet, so there is nothing to do.') }) : ''}
     ${todo.length ? section({ title: 'Still to do', count: todo.length, tone: 'attention', body: todo.map(row).join('') }) : ''}
     ${sops.length && !todo.length ? `<div class="toast good" style="animation:none">${icon('check')} All your Coverage SOPs are done. Thank you! You can update them any time.</div>` : ''}
@@ -1562,7 +1605,7 @@ export function sopEditPage({ user, project, sop, status, content, kinds, readOn
     body: `<p class="lead"><a href="${vaOnly ? '/va/sops' : '/admin/sops'}">← All Coverage SOPs</a></p>
     <p class="lead sop-status">${chip(status.label, status.tone)} <span>${who}${esc(savedOn(sop?.updated_at) || 'not saved yet')}</span></p>
     ${readOnly ? `<p class="lead">You are the backup VA for this client. This SOP was written by ${esc(vas.join(', ') || 'their VA')}; only they or an admin can change it.</p>`
-      : '<p class="lead">Do <b>one</b> of these: upload your own SOP file, or fill in the template below. Either one counts.</p>'}
+      : '<p class="lead">Upload your own file <b>or</b> fill in the template below. Either one counts.</p>'}
     ${readOnly && !sop?.file_key ? '' : `<div id="upload">${section({ title: readOnly ? 'Uploaded file' : 'Upload your own SOP', open: Boolean(sop?.file_key) || readOnly, body: `<div style="padding:0 8px 8px">${upload}</div>` })}</div>`}
     ${section({
       title: readOnly ? 'SOP' : 'Fill in the template', tone: 'sop-section', open: !sop?.file_key || Boolean(sop?.content),
@@ -1581,7 +1624,7 @@ const SOP_CSS = `
 .sop-tips{margin:0 0 12px}.sop-tips>summary{cursor:pointer;font-weight:700;font-size:14px;color:var(--brand);padding:2px 0}
 .sop-tips ul{margin:6px 0 0;padding-left:20px;line-height:1.7}
 .sop-sec{border:1.5px solid var(--line);border-radius:14px;padding:12px;margin:0 0 14px;background:var(--surface)}
-.sop-top{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.sop-top input{flex:1 1 220px;min-width:0;font-weight:800}
+.sop-top{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap}.sop-top .sop-title{flex:1 1 220px;min-width:0;font-weight:800;font-size:15px}
 .sop-top button{margin:0;flex:none}
 .sop-sec h3{margin:0 0 8px;font-size:16px}
 .sop-kind{font-size:12px;color:var(--muted);margin:4px 2px 8px}
@@ -1597,11 +1640,11 @@ const SOP_CSS = `
 .sop .x:hover{color:var(--bad)}.sop .add-row{margin-top:8px}
 .sop-add{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 4px}.sop-add select{width:auto}.sop-add button{margin:0}
 .sop-save{position:sticky;bottom:12px;z-index:3;display:flex;align-items:center;gap:8px;margin-top:14px;background:var(--surface);padding:8px;
-  border-radius:99px;box-shadow:0 4px 18px rgba(0,0,0,.18);width:max-content;max-width:100%}
+  border:1.5px solid var(--line);border-radius:99px;box-shadow:0 4px 18px rgba(0,0,0,.18);width:max-content;max-width:100%}
 .sop-save button{margin:0;white-space:nowrap}.sop-note{padding:0 8px 0 4px}.sop-note.bad{background:none;color:var(--bad);font-weight:700}
 @media (max-width:860px){.sop-head{display:none}.sop-row,.sop.ro .sop-row{grid-template-columns:1fr;gap:4px;padding:8px 0}.sop .sop-cell label{display:block}
-  .sop .x{position:absolute;top:2px;right:0;margin:0;width:30px;height:30px}
-  .sop-top{justify-content:flex-end}.sop-top input{flex-basis:100%}
+  .sop .x{position:absolute;top:0;right:-6px;margin:0;width:44px;height:44px;min-height:44px}
+  .sop-top{justify-content:flex-end}.sop-top .sop-title{flex-basis:100%}.sop-top button{min-width:44px;justify-content:center}
   .sop-save{bottom:76px;width:100%;border-radius:16px;flex-wrap:wrap}.sop-save button{flex:1;justify-content:center;padding:10px 8px}
   .sop-note:empty{display:none}.sop-note{flex-basis:100%;text-align:center;padding:0}}
 `;
@@ -1679,7 +1722,8 @@ const SOP_SCRIPT = `
     root.appendChild(sec);
     if (ro) sec.appendChild(el('h3', { text: s.title || kind.label }));
     else {
-      var title = el('input', { type: 'text', value: s.title || '', placeholder: 'Section name', maxlength: '200', 'aria-label': 'Section name', className: 'sop-title' });
+      var title = textBox(s.title || '', 'Section name', 200, 'sop-title');
+      title.placeholder = 'Section name';
       sec.appendChild(el('div', { className: 'sop-top' }, [title,
         button('\\u2191', 'Move this section up', function () { if (sec.previousElementSibling) { root.insertBefore(sec, sec.previousElementSibling); sec.scrollIntoView({ block: 'nearest' }); } }),
         button('\\u2193', 'Move this section down', function () { var n = sec.nextElementSibling; if (n) { root.insertBefore(n, sec); sec.scrollIntoView({ block: 'nearest' }); } }),
@@ -1723,8 +1767,10 @@ const SOP_SCRIPT = `
       var sec = sectionEl(s); sec.scrollIntoView({ block: 'center' }); sec.querySelector('.sop-title').focus();
     })]));
   root.addEventListener('input', changed);
-  // Enter in a one-line box (a section name or a password) should not save the form.
-  root.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.tagName === 'INPUT') e.preventDefault(); });
+  // Enter in a section name or a password should not save the form or start a new line.
+  root.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (e.target.tagName === 'INPUT' || e.target.classList.contains('sop-title'))) e.preventDefault();
+  });
   // Ctrl+S (Cmd+S on a Mac) saves.
   document.addEventListener('keydown', function (e) {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); form.querySelector('[data-quick]').click(); }
@@ -1791,8 +1837,7 @@ export function adminSopsPage({ user, sops, message }) {
   });
   return layout({
     title: 'Coverage SOPs', user, active: '/admin/sops', message,
-    body: `<p class="lead">One Coverage SOP per project. VAs fill in the template in the app or upload their own file; either one counts as done.
-      VAs see a reminder until theirs are done.</p>
+    body: `<p class="lead">One SOP per project. A filled-in template or an uploaded file both count as done.</p>
     <div class="summary-chips">${chip(`${done.length - count('not_needed')} done`, 'good')}${chip(`${count('draft')} started`, 'warn')}${chip(`${count('missing')} not started`, 'bad')}${count('not_needed') ? chip(`${count('not_needed')} not needed`, 'muted') : ''}</div>
     <label class="search" for="find-sop">${icon('projects')}<input id="find-sop" type="search" placeholder="Search clients or VAs" autocomplete="off" data-filter="#sop-list .item" data-empty="#sop-none"></label>
     <div id="sop-list">

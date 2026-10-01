@@ -353,7 +353,21 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
       ...stats, flagged: flaggedVAs(stats.rows, 2),
       label: `${formatDate(monday)} to ${monday === et.date ? 'today' : `today (${formatDate(et.date)})`}`,
     };
-    return page(views.adminTodayPage({ user, rows, week, message, paused: (await checkinPause(env)).paused }));
+    // Things waiting for an admin, for the "Needs your attention" card.
+    const counts = await env.DB.prepare(
+      `SELECT (SELECT COUNT(*) FROM coverage_projects cp JOIN time_off_requests r ON r.id = cp.request_id
+                WHERE r.status = 'approved' AND r.kind != 'emergency' AND r.end_date >= date('now', '-1 day')
+                  AND COALESCE(cp.backup_zoho_id, '') = '') AS no_backup,
+              (SELECT COUNT(*) FROM projects p WHERE p.active = 1
+                AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.project_id = p.id)) AS no_va`
+    ).first();
+    const todo = {
+      pending: user.pending_requests,
+      noBackup: counts?.no_backup || 0,
+      noVa: counts?.no_va || 0,
+      sopsMissing: (await allSops(env)).filter((s) => !s.status.done).length,
+    };
+    return page(views.adminTodayPage({ user, rows, week, todo, message, paused: (await checkinPause(env)).paused }));
   }
 
   // A month calendar of time off (approved and waiting) and holidays.

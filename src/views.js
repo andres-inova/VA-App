@@ -23,12 +23,13 @@ const MESSAGES = {
   'password-changed': ['good', 'Your password was changed.'],
   'admin-added': ['good', 'Admin added. Use "Set temporary password" so they can log in.'],
   'removed': ['good', 'Removed.'],
-  'clickup-failed': ['bad', 'Saved, but the ClickUp checklist could not be created. The reason is shown on the request; use "Create ClickUp checklist" to try again.'],
-  'clickup-created': ['good', 'ClickUp checklist created.'],
+  'clickup-failed': ['bad', 'Saved, but a ClickUp checklist could not be created. The reason is shown on the request; use "Create missing ClickUp checklists" to try again.'],
+  'clickup-created': ['good', 'ClickUp checklists created.'],
+  'cancelled-clickup-failed': ['bad', 'Cancelled, but a ClickUp checklist could not be deleted. The reason is shown on the request; please delete it in ClickUp.'],
   'choose-va': ['bad', 'Please choose a VA for the request.'],
   'choose-projects': ['bad', 'Please tick at least one project for the request.'],
   'period-added': ['good', 'Added. No check-in is expected on those days.'],
-  'period-cancelled': ['good', 'Cancelled. Check-ins are expected again from today.'],
+  'period-cancelled': ['good', 'Cancelled. Check-ins are expected again from today, and any ClickUp checklists for it were deleted.'],
   'checkins-paused': ['good', 'All check-ins are paused. No late alerts or reports will be sent.'],
   'checkins-resumed': ['good', 'Check-ins resumed. Late alerts start with the next shift that begins from now on.'],
   'timer-started': ['good', 'Timer started.'],
@@ -571,6 +572,16 @@ const KIND_LABEL = { time_off: 'Time off', emergency: 'Emergency', coverage: 'Ti
 const REQUEST_TONE = { pending: 'warn', approved: 'good', denied: 'bad', cancelled: 'muted' };
 const NEEDS_BACKUP = '<span style="color:var(--warn);font-weight:700">needs a backup</span>';
 
+// A request's status as [label, tone]. Approved time off with coverage reads "Coverage requested"
+// until every covered project has a backup, then "Coverage confirmed".
+export function requestStatus(r) {
+  const covered = r.kind !== 'emergency' ? r.coverage || [] : [];
+  if (r.status === 'approved' && covered.length) {
+    return covered.every((c) => c.backup_name) ? ['Coverage confirmed', 'good'] : ['Coverage requested', 'warn'];
+  }
+  return [r.status[0].toUpperCase() + r.status.slice(1), REQUEST_TONE[r.status]];
+}
+
 // Who covers each project, for example "Pool Partners: covered by Ana Diaz · Rise & Shine: needs a backup".
 function coverageText(r) {
   const rows = r.coverage || [];
@@ -588,43 +599,50 @@ function coverableProjects(r, vaProjects) {
 }
 
 // One "who covers" list per project, named cover_<va id>_<project id>. The VA taking time off is left out.
+// A backup already chosen stays in the list even if an admin has since hidden them.
 function coverageSelects(va, projects, backups, coverage = []) {
   const choices = backups.filter((b) => !va || (b.zoho_id !== va.zoho_id && b.name !== va.name));
   return projects.map((p) => {
     const c = coverage.find((x) => x.project_id === p.id);
     const chosen = c ? c.backup_zoho_id || 'open' : '';
+    const kept = chosen && chosen !== 'open' && !choices.some((b) => b.zoho_id === chosen)
+      ? `<option value="${esc(chosen)}" selected>${esc(c.backup_name || 'Chosen backup')}</option>` : '';
     return `<label>${esc(p.client)}</label>
       <select name="cover_${va.id}_${esc(p.id || 'all')}" aria-label="${esc(`Who covers ${p.client}`)}">
         <option value="">No coverage needed</option>
         <option value="open" ${chosen === 'open' ? 'selected' : ''}>Needs coverage, backup not chosen yet</option>
-        ${choices.map((b) => `<option value="${esc(b.zoho_id)}" ${b.zoho_id === chosen ? 'selected' : ''}>${esc(b.name)} (${esc(b.status)})</option>`).join('')}
+        ${kept}${choices.map((b) => `<option value="${esc(b.zoho_id)}" ${b.zoho_id === chosen ? 'selected' : ''}>${esc(b.name)} (${esc(b.status)})</option>`).join('')}
       </select>`;
   }).join('');
 }
 
 // Requests as clickable rows. Admins (ctx.vas set) also get actions and the edit form.
+// ctx.back: set on a request's own page, so its forms return there; ctx.open opens the card.
 function requestCards(requests, forAdmin, ctx = {}) {
   if (!requests.length) return empty('No requests.');
   return requests.map((r) => {
-    const status = chip(r.status[0].toUpperCase() + r.status.slice(1), REQUEST_TONE[r.status]);
+    const [label, tone] = requestStatus(r);
     const shortNotice = !r.added_by_admin && r.created_at && r.start_date < addDays(r.created_at.slice(0, 10), 14);
     const sub = `${esc(dateRange(r.start_date, r.end_date))} · ${coverageText(r)}${shortNotice ? ` · <span style="color:var(--warn);font-weight:700">Less than 2 weeks' notice</span>` : ''}`;
     const checklists = forAdmin ? (r.coverage || []).map((c) => {
-      const label = c.project_id ? ` (${esc(c.client)})` : '';
-      if (c.clickup_list_url) return `<p class="meta"><a href="${esc(c.clickup_list_url)}" target="_blank" rel="noopener">${icon('external')} Open the ClickUp checklist${label}</a></p>`;
-      return r.status === 'approved' && c.clickup_error ? `<p class="meta" style="color:var(--bad)">ClickUp${label}: ${esc(c.clickup_error)}</p>` : '';
+      const name = c.project_id ? ` (${esc(c.client)})` : '';
+      return [
+        c.clickup_list_url && `<p class="meta"><a href="${esc(c.clickup_list_url)}" target="_blank" rel="noopener">${icon('external')} Open the ClickUp checklist${name}</a></p>`,
+        c.clickup_error && r.status !== 'pending' && `<p class="meta" style="color:var(--bad)">ClickUp${name}: ${esc(c.clickup_error)}</p>`,
+      ].filter(Boolean).join('');
     }).join('') : '';
     const body = `
       ${r.details || r.note ? `<div class="bubble">${esc([r.details, r.note].filter(Boolean).join('\n'))}</div>` : ''}
       <p class="meta">${r.added_by_admin ? 'Added by an admin' : r.source === 'form' ? 'From the request form' : 'Request'}
         · ${r.project_names ? `Only these projects: <b>${esc(r.project_names)}</b>` : 'All projects'}
-        ${r.decided_by_name ? ` · ${esc(r.status)} by <b>${esc(r.decided_by_name)}</b>` : ''}</p>
+        ${r.decided_by_name ? ` · ${esc(r.status)} by <b>${esc(r.decided_by_name)}</b>` : ''}
+        ${forAdmin && !ctx.back ? ` · <a href="/admin/time-off/${r.id}">Details and next steps</a>` : ''}</p>
       ${checklists}
       ${forAdmin ? requestActions(r, ctx) : ''}`;
     return item({
       name: forAdmin ? r.name : undefined,
       title: `${forAdmin ? `${esc(r.name)} · ` : ''}${KIND_LABEL[r.kind] || 'Time off'}`,
-      sub, side: status, body, open: forAdmin && r.status === 'pending',
+      sub, side: chip(label, tone), body, open: ctx.open || (forAdmin && r.status === 'pending'),
     });
   }).join('');
 }
@@ -632,28 +650,32 @@ function requestCards(requests, forAdmin, ctx = {}) {
 function requestActions(r, ctx) {
   const buttons = [];
   const covered = r.kind !== 'emergency' ? r.coverage || [] : [];
+  const back = ctx.back ? `<input type="hidden" name="back" value="${esc(ctx.back)}">` : '';
   if (r.status === 'pending') {
     buttons.push(`<span class="small">${covered.length
-      ? `Approving creates ${covered.length === 1 ? 'a ClickUp checklist' : `${covered.length} ClickUp checklists, one per project`}.`
+      ? `Approving requests coverage and creates ${covered.length === 1 ? 'a ClickUp checklist' : `${covered.length} ClickUp checklists, one per project`}.`
       : 'No coverage chosen, so no ClickUp checklist. If it needs coverage, choose the projects in Edit first.'}</span>`);
-    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/approve"><button class="sm">${icon('check')} Approve</button></form>`);
-    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/deny" data-confirm="Deny this request?"><button class="sm danger">Deny</button></form>`);
+    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/approve">${back}<button class="sm">${icon('check')} ${covered.length ? 'Approve and request coverage' : 'Approve'}</button></form>`);
+    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/deny" data-confirm="Deny this request?">${back}<button class="sm danger">Deny</button></form>`);
   }
   if (r.status === 'approved' && covered.some((c) => !c.clickup_list_url)) {
-    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/clickup"><button class="sm plain">Create missing ClickUp checklists</button></form>`);
+    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/clickup">${back}<button class="sm plain">Create missing ClickUp checklists</button></form>`);
   }
   if (r.status === 'approved' && r.cancellable) {
-    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/cancel" data-confirm="Cancel this time off? Check-ins will be expected again from today."><button class="sm danger">Cancel time off</button></form>`);
+    const lists = covered.filter((c) => c.clickup_list_url).length;
+    const confirm = `Cancel this time off? Check-ins will be expected again from today.${lists ? ` Its ClickUp checklist${lists === 1 ? ' is' : 's are'} deleted.` : ''}`;
+    buttons.push(`<form method="post" action="/admin/time-off/${r.id}/cancel" data-confirm="${esc(confirm)}">${back}<button class="sm danger">Cancel time off</button></form>`);
   }
   const edit = ['pending', 'approved'].includes(r.status) && ctx.vas ? editForm(r, ctx) : '';
   return `<div class="actions">${buttons.join('')}</div>${edit}`;
 }
 
 // The admin form to change a request's VA, type, dates, and who covers each project.
-function editForm(r, { vas, backups, vaProjects }) {
+function editForm(r, { vas, backups, vaProjects, back }) {
   const requester = vas.find((v) => v.id === r.user_id) || { id: r.user_id };
   return `<details class="section" style="margin:12px 0 0;box-shadow:none;background:var(--surface-2)"><summary>Edit${icon('chevron', 'chev')}</summary>
     <form method="post" action="/admin/time-off/${r.id}/edit" style="padding:0 16px 14px">
+      ${back ? `<input type="hidden" name="back" value="${esc(back)}">` : ''}
       <div class="row">
         <div><label>VA</label><select name="user_id">${vas.map((v) => `<option value="${v.id}" ${v.id === r.user_id ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}</select></div>
         <div><label>Type</label><select name="kind">
@@ -669,6 +691,42 @@ function editForm(r, { vas, backups, vaProjects }) {
       ${coverageSelects(requester, coverableProjects(r, vaProjects), backups, r.coverage)}
       <button>Save changes</button>
     </form></details>`;
+}
+
+// What still needs doing for a request, as short HTML lines.
+function nextSteps(r) {
+  const covered = r.kind !== 'emergency' ? r.coverage || [] : [];
+  const where = (c) => (c.project_id ? ` for <b>${esc(c.client)}</b>` : '');
+  if (r.status === 'pending') {
+    return [
+      'Approve or deny this request.',
+      covered.length
+        ? `Approving requests coverage and creates ${covered.length === 1 ? 'its ClickUp checklist' : `${covered.length} ClickUp checklists, one per project`}.`
+        : `If ${esc(r.name)} needs coverage, choose it for each project under <b>Edit</b> before approving.`,
+    ];
+  }
+  if (r.status !== 'approved') return [`Nothing to do: this request was ${esc(r.status)}.`];
+  if (!covered.length) return ['Nothing to do. No coverage is needed.'];
+  const steps = [];
+  for (const c of covered) {
+    if (!c.backup_name) steps.push(`Find a backup VA${where(c)}, then choose them under <b>Edit</b>.`);
+    if (!c.clickup_list_url) steps.push(`Create the ClickUp checklist${where(c)} (it could not be created yet).`);
+    else steps.push(`Work through the <a href="${esc(c.clickup_list_url)}" target="_blank" rel="noopener">ClickUp checklist</a>${where(c)}.`);
+  }
+  if (covered.every((c) => c.backup_name)) steps.unshift('Coverage is confirmed: every project has a backup VA.');
+  return steps;
+}
+
+// One request on its own page, with its next steps. The calendar links here.
+export function requestPage({ user, request: r, vas, backups, vaProjects, message }) {
+  const back = `/admin/time-off/${r.id}`;
+  return layout({
+    title: `${r.name} · ${KIND_LABEL[r.kind] || 'Time off'}`, user, active: '/admin/time-off', message,
+    body: `<p class="lead"><a href="/admin/time-off">← All time off</a> · <a href="/admin/calendar?month=${esc(r.start_date.slice(0, 7))}">Calendar</a></p>
+    ${section({ title: 'Next steps', open: true, tone: requestStatus(r)[1] === 'warn' ? 'attention' : '',
+      body: `<ul style="margin:0 8px 8px;padding-left:20px;line-height:1.7">${nextSteps(r).map((s) => `<li>${s}</li>`).join('')}</ul>` })}
+    ${section({ title: 'Request', open: true, body: requestCards([r], true, { vas, backups, vaProjects, back, open: true }) })}`,
+  });
 }
 
 // Form responses whose name matched no VA. The admin picks the VA; that VA's projects then
@@ -809,7 +867,7 @@ export function historyPage({ user, month, prev, next, dates, vas, cells }) {
   });
 }
 
-export function timeOffPage({ user, pending, current, recent, vas, unmatched, vaProjects, backups, clickupReady, formUrl, message }) {
+export function timeOffPage({ user, pending, current, recent, vas, unmatched, vaProjects, backups, allBackups = backups, clickupReady, formUrl, message }) {
   const ctx = { vas, backups, vaProjects };
   const waiting = unmatched.length + pending.length;
   return layout({
@@ -843,7 +901,15 @@ export function timeOffPage({ user, pending, current, recent, vas, unmatched, va
       </form>`,
     })}
     ${section({ title: 'Current and upcoming', count: current.length, open: true, body: requestCards(current.map((r) => ({ ...r, cancellable: true })), true, ctx) })}
-    ${section({ title: 'Past, denied and cancelled', count: recent.length, open: false, body: requestCards(recent, true) })}`,
+    ${section({ title: 'Past, denied and cancelled', count: recent.length, open: false, body: requestCards(recent, true) })}
+    ${section({
+      title: 'Who can cover', count: backups.length, open: false,
+      hint: 'Only ticked VAs appear in the "who covers" lists. Untick anyone who is not able or willing to cover. The list comes from Zoho (VA Status Active or On Deck); new VAs start ticked.',
+      body: `<form method="post" action="/admin/time-off/backups" style="padding:0 8px">
+        ${allBackups.map((b) => `<label class="check" style="margin-top:6px"><input type="checkbox" name="can_cover" value="${esc(b.zoho_id)}" ${b.hidden ? '' : 'checked'}> ${esc(b.name)} <span class="small">(${esc(b.status)})</span></label>`).join('') || empty('Nobody yet. Sync with Zoho on the People page.')}
+        <button>Save</button>
+      </form>`,
+    })}`,
   });
 }
 
@@ -1098,7 +1164,7 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
 
 // ---- Calendar page ----
 
-// events: [{ date, name, kind, status, backup, id }]; holidays: [{ date, name }].
+// events: [{ date, name, kind, status, coverage, backup, id }] (click one to open its request); holidays: [{ date, name }].
 export function calendarPage({ user, month, prev, next, today, events, holidays, message }) {
   const [y, m] = month.split('-').map(Number);
   const monthName = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' });
@@ -1112,8 +1178,13 @@ export function calendarPage({ user, month, prev, next, today, events, holidays,
   for (const e of events) { if (!byDate.has(e.date)) byDate.set(e.date, []); byDate.get(e.date).push(e); }
   const holidayOn = new Map(holidays.map((h) => [h.date, h.name]));
   const short = (name) => `${name.split(' ')[0]} ${name.split(' ')[1]?.[0] ? `${name.split(' ')[1][0]}.` : ''}`.trim();
-  const label = (e) => `${e.name}: ${e.kind === 'emergency' ? 'Emergency' : 'Time off'}${e.status === 'pending' ? ' (waiting for a decision)' : ''}${e.backup ? `, coverage: ${e.backup}` : ''}`;
-  const evHtml = (e) => `<a class="ev ${e.status === 'pending' ? 'pending' : e.kind}" href="/admin/time-off" title="${esc(label(e))}">${esc(short(e.name))}${e.backup ? ' ⇄' : ''}</a>`;
+  // For example "Maria Cabatas: Time off (Coverage requested), coverage: Rise & Shine: needs a backup".
+  const label = (e) => {
+    const status = e.status === 'pending' ? 'waiting for a decision' : requestStatus(e)[0];
+    return `${e.name}: ${e.kind === 'emergency' ? 'Emergency' : 'Time off'}${status === 'Approved' ? '' : ` (${status})`}${e.backup ? `, coverage: ${e.backup}` : ''}`;
+  };
+  const needsBackup = (e) => e.coverage.some((c) => !c.backup_name);
+  const evHtml = (e) => `<a class="ev ${e.status === 'pending' ? 'pending' : e.kind}" href="/admin/time-off/${e.id}" title="${esc(label(e))}">${esc(short(e.name))}${e.backup ? (needsBackup(e) ? ' ⚠' : ' ⇄') : ''}</a>`;
 
   const grid = `<div class="cal-grid">
     ${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => `<div class="dow">${d}</div>`).join('')}
@@ -1130,13 +1201,13 @@ export function calendarPage({ user, month, prev, next, today, events, holidays,
   const listDays = cells.map(iso).filter((d) => d.slice(0, 7) === month && (byDate.has(d) || holidayOn.has(d)));
   const list = `<div class="cal-list">${listDays.length ? listDays.map((d) => item({
     title: esc(formatDate(d)),
-    sub: [holidayOn.has(d) && `🎉 ${esc(holidayOn.get(d))}`, ...(byDate.get(d) || []).map((e) => esc(label(e)))].filter(Boolean).join('<br>'),
+    sub: [holidayOn.has(d) && `🎉 ${esc(holidayOn.get(d))}`, ...(byDate.get(d) || []).map((e) => `<a href="/admin/time-off/${e.id}">${esc(label(e))}</a>`)].filter(Boolean).join('<br>'),
   })).join('') : empty('Nobody is off this month.')}</div>`;
 
   const legend = `<div class="legend"><span><span class="ev time_off" style="display:inline-block">Name</span> Time off</span>
     <span><span class="ev emergency" style="display:inline-block">Name</span> Emergency</span>
     <span><span class="ev pending" style="display:inline-block">Name</span> Waiting for a decision</span>
-    <span>⇄ someone covers</span><span><span class="ev holiday" style="display:inline-block">Holiday</span></span></div>`;
+    <span>⇄ coverage confirmed</span><span>⚠ needs a backup</span><span><span class="ev holiday" style="display:inline-block">Holiday</span></span></div>`;
 
   return layout({
     title: 'Calendar', user, active: '/admin/calendar', message,
@@ -1147,7 +1218,7 @@ export function calendarPage({ user, month, prev, next, today, events, holidays,
         <div style="text-align:right"><a class="btn plain" href="/admin/calendar?month=${next}" style="margin:0">Later →</a></div>
       </div>
       ${legend}${grid}${list}
-      <p class="small">Click a name to open the Time off page. Point at a name to see the details.</p>
+      <p class="small">Click a name to see all the details and next steps. Point at a name for a quick summary.</p>
     </div>`,
   });
 }

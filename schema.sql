@@ -140,7 +140,8 @@ CREATE TABLE IF NOT EXISTS holidays (
   name TEXT NOT NULL
 );
 
--- Small app-wide settings, for example the grace period.
+-- Small app-wide settings, for example the grace period, and backup_hidden: a JSON list of the Zoho ids
+-- of VAs left out of the "who covers" lists.
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT

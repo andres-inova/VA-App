@@ -83,3 +83,15 @@ export async function createCoverageChecklist(env, request, coverage) {
   }
   return url;
 }
+
+// Deletes the ClickUp list behind a checklist link (from createCoverageChecklist), for example when
+// the time off is cancelled. A list that is already gone counts as deleted.
+export async function deleteChecklist(env, url) {
+  const listId = /\/li\/([^/?#]+)/.exec(url || '')?.[1];
+  if (!listId) throw new Error(`Can't find the list id in ${url}`);
+  try {
+    await call(env, 'DELETE', `/list/${listId}`);
+  } catch (err) {
+    if (!/ failed: 404 /.test(err.message)) throw err;
+  }
+}

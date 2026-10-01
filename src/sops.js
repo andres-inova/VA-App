@@ -67,11 +67,12 @@ export function cleanContent(json) {
   return { sections };
 }
 
-// True when at least one cell or text box has something typed in it (beyond the prefilled template).
+// True when the VA typed something of their own: a text box, or a cell (after the first column)
+// that isn't one of the template's prefilled words.
 function hasContent(content) {
-  const template = JSON.stringify(templateSections().map((s) => s.rows));
-  if (JSON.stringify(content.sections.map((s) => s.rows)) === template) return false;
-  return content.sections.some((s) => (s.kind === 'text' ? s.text.trim() : s.rows.some((r) => r.some((c, i) => i > 0 && c.trim()))));
+  const template = new Set(templateSections().flatMap((s) => s.rows.flat()));
+  return content.sections.some((s) => (s.kind === 'text' ? s.text.trim()
+    : s.rows.some((r) => r.some((c, i) => i > 0 && c.trim() && !template.has(c)))));
 }
 
 // A project's SOP state: done (uploaded or marked complete), and a label for the pages.
@@ -102,7 +103,7 @@ export async function allSops(env) {
        s.completed_at, s.file_key, s.file_name, s.uploaded_at, s.not_needed, s.updated_at, e.name AS updated_by_name
      FROM projects p JOIN assignments a ON a.project_id = p.id JOIN users u ON u.id = a.user_id
      LEFT JOIN sops s ON s.project_id = p.id LEFT JOIN users e ON e.id = s.updated_by
-     WHERE p.active = 1 GROUP BY p.id ORDER BY p.client`
+     WHERE p.active = 1 AND u.is_va = 1 GROUP BY p.id ORDER BY p.client`
   ).all();
   return results.map((r) => ({ ...r, status: sopStatus({ ...r, content: r.has_content ? '1' : null }) }));
 }

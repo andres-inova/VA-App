@@ -15,6 +15,7 @@ import { isNearby, nearbyText } from './timeoff.js';
 import * as work from './work.js';
 import { sopRoutes, adminSopRoutes, vaSops, allSops, coveringSops } from './sops.js';
 import { adminCrmRoutes } from './crm.js';
+import { recordRoutes } from './records.js';
 import * as views from './views.js';
 
 export default {
@@ -113,6 +114,12 @@ async function handle(request, env) {
   if (path === '/va' || path.startsWith('/va/')) {
     if (!user.is_va) return redirect('/admin');
     return vaRoutes(env, user, path, method, field, message);
+  }
+
+  // Clients, contacts and VAs kept in the app (needs the form itself, for file uploads).
+  if (/^\/admin\/(clients|contacts|vas|records)(\/|$)/.test(path)) {
+    if (!user.is_admin) return redirect('/va');
+    return recordRoutes(env, user, path, method, field, fieldAll, form, message, url);
   }
 
   if (path === '/admin' || path.startsWith('/admin/')) {
@@ -463,7 +470,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
   }
 
   if (path === '/admin/sops' || path.startsWith('/admin/sops/')) return adminSopRoutes(env, user, path, method, field, message);
-  if (/^\/admin\/(clients|applicants|crm)(\/|$)/.test(path)) return adminCrmRoutes(env, user, path, method, field, message, url);
+  if (/^\/admin\/(applicants|crm)(\/|$)/.test(path)) return adminCrmRoutes(env, user, path, method, field, message, url);
 
   // Which backup VAs are shown in the "who covers" lists: ticked = able and willing to cover.
   if (path === '/admin/time-off/backups' && method === 'POST') {

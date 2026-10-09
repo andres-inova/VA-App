@@ -1,4 +1,5 @@
-// Copies active VAs from Zoho CRM and active projects from Zoho Projects.
+// Copies active VAs from Zoho CRM (or, once an admin switches over, from the VA records kept in the app)
+// and active projects from Zoho Projects.
 
 import { parseStart, ZONES } from './time.js';
 
@@ -55,7 +56,7 @@ export async function syncFromZoho(env) {
     return { skipped: true };
   }
   const token = await accessToken(env);
-  const vas = await syncVAs(env, token);
+  const vas = (await vaSource(env)) === 'app' ? await applyVaRecords(env) : await syncVAs(env, token);
   const projects = await syncProjects(env, token);
   // Needs the newer Zoho key (with Zoho Projects user access); the rest of the sync works without it.
   let projectUsers = null;
@@ -68,12 +69,31 @@ export async function syncFromZoho(env) {
 }
 
 async function syncVAs(env, token) {
-  const records = await fetchVAs(env, token);
+  return saveVAs(env, await fetchVAs(env, token));
+}
 
+// Where VA details come from: 'zoho' (Zoho CRM) until an admin switches to 'app' (the VA records in the app).
+export async function vaSource(env) {
+  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'va_source'").first();
+  return row?.value === 'app' ? 'app' : 'zoho';
+}
+
+// Updates VA logins and the backup list from the VA records kept in the app (after the switch).
+// Imported VAs keep their Zoho id; VAs added in the app use "app-<record id>" in its place.
+export async function applyVaRecords(env) {
+  const { results } = await env.DB.prepare("SELECT id, zoho_id, data FROM records WHERE module = 'vas'").all();
+  // No VA records at all is more likely a mistake than every VA leaving, so change nothing.
+  if (!results.length) return 0;
+  const records = results.map((r) => ({ ...JSON.parse(r.data), id: r.zoho_id || `app-${r.id}` }));
+  return saveVAs(env, records, true);
+}
+
+// Saves VA logins and the backup list from VA records shaped like Zoho's (field names as in Zoho CRM).
+async function saveVAs(env, records, fromApp = false) {
   const active = records.filter((r) => r.VA_Status === 'Active' && r.Email);
   // Zoho leaves out fields that don't exist. If the affiliation field is missing entirely
   // (for example, renamed in Zoho), keep the saved values instead of making every VA exempt.
-  const hasAffiliation = records.some((r) => AFFILIATION in r);
+  const hasAffiliation = fromApp || records.some((r) => AFFILIATION in r);
   if (!hasAffiliation) console.error(`Zoho sync: field ${AFFILIATION} not found; affiliations were not updated.`);
   const statements = active.map((r) =>
     env.DB.prepare(
@@ -85,7 +105,7 @@ async function syncVAs(env, token) {
          slack_channel_id = excluded.slack_channel_id, slack_user_id = excluded.slack_user_id,
          affiliation = CASE WHEN ?9 THEN excluded.affiliation ELSE users.affiliation END`
     ).bind(
-      r.Email.trim().toLowerCase(), r.Name, r.id, clean(r.Time_Zone), clean(r.Availability),
+      r.Email.trim().toLowerCase(), (r.Name || '').trim() || r.Email.trim(), String(r.id), clean(r.Time_Zone), clean(r.Availability),
       clean(r.Slack_Management_ID), clean(r.Slack_ID), clean(r[AFFILIATION]), hasAffiliation ? 1 : 0
     )
   );

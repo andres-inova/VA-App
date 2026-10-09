@@ -1,22 +1,14 @@
-// Client and VA applicant information from Zoho CRM, for admins (read-only).
-// Clients come from the Accounts module and applicants from the Applicants module. Zoho stays the place to
-// change them. The lists use a small copy (name, status, contact details): every hour the app copies the
-// records that changed, and once a day everything (which also removes records deleted in Zoho). Opening a
-// client or applicant reads every field straight from Zoho, shown in the same sections and order as in Zoho.
+// VA applicant information from Zoho CRM, for admins (read-only). Applicants come from the Applicants module;
+// Zoho stays the place to change them (they will move to a Hiring area in the app later). The list uses a small
+// copy (name, status, contact details): every hour the app copies the records that changed, and once a day
+// everything (which also removes records deleted in Zoho). Opening an applicant reads every field straight
+// from Zoho, shown in the same sections and order as in Zoho. (Clients and VAs are kept in the app: records.js.)
 
 import { accessToken } from './zoho.js';
 import { redirect, page } from './util.js';
 import * as views from './views.js';
 
 export const MODULES = {
-  clients: {
-    zoho: 'Accounts', tab: 'Accounts', label: 'Clients',
-    nameOf: (r) => r.Account_Name || 'No name',
-    statusOf: (r) => (r.Offboarded ? 'Offboarded' : r.Paused ? 'Paused' : 'Current'),
-    searchOf: (r) => [r.Account_Name, r.Contact?.name, r.Email, r.Phone, r.Location],
-    // The fields copied for the list and search (Zoho allows up to 50 per request).
-    fields: ['Account_Name', 'Offboarded', 'Paused', 'Contact', 'Email', 'Phone', 'Location', 'Package_Hours', 'Shift', 'Timezone', 'Created_Time'],
-  },
   applicants: {
     zoho: 'Applicants', tab: 'CustomModule3', label: 'Applicants',
     nameOf: (r) => [r.Name, r.Last_Name].filter(Boolean).join(' ') || 'No name',
@@ -154,34 +146,18 @@ async function getLayout(env, key) {
 
 export const zohoLink = (env, key, id) => `https://crm.zoho.com/crm/${env.ZOHO_CRM_ORG}/tab/${MODULES[key].tab}/${encodeURIComponent(id)}`;
 
-// The projects in this app for a client (matched by name), with their VAs.
-async function clientProjects(env, clientName) {
-  const { results } = await env.DB.prepare(
-    `SELECT p.id, p.name, p.is_coverage, GROUP_CONCAT(u.name, ', ') AS vas FROM projects p
-     LEFT JOIN assignments a ON a.project_id = p.id LEFT JOIN users u ON u.id = a.user_id
-     WHERE p.active = 1 AND lower(trim(p.client)) = lower(trim(?)) GROUP BY p.id ORDER BY p.is_coverage, p.name`
-  ).bind(clientName).all();
-  return results;
-}
-
 const LIST_LIMIT = 200;
 
 export async function adminCrmRoutes(env, user, path, method, field, message, url) {
   let m;
   if (path === '/admin/crm/sync' && method === 'POST') {
-    const back = field('back') === '/admin/applicants' ? '/admin/applicants' : '/admin/clients';
+    const back = '/admin/applicants';
     try {
       await syncCrm(env, { force: true });
       return redirect(`${back}?msg=crm-synced`);
     } catch {
       return redirect(`${back}?msg=crm-sync-failed`);
     }
-  }
-
-  if (path === '/admin/clients' && method === 'GET') {
-    const { results } = await env.DB.prepare("SELECT id, name, status, data FROM crm_records WHERE module = 'clients' ORDER BY name COLLATE NOCASE").all();
-    const clients = results.map((r) => ({ ...r, data: JSON.parse(r.data) }));
-    return page(views.clientsPage({ user, clients, sync: (await getState(env)).clients, message }));
   }
 
   if (path === '/admin/applicants' && method === 'GET') {
@@ -214,7 +190,7 @@ export async function adminCrmRoutes(env, user, path, method, field, message, ur
     }));
   }
 
-  if ((m = path.match(/^\/admin\/(clients|applicants)\/(\d+)(\/file)?$/)) && method === 'GET') {
+  if ((m = path.match(/^\/admin\/(applicants)\/(\d+)(\/file)?$/)) && method === 'GET') {
     const [, key, id, file] = m;
     const mod = MODULES[key];
     const row = await env.DB.prepare('SELECT * FROM crm_records WHERE module = ? AND id = ?').bind(key, id).first();
@@ -231,13 +207,12 @@ export async function adminCrmRoutes(env, user, path, method, field, message, ur
     const data = live.data || JSON.parse(row.data);
     const record = { id, name: mod.nameOf(data), status: mod.statusOf(data), data };
     const layout = await getLayout(env, key);
-    const projects = key === 'clients' ? await clientProjects(env, record.name) : [];
     return page(views.crmRecordPage({
-      user, key, record, layout, projects, closed: CLOSED_STATUSES, zohoUrl: zohoLink(env, key, id), zohoError: live.error, message,
+      user, key, record, layout, closed: CLOSED_STATUSES, zohoUrl: zohoLink(env, key, id), zohoError: live.error, message,
     }));
   }
 
-  return redirect('/admin/clients');
+  return redirect('/admin/applicants');
 }
 
 // Every field of one record, read from Zoho now. { data }, { gone: true } when it is no longer in Zoho,

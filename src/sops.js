@@ -115,13 +115,13 @@ export async function sopsToDo(env, userId) {
 }
 
 // Files a VA may upload, by extension: the type the file is served with.
-const FILE_TYPES = {
+export const FILE_TYPES = {
   pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   odt: 'application/vnd.oasis.opendocument.text', rtf: 'application/rtf', txt: 'text/plain',
   xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   ods: 'application/vnd.oasis.opendocument.spreadsheet', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
 };
-const MAX_FILE = 15 * 1024 * 1024;
+export const MAX_FILE = 15 * 1024 * 1024;
 
 // Approved coverage a VA is the backup for, from now until a day after it ends, with each project's SOP.
 export async function coveringSops(env, user) {

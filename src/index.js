@@ -16,6 +16,7 @@ import * as work from './work.js';
 import { sopRoutes, adminSopRoutes, vaSops, allSops, coveringSops } from './sops.js';
 import { adminCrmRoutes } from './crm.js';
 import { recordRoutes } from './records.js';
+import { trainingRoutes, adminTrainingRoutes, myTrainings, lateTrainings, ONBOARDING } from './training.js';
 import * as views from './views.js';
 
 export default {
@@ -83,6 +84,9 @@ async function handle(request, env) {
 
   const user = await currentUser(request, env);
   if (!user) return redirect('/login');
+  // Trainings the person is in now. New hires in Onboarding Training see only their training.
+  user.trainings = await myTrainings(env, user.id);
+  user.in_training = user.trainings.some((t) => t.trainee_id === user.id && t.kind === ONBOARDING) && !user.is_admin;
 
   if (path === '/account') return account(env, user, method, field, message);
   if (user.must_change_password) return redirect('/account');
@@ -95,9 +99,9 @@ async function handle(request, env) {
     user.pending_requests = waiting?.n || 0;
   }
 
-  if (path === '/') return redirect(user.is_va ? '/va' : '/admin');
+  if (path === '/') return redirect(homeOf(user));
 
-  if (user.is_va) {
+  if (user.is_va && !user.in_training) {
     user.timer = await env.DB.prepare('SELECT t.*, p.client FROM timers t LEFT JOIN projects p ON p.id = t.project_id WHERE t.user_id = ?').bind(user.id).first();
     // Coverage SOPs the VA still has to fill in or upload (a badge in the menu, and a card on My day).
     user.sops_todo = (await vaSops(env, user.id)).filter((s) => !s.status.done);
@@ -106,28 +110,38 @@ async function handle(request, env) {
   // Coverage SOPs: the editor, saving and uploads, for the project's VAs and for admins.
   if (path.startsWith('/sops/')) return sopRoutes(env, user, path, method, field, form, message);
 
+  // Training: trainers and trainees (admins have their own Training pages below).
+  if (path === '/training' || path.startsWith('/training/')) return trainingRoutes(env, user, path, method, field, message, url);
+
   if (path === '/va/work' || path.startsWith('/va/work/')) {
-    if (!user.is_va) return redirect('/admin');
+    if (!user.is_va || user.in_training) return redirect(homeOf(user));
     return workRoutes(env, user, path, method, field, message, url);
   }
 
   if (path === '/va' || path.startsWith('/va/')) {
-    if (!user.is_va) return redirect('/admin');
+    if (!user.is_va || user.in_training) return redirect(homeOf(user));
     return vaRoutes(env, user, path, method, field, message);
   }
 
   // Clients, contacts and VAs kept in the app (needs the form itself, for file uploads).
   if (/^\/admin\/(clients|contacts|vas|records)(\/|$)/.test(path)) {
-    if (!user.is_admin) return redirect('/va');
+    if (!user.is_admin) return redirect(homeOf(user));
     return recordRoutes(env, user, path, method, field, fieldAll, form, message, url);
   }
 
   if (path === '/admin' || path.startsWith('/admin/')) {
-    if (!user.is_admin) return redirect('/va');
+    if (!user.is_admin) return redirect(homeOf(user));
+    if (path === '/admin/training' || path.startsWith('/admin/training/')) return adminTrainingRoutes(env, user, path, method, field, message, url);
     return adminRoutes(env, user, path, method, field, message, url, fieldAll);
   }
 
   return page(views.layout({ title: 'Not found', user, body: '<div class="card"><h1>Page not found</h1></div>' }), 404);
+}
+
+// Where a person lands: new hires in training go to their training; otherwise VAs to My day, admins to Today.
+function homeOf(user) {
+  if (user.in_training || (!user.is_va && !user.is_admin)) return '/training';
+  return user.is_va ? '/va' : '/admin';
 }
 
 // ---- Setup and passwords ----
@@ -162,7 +176,7 @@ async function account(env, user, method, field, message) {
   if (problem) return page(views.accountPage(user, problem), 400);
   await env.DB.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?')
     .bind(await hashPassword(field('password')), user.id).run();
-  return redirect(`${user.is_va ? '/va' : '/admin'}?msg=password-changed`);
+  return redirect(`${homeOf(user)}?msg=password-changed`);
 }
 
 // ---- VA pages ----
@@ -378,6 +392,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
       noBackup: counts?.no_backup || 0,
       noVa: counts?.no_va || 0,
       sopsMissing: (await allSops(env)).filter((s) => !s.status.done).length,
+      lateTrainings: await lateTrainings(env),
     };
     return page(views.adminTodayPage({ user, rows, week, todo, message, paused: (await checkinPause(env)).paused }));
   }

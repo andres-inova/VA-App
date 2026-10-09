@@ -69,6 +69,19 @@ const MESSAGES = {
   'switch-not-ready': ['bad', 'There are no Active VAs in the app yet. Copy them from Zoho first.'],
   'crm-sync-failed': ['bad', 'The copy from Zoho did not work. The reason is shown below.'],
   'crm-gone': ['info', 'That record is no longer in Zoho, so it was removed from this list.'],
+  'training-started': ['good', 'Training started. If the trainee has no login yet, send them a login invite below.'],
+  'training-exists': ['info', 'This person already has a training of that type in progress, so it was opened instead.'],
+  'training-missing': ['bad', 'Please choose the type, the trainer and the first day.'],
+  'training-no-trainee': ['bad', 'Please choose the trainee, or type their name and a valid email.'],
+  'training-same-person': ['bad', 'The trainer and the trainee must be different people.'],
+  'training-not-active': ['info', 'This training is paused or finished, so nothing was changed.'],
+  'training-active': ['good', 'Training resumed.'],
+  'training-paused': ['good', 'Training paused.'],
+  'training-completed': ['good', 'Training marked complete.'],
+  'training-cancelled': ['good', 'Training cancelled.'],
+  'training-name-needed': ['bad', 'Please type a name first.'],
+  'training-day-not-empty': ['bad', 'Only a day with no items can be removed. Delete or move its items first.'],
+  'day-signed': ['good', 'Day signed off.'],
 };
 
 // Status of a day: [label, color, symbol for the History grid].
@@ -120,6 +133,7 @@ const ICON_PATHS = {
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   applicant: '<circle cx="10" cy="8" r="4"/><path d="M3 21a7 7 0 0 1 14 0"/><path d="M19 8v6M16 11h6"/>',
+  training: '<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/><path d="M22 9v6"/>',
 };
 
 export const icon = (name, cls = '') =>
@@ -136,6 +150,12 @@ export function avatar(name, size = '') {
 }
 
 export const chip = (label, tone = 'muted') => `<span class="chip ${tone}">${esc(label)}</span>`;
+
+// A row of buttons at the top of pages that share one menu link (Calendar and History; Settings and Holidays).
+const pageTabs = (tabs, on) => `<div class="chips proj-tabs">${tabs.map(([href, label]) =>
+  `<a class="chip ${href === on ? 'on' : 'muted'}" href="${href}">${esc(label)}</a>`).join('')}</div>`;
+const CALENDAR_TABS = [['/admin/calendar', 'Time off calendar'], ['/admin/history', 'Check-in history']];
+const SETTINGS_TABS = [['/admin/settings', 'Settings'], ['/admin/holidays', 'Holidays']];
 
 const pill = (status) => {
   const [label, tone] = STATUS[status] || [status, 'muted'];
@@ -479,12 +499,15 @@ export function layout({ title, user, active, message, body }) {
   const pending = user.pending_requests || 0;
   const groups = [];
   const sopsToDo = user.sops_todo?.length || 0;
-  if (user.is_va) groups.push(['Me', [['/va', 'My day', 'sun'], ['/va/work', 'Tasks & time', 'tasks'], ['/va/sops', 'Coverage SOPs', 'doc', sopsToDo]]]);
+  // Trainers and trainees get a Training link while their training runs; new hires in training see only that.
+  const training = user.trainings?.length ? ['/training', user.in_training ? 'My training' : 'Training', 'training'] : null;
+  if (user.in_training) groups.push(['Me', [training]]);
+  else if (user.is_va) groups.push(['Me', [['/va', 'My day', 'sun'], ['/va/work', 'Tasks & time', 'tasks'], ['/va/sops', 'Coverage SOPs', 'doc', sopsToDo], training].filter(Boolean)]);
+  else if (training && !user.is_admin) groups.push(['Me', [training]]);
   if (user.is_admin) {
-    groups.push(['Daily', [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/calendar', 'Calendar', 'calendar'], ['/admin/history', 'History', 'history']]]);
-    groups.push(['Setup', [['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'Coverage SOPs', 'doc'], ['/admin/people', 'People', 'people'],
-      ['/admin/holidays', 'Holidays', 'holidays'], ['/admin/settings', 'Settings', 'settings']]]);
-    groups.push(['Records', [['/admin/clients', 'Clients', 'building'], ['/admin/vas', 'VAs', 'va'], ['/admin/applicants', 'Applicants', 'applicant']]]);
+    groups.push(['Daily', [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/calendar', 'Calendar', 'calendar']]]);
+    groups.push(['Team', [['/admin/vas', 'VAs', 'va'], ['/admin/training', 'Training', 'training'], ['/admin/applicants', 'Applicants', 'applicant'], ['/admin/people', 'People', 'people']]]);
+    groups.push(['Clients', [['/admin/clients', 'Clients', 'building'], ['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'Coverage SOPs', 'doc']]]);
   }
   const link = ([href, label, ic, badge]) =>
     `<a class="side-link ${href === active ? 'on' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${badge ? `<span class="badge">${badge}</span>` : ''}</a>`;
@@ -492,7 +515,8 @@ export function layout({ title, user, active, message, body }) {
     <div class="side-brand"><div class="logo">IV</div><div><strong>InoVA Check-in</strong><small>InoVA Local</small></div></div>
     ${groups.map(([label, links]) => `<div class="side-group"><div class="side-label">${label}</div>${links.map(link).join('')}</div>`).join('')}
     <div class="side-user">
-      <div class="me">${avatar(user.name)}<div><strong>${esc(user.name)}</strong><small>${user.is_admin ? 'Admin' : 'VA'}</small></div></div>
+      <div class="me">${avatar(user.name)}<div><strong>${esc(user.name)}</strong><small>${user.is_admin ? 'Admin' : user.is_va && !user.in_training ? 'VA' : 'In training'}</small></div></div>
+      ${user.is_admin ? `<a class="side-link ${active === '/admin/settings' ? 'on' : ''}" href="/admin/settings">${icon('settings')}<span>Settings</span></a>` : ''}
       <a class="side-link ${active === '/account' ? 'on' : ''}" href="/account">${icon('key')}<span>Password</span></a>
       <form method="post" action="/logout"><button>${icon('logout')}<span>Log out</span></button></form>
     </div>
@@ -501,7 +525,8 @@ export function layout({ title, user, active, message, body }) {
   // Phone bottom bar: the most-used pages, plus "Menu" for the rest.
   const tabs = user.is_admin
     ? [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'SOPs', 'doc'], ['/admin/people', 'People', 'people']]
-    : [['/va', 'My day', 'sun'], ['/va/work', 'Tasks & time', 'tasks'], ['/va/sops', 'SOPs', 'doc', sopsToDo]];
+    : user.in_training || !user.is_va ? [training || ['/training', 'Training', 'training']]
+    : [['/va', 'My day', 'sun'], ['/va/work', 'Tasks & time', 'tasks'], ['/va/sops', 'SOPs', 'doc', sopsToDo], training].filter(Boolean);
   const tabbar = `<nav class="tabbar" aria-label="Main pages">${tabs.map(([href, label, ic, badge]) =>
     `<a href="${href}" class="${href === active ? 'on' : ''}">${icon(ic)}${label}${badge ? `<span class="badge">${badge}</span>` : ''}</a>`).join('')}
     <label for="nav-toggle">${icon('menu')}Menu</label></nav>`;
@@ -932,6 +957,7 @@ function attentionCard(rows, todo) {
     todo.pending && ['/admin/time-off', plural(todo.pending, 'time-off request is waiting for a decision', 'time-off requests are waiting for a decision'), 'warn'],
     todo.noBackup && ['/admin/time-off', plural(todo.noBackup, 'approved coverage still needs a backup VA', 'approved coverages still need a backup VA'), 'warn'],
     todo.noVa && ['/admin/projects', plural(todo.noVa, 'project has no VA', 'projects have no VA'), 'warn'],
+    todo.lateTrainings && ['/admin/training', plural(todo.lateTrainings, 'training is past 7 workdays', 'trainings are past 7 workdays'), 'warn'],
     todo.sopsMissing && ['/admin/sops', plural(todo.sopsMissing, 'project has no Coverage SOP yet', 'projects have no Coverage SOP yet'), 'muted'],
   ].filter(Boolean);
   if (!lines.length) return `<div class="card attn-card done">${icon('check')} <b>All caught up.</b> Nothing is waiting for you.</div>`;
@@ -994,8 +1020,8 @@ export function historyPage({ user, month, prev, next, dates, vas, cells }) {
   const legend = ['on_time', 'late', 'missed', 'called_out', 'time_off', 'emergency', 'exempt']
     .map((s) => `<span><span class="cell ${STATUS[s][1]}">${STATUS[s][2]}</span> ${STATUS[s][0]}</span>`).join('');
   return layout({
-    title: 'History', user, active: '/admin/history',
-    body: `<div class="card">
+    title: 'History', user, active: '/admin/calendar',
+    body: `${pageTabs(CALENDAR_TABS, '/admin/history')}<div class="card">
       <div class="row" style="align-items:center">
         <div><a class="btn plain" href="/admin/history?month=${prev}" style="margin:0">← Earlier</a></div>
         <div style="text-align:center;font-weight:800;font-size:18px">${esc(monthName)}</div>
@@ -1163,8 +1189,8 @@ export function holidaysPage({ user, holidays, message }) {
     return `<div class="cal"><div class="m">${month}</div><div class="d">${d}</div></div>`;
   };
   return layout({
-    title: 'Holidays', user, active: '/admin/holidays', message,
-    body: `<p class="lead">No check-in is expected on these dates, so nobody gets late alerts.</p>
+    title: 'Holidays', user, active: '/admin/settings', message,
+    body: `${pageTabs(SETTINGS_TABS, '/admin/holidays')}<p class="lead">No check-in is expected on these dates, so nobody gets late alerts.</p>
     ${section({
       title: 'Add a holiday', open: false,
       body: `<form method="post" action="/admin/holidays" class="row" style="padding:0 8px 8px">
@@ -1198,7 +1224,7 @@ function pauseCard(paused, back) {
 export function settingsPage({ user, grace, emailError, admins, recipients, message, paused = false }) {
   return layout({
     title: 'Settings', user, active: '/admin/settings', message,
-    body: `${paused ? pauseCard(true, '/admin/settings') : ''}${section({
+    body: `${pageTabs(SETTINGS_TABS, '/admin/settings')}${paused ? pauseCard(true, '/admin/settings') : ''}${section({
       title: 'Check-ins', open: false,
       hint: 'Pause everything while VAs are not using the app yet, or during a company break.',
       body: `<div style="padding:0 8px 8px">${paused ? '<p class="meta">Check-ins are paused (see above).</p>' : pauseCard(false, '/admin/settings')}</div>`,
@@ -1377,7 +1403,7 @@ export function calendarPage({ user, month, prev, next, today, events, holidays,
 
   return layout({
     title: 'Calendar', user, active: '/admin/calendar', message,
-    body: `<div class="card">
+    body: `${pageTabs(CALENDAR_TABS, '/admin/calendar')}<div class="card">
       <div class="row" style="align-items:center">
         <div><a class="btn plain" href="/admin/calendar?month=${prev}" style="margin:0">← Earlier</a></div>
         <div style="text-align:center;font-weight:800;font-size:18px">${esc(monthName)}</div>

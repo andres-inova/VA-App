@@ -263,7 +263,7 @@ If something doesn't work, open the Cloudflare dashboard → **Workers & Pages �
 
 ## What the app does
 
-The app works on computers and phones. On a computer, the menu is on the left. On a phone, tap **Menu** (top left or bottom right), and the most-used pages are in the bottom bar (for admins: Today, Time off, Projects, SOPs and People). Most lists are made of rows: click or tap a row to open its details and buttons. Sections can be opened and closed by clicking their title.
+The app works on computers and phones. On a computer, the menu is on the left. For admins it has three groups: **Daily** (Today, Time off, Calendar), **Team** (VAs, Training, Applicants, People) and **Clients** (Clients, Projects, Coverage SOPs), with **Settings** at the bottom next to Password and Log out. On a phone, tap **Menu** (top left or bottom right), and the most-used pages are in the bottom bar (for admins: Today, Time off, Projects, SOPs and People). Most lists are made of rows: click or tap a row to open its details and buttons. Sections can be opened and closed by clicking their title.
 
 **VAs**
 - Log in with email and password. The email is the VA's email in Zoho.
@@ -281,15 +281,16 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 - **Projects**: each VA's start time has a time zone picker next to it (PST, MST, CST, EST, or the VA's own zone from Zoho, the default). A VA with projects in different zones checks in by whichever starts first in real time.
 - **Today**: a **Needs your attention** card that links to whatever is waiting across the app (VAs late or not checked in, time-off requests waiting for a decision, approved coverage without a backup, projects with no VA, projects with no Coverage SOP), or "All caught up". Then a **This week** summary (on-time rate, counts, and anyone late or missing 2+ times), then every VA's projects today, their check-in time and status, grouped into Needs attention, Checked in, Not started yet, Off today and Not checked today. It updates by itself every minute.
 - **Calendar**: a month view of who is off (time off, emergencies, requests waiting for a decision, and who covers) and company holidays. Click a name to open that request's own page, with all its details and its **next steps** (for example "Find a backup VA for Long Island Maids").
-- **History**: a month grid showing each VA's status per work day, with totals.
+- **History** (a tab at the top of Calendar): a month grid showing each VA's status per work day, with totals.
 - **Projects**: the active projects from Zoho Projects and who is assigned to each, with a start time and work days per assignment. Admins can add, change or remove assignments.
 - **Time off**: approve or deny requests from the Google Form. Each new request sends one email to the admins who have notifications turned on. Admins can also add a **time-off or coverage period** for any VA directly, which applies right away, and cancel it later.
 - **People**: send **login invites**; sync from Zoho; **Active VAs** (with their projects and whether the app checks them), **On Deck VAs** (for reference; they can be chosen to cover), and **Admins**. Exempt a VA, set temporary passwords, add or remove admins.
 - **Coverage SOPs** (under Setup): every active project with a VA, split into **Not done yet** and **Done**, with counts at the top: done, started, not started. Each row shows the VAs, the status (Not started, Started not finished, Filled in, Uploaded), and who saved it last. Admins can open, edit or upload any SOP, and mark a project as **not needing** an SOP. On the Time off page and on each request's next steps, every covered project shows its SOP status, with a reminder to ask the VA to finish it.
-- **Holidays**: dates when nobody is expected to check in.
+- **Holidays** (a tab at the top of Settings): dates when nobody is expected to check in.
 - **Settings**: turn your time-off emails on or off, set the grace period, choose who gets the report emails, send a report now, and see the last email error.
-- **Clients** and **VAs** (under "Records"): every client (with its contacts) and every VA, kept in the app instead of Zoho CRM, with notes, files and a change history. See [Clients and VAs](#clients-and-vas).
-- **Applicants** (under "Records"): VA applicant information from Zoho CRM, to read only. Change it in Zoho. See [Applicants](#applicants-from-zoho-crm).
+- **Clients** and **VAs** (under "Clients" and "Team"): every client (with its contacts) and every VA, kept in the app instead of Zoho CRM, with notes, files and a change history. See [Clients and VAs](#clients-and-vas).
+- **Training** (under "Team"): VA trainings and their checklist. See [Training](#training).
+- **Applicants** (under "Team"): VA applicant information from Zoho CRM, to read only. Change it in Zoho. See [Applicants](#applicants-from-zoho-crm).
 
 **Automatic (the job runs every minute)**
 - **10 minutes** after a VA's earliest project start with no check-in: #check-in-tracker gets a message tagging Stephany (VA Lead), and the VA's management channel gets a message tagging the VA.
@@ -368,6 +369,20 @@ An admin-only page under **Records**. Nothing can be changed here; change applic
 - **How the list stays current**: the list uses a small copy of each record (name, status, email, phone, place, a few more). At half past every hour the app copies the records that changed in Zoho; once a day it copies everything, which also removes records deleted in Zoho. **Copy from Zoho now** copies everything right away. If a copy fails, the page shows Zoho's reason.
 - **Needs** the Zoho key with the CRM permissions listed in [3. Zoho key](#3-zoho-key) (layouts and files). Until then, the page shows a message that the key needs new permissions.
 
+## Training
+
+The VA training program, moved here from the separate training tracker app. A **trainee** shadows a **trainer** (a current VA) and they work through the same day-by-day checklist (5 days, 24 items to start). The guides are the Google Docs "InoVA Local - Training Program Guide" and "InoVA Local Training - Daily Breakdown".
+
+- **Types**: **Onboarding Training** (a new hire), **Back-Up** and **After-Hours** (current VAs).
+- **Starting one** (admins, Team → Training → Start a training): choose the type, the trainee, the trainer and the first day. The trainee can be a current VA, an Active or On Deck VA on the VA list who has no login yet, or someone not listed (type their name and email). Then press **Send login invite** on the training's page.
+- **New hires** (Onboarding Training): until the training is finished, they see only **My training** in the app, and they can log in even if they are not an Active VA yet. When an admin marks it complete (or cancels it), they stop being able to log in unless they are an Active VA; once Active, they get the normal VA pages.
+- **Trainers** get a **Training** link in their menu while they have a trainee. For each item they press **Covered**, **Carry over** (the item then shows again on the next days until it is covered) or **Not yet**, and can keep notes (the trainee sees them).
+- **Trainees** see what to do for each item, the trainer's notes, and their own notes box (only they and admins see it).
+- **Sign-off**: the trainer and the trainee each sign off every day. The training opens on the first day not signed off by both. An admin can sign off a day for both.
+- **Admins** see every training with its day, progress and status, and can pause, resume, mark complete, cancel or reopen it, change the trainer, and send the trainee a login invite. A training still running after **7 workdays** is marked **Late**, and Today's "Needs your attention" card counts it.
+- **The checklist** (Training → **Edit the checklist**, admins only): rename days, add or remove days (only empty ones), and add, edit, move or delete items. Each item has a name, where it happens (system or channel), what the trainer does and what the trainee does. Changes show right away in every training. Deleting an item also deletes its ticks and notes.
+- Not in the app yet: the self-paced modules (Modules 1 and 2) and the final test, which still need to be written.
+
 ## Files
 
 | File | What it is |
@@ -392,6 +407,8 @@ An admin-only page under **Records**. Nothing can be changed here; change applic
 | `src/fields.js` | The fields of clients, contacts and VAs, in sections |
 | `src/records.js` | The Clients and VAs pages: lists, record pages, editing, notes, files, history, the switch |
 | `src/records-views.js` | The HTML of the Clients and VAs pages |
+| `src/training.js` | VA training: starting trainings, the checklist, ticks, notes, sign-offs and who may see each one |
+| `src/training-views.js` | The HTML of the Training pages |
 | `src/import.js` | Copies clients, contacts and VAs (with notes and files) from Zoho CRM, a few at a time |
 | `src/notify.js` | Sends Slack messages, and emails through Gmail |
 | `src/time.js` | Time zone and date calculations |

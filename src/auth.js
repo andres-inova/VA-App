@@ -56,6 +56,10 @@ export function temporaryPassword() {
   return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8)}`;
 }
 
+// People who are not VAs or admins can still log in while they are a trainee in a training that is
+// not finished (for example a new hire before they are an Active VA). Used with the users table as "u".
+const IN_TRAINING = "EXISTS (SELECT 1 FROM trainings t WHERE t.trainee_id = u.id AND t.status IN ('active', 'paused'))";
+
 // Checks an email and password. Returns { user } or { error }.
 export async function checkLogin(env, email, password) {
   const user = await env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
@@ -69,7 +73,9 @@ export async function checkLogin(env, email, password) {
       .bind(lockedUntil ? 0 : failed, lockedUntil, user.id).run();
     return { error: lockedUntil ? 'locked' : 'wrong' };
   }
-  if (!user.is_admin && !user.is_va) return { error: 'inactive' };
+  if (!user.is_admin && !user.is_va && !(await env.DB.prepare(`SELECT 1 FROM users u WHERE u.id = ? AND ${IN_TRAINING}`).bind(user.id).first())) {
+    return { error: 'inactive' };
+  }
 
   await env.DB.prepare('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?').bind(user.id).run();
   return { user };
@@ -114,7 +120,7 @@ export async function currentUser(request, env) {
   const hash = await sha256(token);
   const user = await env.DB.prepare(
     `SELECT u.*, s.expires_at AS session_expires FROM sessions s JOIN users u ON u.id = s.user_id
-     WHERE s.token_hash = ? AND s.expires_at > ? AND (u.is_admin = 1 OR u.is_va = 1)`
+     WHERE s.token_hash = ? AND s.expires_at > ? AND (u.is_admin = 1 OR u.is_va = 1 OR ${IN_TRAINING})`
   ).bind(hash, new Date().toISOString()).first();
   // Extend a "keep me logged in" login once a day, so people who use the app are never logged out.
   // Short logins (12 hours) are never extended.

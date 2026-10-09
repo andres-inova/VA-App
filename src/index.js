@@ -14,6 +14,7 @@ import { redirect, page, isDate, isTime } from './util.js';
 import { isNearby, nearbyText } from './timeoff.js';
 import * as work from './work.js';
 import { sopRoutes, adminSopRoutes, vaSops, allSops, coveringSops } from './sops.js';
+import { adminCrmRoutes } from './crm.js';
 import * as views from './views.js';
 
 export default {
@@ -462,6 +463,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
   }
 
   if (path === '/admin/sops' || path.startsWith('/admin/sops/')) return adminSopRoutes(env, user, path, method, field, message);
+  if (/^\/admin\/(clients|applicants|crm)(\/|$)/.test(path)) return adminCrmRoutes(env, user, path, method, field, message, url);
 
   // Which backup VAs are shown in the "who covers" lists: ticked = able and willing to cover.
   if (path === '/admin/time-off/backups' && method === 'POST') {

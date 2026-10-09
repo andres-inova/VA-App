@@ -6,7 +6,7 @@
 
 import { esc } from './util.js';
 import { isExempt } from './jobs.js';
-import { formatDate, formatTimeIn, formatHM, parseHHMM, zoneFor, weekdayOf, DAY_NAMES, addDays, partsIn } from './time.js';
+import { formatDate, formatTimeIn, formatHM, parseHHMM, zoneFor, weekdayOf, DAY_NAMES, addDays, partsIn, REPORT_ZONE } from './time.js';
 
 // Short messages shown at the top of a page after an action.
 const MESSAGES = {
@@ -54,6 +54,9 @@ const MESSAGES = {
   'sop-file-type': ['bad', "That kind of file can't be uploaded. Please use a PDF, Word, Excel or text file, or a picture."],
   'sop-file-big': ['bad', 'That file is too big. The limit is 15 MB.'],
   'sop-file-missing': ['bad', 'The file could not be found. Please upload it again.'],
+  'crm-synced': ['good', 'Clients and applicants were copied from Zoho.'],
+  'crm-sync-failed': ['bad', 'The copy from Zoho did not work. The reason is shown below.'],
+  'crm-gone': ['info', 'That record is no longer in Zoho, so it was removed from this list.'],
 };
 
 // Status of a day: [label, color, symbol for the History grid].
@@ -99,6 +102,8 @@ const ICON_PATHS = {
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   doc: '<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h8"/>',
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
+  building: '<path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M16 9h2a2 2 0 0 1 2 2v10M2 21h20M8 7h4M8 11h4M8 15h4"/>',
+  applicant: '<circle cx="10" cy="8" r="4"/><path d="M3 21a7 7 0 0 1 14 0"/><path d="M19 8v6M16 11h6"/>',
 };
 
 const icon = (name, cls = '') =>
@@ -290,6 +295,11 @@ a.item.pick{display:block;color:inherit;text-decoration:none;border-radius:12px}
 .ev.pending{background:transparent;color:var(--warn);box-shadow:inset 0 0 0 1.5px var(--warn)}.ev.holiday{background:#e53935;color:#fff}
 .cal-list{display:none}
 @media (max-width:700px){.cal-grid{display:none}.cal-list{display:block}}
+.fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px 24px;padding:4px 8px 8px;margin:0}
+.fields>div{min-width:0}.fields dt{font-size:13px;color:var(--muted);font-weight:700}.fields dd{margin:2px 0 0;overflow-wrap:anywhere}
+.fields .wide{grid-column:1/-1}.fields .wide dd{white-space:pre-line}.fields a{display:inline-flex;align-items:center;gap:4px}
+.rec-head{display:flex;gap:14px;align-items:center}.rec-actions .btn{max-width:100%;overflow-wrap:anywhere}.rec-head h2{margin:0;font-size:22px}.rec-head .chips{margin:4px 0 0}
+.crm-sync{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin:-6px 0 14px}.crm-sync form{margin:0}.crm-sync button{margin:0}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after,::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important;transition:none!important}}
 @media (max-width:860px){
   .sidebar{position:fixed;z-index:20;left:0;top:0;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px rgba(0,0,0,.3)}
@@ -447,6 +457,7 @@ export function layout({ title, user, active, message, body }) {
     groups.push(['Daily', [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/calendar', 'Calendar', 'calendar'], ['/admin/history', 'History', 'history']]]);
     groups.push(['Setup', [['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'Coverage SOPs', 'doc'], ['/admin/people', 'People', 'people'],
       ['/admin/holidays', 'Holidays', 'holidays'], ['/admin/settings', 'Settings', 'settings']]]);
+    groups.push(['From Zoho', [['/admin/clients', 'Clients', 'building'], ['/admin/applicants', 'Applicants', 'applicant']]]);
   }
   const link = ([href, label, ic, badge]) =>
     `<a class="side-link ${href === active ? 'on' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${badge ? `<span class="badge">${badge}</span>` : ''}</a>`;
@@ -1873,5 +1884,174 @@ export function adminSopsPage({ user, sops, message }) {
     ${section({ title: 'Not done yet', count: todo.length, tone: todo.length ? 'attention' : '', body: todo.length ? todo.map(row).join('') : empty('Every project has its SOP.') })}
     ${section({ title: 'Done', count: done.length, open: !todo.length, body: done.length ? done.map(row).join('') : empty('None yet.') })}
     </div><div class="empty no-results" id="sop-none">No projects match.</div>`,
+  });
+}
+
+// ---- Clients and applicants (a read-only copy from Zoho CRM) ----
+
+const zohoTime = (iso) => `${new Date(iso).toLocaleString('en-US', {
+  timeZone: REPORT_ZONE, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+})} ET`;
+const zohoDate = (iso) => (iso ? new Date(iso).toLocaleDateString('en-US', { timeZone: REPORT_ZONE, month: 'short', day: 'numeric', year: 'numeric' }) : '');
+
+// The text of a lookup (an object with a name) or of a "multi-select lookup" row (which holds one).
+const lookupName = (x) => {
+  if (x === null || x === undefined) return '';
+  if (typeof x !== 'object') return String(x);
+  return x.name || x.display_value || Object.values(x).map((y) => (y && typeof y === 'object' ? y.name : '')).find(Boolean) || '';
+};
+
+const mailLink = (email) => `<a href="mailto:${esc(email)}">${esc(email)}</a>`;
+const phoneLink = (phone) => `<a href="tel:${esc(String(phone).replace(/[^\d+]/g, ''))}">${esc(phone)}</a>`;
+
+// One Zoho field value as HTML, or '' when it is empty.
+function fieldValue(f, v, fileHref) {
+  if (v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length)) return '';
+  if (f.type === 'fileupload' && Array.isArray(v)) {
+    return v.map((file, n) => `<a href="${fileHref(f.api, n)}" target="_blank" rel="noopener">${icon('doc')} ${esc(file.File_Name__s || 'File')}</a>`).join('<br>');
+  }
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (Array.isArray(v)) return esc(v.map(lookupName).filter(Boolean).join(', '));
+  if (typeof v === 'object') return esc(lookupName(v));
+  const s = String(v);
+  if (f.type === 'email') return mailLink(s);
+  if (f.type === 'phone') return phoneLink(s);
+  if (f.type === 'website') return `<a href="${esc(/^https?:\/\//i.test(s) ? s : `https://${s}`)}" target="_blank" rel="noopener">${esc(s)}</a>`;
+  if (f.type === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(s)) return esc(formatDate(s, true));
+  if (f.type === 'datetime') return esc(zohoTime(s));
+  if (f.type === 'currency' && !Number.isNaN(Number(s))) return esc(`$${Number(s).toLocaleString('en-US')}`);
+  return esc(s);
+}
+
+// When the copy last ran, any problem, and a button to copy now.
+function crmSyncNote(sync, back) {
+  const err = sync?.error;
+  const problem = err ? `<div class="toast bad" style="display:block">The last copy from Zoho did not work (${esc(zohoTime(err.at))}).
+    If the reason mentions a scope or permission, the Zoho key needs the new permissions (README, "3. Zoho key").<br>
+    <code style="white-space:pre-wrap;word-break:break-word">${esc(err.message)}</code></div>` : '';
+  return `${problem}<div class="crm-sync small">
+    <span>${sync?.synced_at ? `Last copied from Zoho ${esc(zohoTime(sync.synced_at))}.` : 'Not copied from Zoho yet.'} Changes are copied every hour, and everything once a day.</span>
+    <form method="post" action="/admin/crm/sync"><input type="hidden" name="back" value="${esc(back)}"><button class="sm plain">${icon('sync')} Copy from Zoho now</button></form>
+  </div>`;
+}
+
+const recordLink = (key, r, sub, side) => `<a class="item flat pick" href="/admin/${key}/${esc(r.id)}"><div class="item-head">${avatar(r.name)}
+  <div class="grow"><div class="title">${esc(r.name)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${side}${icon('chevron', 'chev')}</div></a>`;
+
+const CLIENT_TONE = { Current: 'good', Paused: 'warn', Offboarded: 'muted' };
+
+export function clientsPage({ user, clients, sync, message }) {
+  const row = (c) => {
+    const d = c.data;
+    const sub = [lookupName(d.Contact), d.Location, d.Package_Hours && `${d.Package_Hours} hours`, [d.Shift, d.Timezone].filter(Boolean).join(' ')]
+      .filter(Boolean).map(esc).join(' · ');
+    return recordLink('clients', c, sub, chip(c.status, CLIENT_TONE[c.status] || 'muted'));
+  };
+  const by = (status) => clients.filter((c) => c.status === status);
+  const list = (status, open) => {
+    const rows = by(status);
+    return rows.length ? section({ title: status, count: rows.length, open, key: `clients-${status.toLowerCase()}`, body: rows.map(row).join('') }) : '';
+  };
+  return layout({
+    title: 'Clients', user, active: '/admin/clients', message,
+    body: `<p class="lead">A copy of the Accounts in Zoho CRM. To change a client, change it in Zoho.</p>
+    ${crmSyncNote(sync, '/admin/clients')}
+    ${clients.length ? `<div class="summary-chips">${['Current', 'Paused', 'Offboarded'].map((s) => chip(`${by(s).length} ${s.toLowerCase()}`, CLIENT_TONE[s])).join('')}</div>
+    <label class="search" for="find-client">${icon('building')}<input id="find-client" type="search" placeholder="Search clients, contacts or places" autocomplete="off" data-filter="#client-list .item" data-empty="#client-none"></label>
+    <div id="client-list">${list('Current', true)}${list('Paused', true)}${list('Offboarded', false)}</div>
+    <div class="empty no-results" id="client-none">No clients match.</div>` : `<div class="card">${empty('No clients copied yet. Click "Copy from Zoho now".')}</div>`}`,
+  });
+}
+
+const applicantTone = (status, closed) => (status === 'Hired/Archived' ? 'good' : closed.includes(status) ? 'muted' : 'info');
+
+export function applicantsPage({ user, applicants, more, counts, statusOrder, closed, q, status, sync, message }) {
+  const count = new Map(counts.map((c) => [c.status, c.n]));
+  const total = counts.reduce((n, c) => n + c.n, 0);
+  const inProgress = counts.filter((c) => !closed.includes(c.status)).reduce((n, c) => n + c.n, 0);
+  // Statuses in Zoho's order (the hiring steps), then any others.
+  const order = [...statusOrder, ...counts.map((c) => c.status).filter((s) => !statusOrder.includes(s)).sort()];
+  const tab = (value, label, n) => `<a class="chip ${!q && status === value ? 'on' : 'muted'}" href="/admin/applicants${value ? `?status=${encodeURIComponent(value)}` : ''}">${esc(label)} · ${n}</a>`;
+  const tabs = `<div class="chips proj-tabs">${tab('', 'In progress', inProgress)}${order.filter((s) => count.get(s)).map((s) => tab(s, s, count.get(s))).join('')}${tab('all', 'All', total)}</div>`;
+
+  const row = (a) => {
+    const d = a.data;
+    const sub = [a.created_at && `Applied ${zohoDate(a.created_at)}`, d.Time_zone, d.Location].filter(Boolean).map(esc).join(' · ');
+    return recordLink('applicants', a, sub, chip(a.status, applicantTone(a.status, closed)));
+  };
+  let list;
+  if (!applicants.length) {
+    list = `<div class="card">${empty(q ? 'No applicants match.' : total ? 'No applicants here.' : 'No applicants copied yet. Click "Copy from Zoho now".')}</div>`;
+  } else if (!q && !status) {
+    // In progress: one section per hiring step.
+    list = order.filter((s) => !closed.includes(s)).map((s) => {
+      const rows = applicants.filter((a) => a.status === s);
+      return rows.length ? section({ title: s, count: rows.length, key: `applicants-${s}`, body: rows.map(row).join('') }) : '';
+    }).join('');
+  } else {
+    list = `<div class="card" style="padding:8px">${applicants.map(row).join('')}</div>`;
+  }
+  return layout({
+    title: 'Applicants', user, active: '/admin/applicants', message,
+    body: `<p class="lead">A copy of the VA Applicants in Zoho CRM, newest first. To change an applicant, change them in Zoho.</p>
+    ${crmSyncNote(sync, '/admin/applicants')}
+    <form class="search" method="get" action="/admin/applicants" role="search">${icon('applicant')}
+      <input type="search" name="q" value="${esc(q)}" placeholder="Search all applicants by name, email, phone or place" autocomplete="off" aria-label="Search applicants"></form>
+    ${q ? `<p class="meta">Results for <b>${esc(q)}</b> among all applicants · <a href="/admin/applicants">Clear the search</a></p>` : tabs}
+    ${list}
+    ${more ? '<p class="meta">Showing the newest 200. Search by name to find someone older.</p>' : ''}`,
+  });
+}
+
+export function crmRecordPage({ user, key, record, layout: zohoLayout, projects, closed, zohoUrl, zohoError, message }) {
+  const d = record.data;
+  const isClient = key === 'clients';
+  // Without Zoho's layout (not copied yet), show the fields there are, under one heading.
+  if (!zohoLayout.sections.length) {
+    zohoLayout = { sections: [{ title: 'Details', fields: Object.keys(d).filter((f) => f !== 'id' && !f.startsWith('$')).map((f) => ({ api: f, label: f.replace(/_/g, ' '), type: '' })) }] };
+  }
+  const fileHref = (fieldName, n) => `/admin/${key}/${esc(record.id)}/file?field=${esc(encodeURIComponent(fieldName))}&amp;n=${n}`;
+  const files = zohoLayout.sections.flatMap((s) => s.fields).filter((f) => f.type === 'fileupload' && Array.isArray(d[f.api]) && d[f.api].length);
+  const contact = isClient
+    ? [esc(lookupName(d.Contact)), d.Email && mailLink(d.Email), d.Phone && phoneLink(d.Phone)]
+    : [d.Email && mailLink(d.Email), d.Phone && phoneLink(d.Phone), esc(d.Location || '')];
+  const tone = isClient ? CLIENT_TONE[record.status] || 'muted' : applicantTone(record.status, closed);
+  const head = `<div class="card">
+    <div class="rec-head">${avatar(record.name, 'lg')}<div class="grow"><h2>${esc(record.name)}</h2>
+      <div class="chips">${chip(record.status, tone)}</div></div></div>
+    <p class="meta">${contact.filter(Boolean).join(' · ')}</p>
+    <div class="actions rec-actions">
+      <a class="btn sm" href="${esc(zohoUrl)}" target="_blank" rel="noopener">${icon('external')} Open in Zoho</a>
+      ${files.flatMap((f) => d[f.api].map((file, n) => `<a class="btn sm plain" href="${fileHref(f.api, n)}" target="_blank" rel="noopener">${icon('doc')} ${esc(f.label)}: ${esc(file.File_Name__s || 'file')}</a>`)).join('')}
+    </div></div>`;
+
+  // Clients: the projects and VAs this app has for them (from Zoho Projects, matched by name).
+  const inApp = !isClient ? '' : section({
+    title: 'VAs and projects in this app', count: projects.length, key: 'client-projects',
+    hint: 'Active projects in Zoho Projects named after this client.',
+    body: projects.length ? projects.map((p) => `<div class="item flat"><div class="item-head">${avatar(p.vas || '?')}
+      <div class="grow"><div class="title">${esc(p.vas || 'No VA')}</div><div class="sub">${esc(p.name)}</div></div>
+      ${p.is_coverage ? chip('Coverage', 'info') : `<a class="btn sm plain" href="/sops/${esc(encodeURIComponent(p.id))}">${icon('doc')} SOP</a>`}</div></div>`).join('')
+      : empty("No active project has this client's name."),
+  });
+
+  let hidden = 0;
+  const sections = zohoLayout.sections.map((s) => {
+    const rows = s.fields.map((f) => {
+      const html = fieldValue(f, d[f.api], fileHref);
+      if (!html) { hidden++; return ''; }
+      return `<div class="${f.type === 'textarea' ? 'wide' : ''}"><dt>${esc(f.label)}</dt><dd>${html}</dd></div>`;
+    }).filter(Boolean);
+    return rows.length ? section({ title: s.title, count: rows.length, key: `sec-${s.title}`, body: `<dl class="fields">${rows.join('')}</dl>` }) : '';
+  }).join('');
+
+  const [backHref, backLabel] = isClient ? ['/admin/clients', 'All clients'] : ['/admin/applicants', 'Applicants'];
+  return layout({
+    title: record.name, user, active: backHref, message,
+    body: `<div class="chips proj-tabs"><a class="chip muted" href="${backHref}">‹ ${backLabel}</a></div>
+    ${zohoError ? `<div class="toast bad" style="display:block">Zoho could not be reached just now, so only the basics saved in the app are shown. Try again in a minute, or open it in Zoho.<br>
+      <code style="white-space:pre-wrap;word-break:break-word">${esc(zohoError)}</code></div>` : ''}
+    ${head}${inApp}${sections || `<div class="card">${empty('No fields copied yet. Use "Copy from Zoho now".')}</div>`}
+    ${hidden ? `<p class="meta">${hidden} empty field${hidden === 1 ? ' is' : 's are'} not shown.</p>` : ''}`,
   });
 }

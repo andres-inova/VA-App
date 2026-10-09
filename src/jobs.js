@@ -3,6 +3,7 @@
 import { REPORT_ZONE, zoneFor, partsIn, zonedTimeToUtc, parseHHMM, weekdayIndex, addDays, formatHM, formatDate } from './time.js';
 import { postToSlack, sendEmail, slackSafe } from './notify.js';
 import { syncFromZoho } from './zoho.js';
+import { syncCrm } from './crm.js';
 import { esc } from './util.js';
 import * as messages from './messages.js';
 
@@ -290,6 +291,8 @@ async function safely(label, fn) {
 export async function runEveryMinute(env, now = new Date()) {
   const vaCount = await env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE is_va = 1').first();
   if (now.getUTCMinutes() === 0 || vaCount.n === 0) await safely('Zoho sync', () => syncFromZoho(env));
+  // Clients and applicants from Zoho CRM, half an hour after the VA sync.
+  if (now.getUTCMinutes() === 30) await safely('Zoho CRM copy', () => syncCrm(env));
   await safely('Shift check', () => checkShifts(env, now));
   await safely('Reports', () => maybeSendReports(env, now));
   await safely('Timers', () => stopLongTimers(env, now));

@@ -50,7 +50,7 @@ The **app** runs on its own on Cloudflare, even when nobody is chatting with Cla
 | Key | What the app can do with it |
 |---|---|
 | Slack bot token | Post messages, only in channels the bot has been invited to |
-| Zoho key | Read the Virtual Assistants module in Zoho CRM and the project list in Zoho Projects. It can't change anything. |
+| Zoho key | Read the Virtual Assistants, Accounts (clients) and Applicants modules in Zoho CRM, their page layouts and uploaded files (resumes, contracts); read projects and work with tasks and time logs in Zoho Projects. It can't change anything in Zoho CRM. |
 | Gmail key | Send email as inovaagent@inovalocal.com. It can't read the inbox. |
 
 ---
@@ -91,9 +91,9 @@ Done. Other admins get a temporary password from the **People** page (step 5 bel
 1. Go to https://api-console.zoho.com → **Add Client** → **Self Client** → **Create**.
 2. On the **Generate Code** tab, enter these scopes, separated by commas and no spaces (copy the whole line):
    ```
-   ZohoCRM.modules.custom.READ,ZohoProjects.projects.READ,ZohoProjects.tasks.ALL,ZohoProjects.tasklists.READ,ZohoProjects.tasklists.CREATE,ZohoProjects.tasklists.UPDATE,ZohoProjects.tasklists.DELETE,ZohoProjects.timesheets.ALL,ZohoProjects.users.READ
+   ZohoCRM.modules.custom.READ,ZohoCRM.modules.accounts.READ,ZohoCRM.settings.layouts.READ,ZohoCRM.files.READ,ZohoProjects.projects.READ,ZohoProjects.tasks.ALL,ZohoProjects.tasklists.READ,ZohoProjects.tasklists.CREATE,ZohoProjects.tasklists.UPDATE,ZohoProjects.tasklists.DELETE,ZohoProjects.timesheets.ALL,ZohoProjects.users.READ
    ```
-   Choose **10 minutes**, type any description, and click **Create**. Copy the code. Use an account that can see the Virtual Assistants module in Zoho CRM and is an **admin in the Zoho Projects portal** (andres@inovalocal.com). Time logs the app saves show this account in Zoho's **Created By** column; the **User** column is the VA.
+   Choose **10 minutes**, type any description, and click **Create**. Copy the code. Use an account that can see the Virtual Assistants, Accounts and Applicants modules in Zoho CRM and is an **admin in the Zoho Projects portal** (andres@inovalocal.com). Time logs the app saves show this account in Zoho's **Created By** column; the **User** column is the VA.
 3. On the **Client Secret** tab, copy the **Client ID** and **Client Secret**.
 4. Within 10 minutes, swap the code for a long-lasting refresh token. In the command below, replace the three `YOUR_...` values, then run it:
    ```bash
@@ -112,7 +112,7 @@ Done. Other admins get a temporary password from the **People** page (step 5 bel
    ```
 6. The app starts using a new key right away. On the **People** page, click **Sync with Zoho now** so each VA is matched to their Zoho Projects account (by email, or else by name).
 
-**Adding permissions later** (for example the Tasks & time permissions): repeat steps 2, 4 and 5 with the full list of scopes above. You can keep the same Client ID and Client Secret, so only `ZOHO_REFRESH_TOKEN` needs saving again.
+**Adding permissions later** (for example the Tasks & time, or Clients and Applicants permissions): repeat steps 2, 4 and 5 with the full list of scopes above. You can keep the same Client ID and Client Secret, so only `ZOHO_REFRESH_TOKEN` needs saving again.
 
 ## 4. Gmail key
 
@@ -288,6 +288,7 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 - **Coverage SOPs** (under Setup): every active project with a VA, split into **Not done yet** and **Done**, with counts at the top: done, started, not started. Each row shows the VAs, the status (Not started, Started not finished, Filled in, Uploaded), and who saved it last. Admins can open, edit or upload any SOP, and mark a project as **not needing** an SOP. On the Time off page and on each request's next steps, every covered project shows its SOP status, with a reminder to ask the VA to finish it.
 - **Holidays**: dates when nobody is expected to check in.
 - **Settings**: turn your time-off emails on or off, set the grace period, choose who gets the report emails, send a report now, and see the last email error.
+- **Clients** and **Applicants** (under "From Zoho"): the client (Accounts) and VA applicant information from Zoho CRM, to read only. Change it in Zoho. See [Clients and Applicants](#clients-and-applicants-from-zoho-crm).
 
 **Automatic (the job runs every minute)**
 - **10 minutes** after a VA's earliest project start with no check-in: #check-in-tracker gets a message tagging Stephany (VA Lead), and the VA's management channel gets a message tagging the VA.
@@ -296,6 +297,7 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 - **Weekly report**, Mondays at 9:00 AM Eastern: VAs with 2 or more missed check-ins in the previous Monday–Sunday. Posted in #check-in-tracker and sent as one email to the report recipients.
 - **Monthly report**, the 1st at 9:00 AM Eastern: VAs with 3 or more missed check-ins in the previous month. Posted and emailed the same way.
 - **Report recipients** are chosen on the Settings page: any of the admins, plus other email addresses. Until someone saves a choice, all admins get them.
+- **Clients and applicants copy** at half past every hour (see [Clients and Applicants](#clients-and-applicants-from-zoho-crm)).
 - **Zoho sync** every hour: VAs with VA Status "Active" can log in as VAs, and VAs who stop being Active lose access. Active projects are copied from Zoho Projects, and new ones are assigned by name (see below). Projects that are completed or closed in Zoho stop counting.
 
 ## Rules the app follows
@@ -338,6 +340,16 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 - **Alert times (10 and 15 minutes)** are in `src/jobs.js`.
 - **Report thresholds (2 weekly, 3 monthly)** are in `buildReport` in `src/jobs.js`.
 
+## Clients and Applicants (from Zoho CRM)
+
+Two admin-only pages under **From Zoho** in the menu. VAs can't open them. Nothing can be changed here; change clients and applicants in Zoho.
+
+- **Clients**: every Account in Zoho CRM, split into **Current**, **Paused** and **Offboarded** (from Zoho's Paused and Offboarded boxes), with a search box.
+- **Applicants**: every record in Zoho's Applicants module, newest first. The buttons at the top filter by **Applicant Status**. **In progress** (the default) leaves out Rejected, Ghosted by applicant and Hired/Archived, and groups the rest by hiring step. The search box looks through all applicants (name, email, phone, place). A list shows at most 200; search to find older ones.
+- **Opening a client or applicant** shows every filled-in field, read from Zoho at that moment, in the same sections and order as the Zoho page. **Open in Zoho** opens the record there. Resumes and contracts open from Zoho when clicked (PDFs and pictures in the browser; other files download); the app does not keep them. A client's page also lists the VAs and projects the app has for that client (projects in Zoho Projects whose name starts with the client's name), with a link to each SOP.
+- **How the lists stay current**: the lists use a small copy of each record (name, status, email, phone, place, a few more). At half past every hour the app copies the records that changed in Zoho; once a day it copies everything, which also removes records deleted in Zoho. **Copy from Zoho now** on either page copies everything right away. If a copy fails, the page shows Zoho's reason.
+- **Needs** the Zoho key with the CRM permissions listed in [3. Zoho key](#3-zoho-key) (Accounts, layouts and files). Until then, both pages show a message that the key needs new permissions.
+
 ## Files
 
 | File | What it is |
@@ -358,6 +370,7 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 | `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |
 | `src/zoho.js` | Reads active VAs from Zoho CRM and active projects from Zoho Projects, assigns new projects by name, and finds each VA's Zoho Projects user |
 | `src/work.js` | Tasks, task lists and time logs in Zoho Projects (the Tasks & time page) |
+| `src/crm.js` | The Clients and Applicants pages: copies the lists from Zoho CRM and reads each record from Zoho when opened |
 | `src/notify.js` | Sends Slack messages, and emails through Gmail |
 | `src/time.js` | Time zone and date calculations |
 | `schema.sql` | The database tables, plus the 4 starting admins (used to create a new database) |

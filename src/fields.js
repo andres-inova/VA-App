@@ -1,13 +1,79 @@
-// The fields of clients, client contacts and VAs, grouped into sections. The record pages, the edit forms
-// and the copy from Zoho CRM all use this list. Each field's key is its Zoho CRM API name, so the copy from
-// Zoho knows where each value goes. To add a field, add one line to a section.
+// The fields of clients, client contacts, VAs and applicants, grouped into sections. The record pages, the edit
+// forms and the copy from Zoho CRM all use this list. Each field's key is its Zoho CRM API name, so the copy from
+// Zoho knows where each value goes (fields that are new in the app have new names). To add a field, add one line
+// to a section.
 //
-// Field types: text, email, phone, url, textarea, int, money, date, bool, pick (one choice from `options`),
-// multi (several choices from `options`), tags (comma-separated words), owner (an admin's name),
-// lookup (one other record, `to` = its kind), lookups (several other records), file (files of that kind,
-// added on the record page).
+// Field types: text, email, phone, url, textarea, int, num (a number that may have a decimal), money, date, bool,
+// pick (one choice from `options`), multi (several choices from `options`), tags (comma-separated words),
+// owner (an admin's name), lookup (one other record, `to` = its kind), lookups (several other records),
+// file (files of that kind, added on the record page). int and num fields can have `min`, `max` and `step`.
 
 const f = (key, label, type = 'text', more = {}) => ({ key, label, type, ...more });
+
+// Hiring steps for applicants, in order (from the "Application Process" document), and the two ways an
+// applicant can leave before being hired.
+export const STEPS = ['New application', 'Screening call scheduled', 'Screening call done', 'Offer sent', 'Training pending', 'In training', 'Training done', 'Hired'];
+export const CLOSED = ['Declined', 'Ghosted'];
+
+// Applicant Status values in Zoho CRM and the step each one becomes (the training modules all become
+// "In training"). Rejected applicants are not copied.
+const ZOHO_STEPS = {
+  '1. Form Submitted': 'New application',
+  '2. Scheduling Email Sent': 'Screening call scheduled',
+  '3. Formal Screening Scheduled': 'Screening call scheduled',
+  '4. Formal Screening Completed': 'Screening call done',
+  '5. Casual Hiring Scheduled': 'Screening call done',
+  '6. Casual Hiring Completed': 'Screening call done',
+  '7. Pending Offer & Hiring Material': 'Offer sent',
+  '15. Training Completed': 'Training done',
+  '16. Scheduled Final Interview': 'Training done',
+  '17. Completed Final Interview': 'Training done',
+  'Hired/Archived': 'Hired',
+  'Ghosted by applicant': 'Ghosted',
+  'Video Interview Invite Sent': 'Ghosted',
+  Rejected: 'Declined',
+};
+export const zohoStep = (status) => ZOHO_STEPS[status] || (/^(8|9|1[0-4])\. Module/.test(status || '') ? 'In training' : 'New application');
+
+// The scoring sheets. Resume score ("Applicant Scoring - Hiring"): five parts adding up to 10; 8 or more means
+// invite to a screening call. Screening call ("Applicant Scoring System"): each area 1-5, overall = the average
+// times 2. The first four areas must be scored, and anyone under 4 in any of the first three should not be hired.
+const RESUME_PARTS = [['Resume_Phone_Inbound', 'Phone / inbound', 3], ['Resume_Sales_Background', 'Sales background', 2],
+  ['Resume_Communication', 'Communication quality', 2], ['Resume_Reliability', 'Reliability and availability', 1.5], ['Resume_Bonus_Fit', 'Bonus fit', 1.5]];
+const CALL_AREAS = [['pre_Time_Availability_Consistency_Flexibility', 'Time availability'], ['pre_Accountability', 'Accountability'],
+  ['pre_Personality', 'Personality'], ['pre_Industry_Knowledge', 'Industry knowledge'], ['pre_Tech_Knowledge', 'Tech skills'],
+  ['pre_Communication', 'Communication'], ['pre_Sales', 'Sales'], ['pre_Scheduling', 'Scheduling'], ['pre_Customer_Service', 'Customer service']];
+const CALL_HINTS = { pre_Time_Availability_Consistency_Flexibility: 'Consistency and flexibility.', pre_Communication: 'Etiquette, confidence, language and tone.' };
+const CALL_REQUIRED = 4;
+const CALL_MUST_BE_4 = 3;
+export const RESUME_INVITE = 8;
+
+const scored = (v) => v !== null && v !== undefined && v !== '';
+const round1 = (n) => Math.round(n * 10) / 10;
+
+// The resume score: { total, missing (parts not scored) }, or null when nothing is scored yet.
+export function resumeScore(d) {
+  const parts = RESUME_PARTS.filter(([k]) => scored(d[k]));
+  if (!parts.length) return null;
+  return { total: round1(parts.reduce((sum, [k]) => sum + Number(d[k]), 0)), missing: RESUME_PARTS.length - parts.length };
+}
+
+// The screening call score: { overall, missing (required areas not scored), low (areas under 4 that rule the
+// applicant out) }, or null when nothing is scored yet.
+export function callScore(d) {
+  const areas = CALL_AREAS.filter(([k]) => scored(d[k]));
+  if (!areas.length) return null;
+  return {
+    overall: round1((areas.reduce((sum, [k]) => sum + Number(d[k]), 0) / areas.length) * 2),
+    missing: CALL_AREAS.slice(0, CALL_REQUIRED).filter(([k]) => !scored(d[k])).map(([, label]) => label),
+    low: CALL_AREAS.slice(0, CALL_MUST_BE_4).filter(([k]) => scored(d[k]) && Number(d[k]) < 4).map(([, label]) => label),
+  };
+}
+
+// The offer checklist, from "Sending Offer Letter and Running Background Check".
+export const OFFER_ITEMS = [['Offer_W9', 'W-9 form received'], ['Offer_State_ID', 'Copy of state ID received'],
+  ['Offer_Agreement', 'Subcontractor Agreement signed (SignNow)'], ['Offer_Onboarding_Form', 'Onboarding form filled in (Tally)'],
+  ['Offer_Background_Check', 'Background check passed (Checkr)'], ['Offer_Slack', 'Joined Slack']];
 
 export const MODULES = {
   clients: {
@@ -182,6 +248,42 @@ export const MODULES = {
       ] },
     ],
   },
+
+  applicants: {
+    label: 'Applicants', one: 'applicant', zoho: 'Applicants', zohoTab: 'CustomModule3',
+    nameKey: null, statusKey: 'Applicant_Status', statuses: [...STEPS, ...CLOSED],
+    sections: [
+      { title: 'Applicant', fields: [
+        f('Name', 'First name', 'text', { required: true }),
+        f('Last_Name', 'Last name'),
+        f('Applicant_Status', 'Hiring step', 'pick', { options: [...STEPS, ...CLOSED] }),
+        f('Declined_Reason', 'Why declined', 'text', { hint: 'Only needed when the step is Declined.' }),
+        f('Email', 'Email', 'email'),
+        f('Phone', 'Phone', 'phone'),
+        f('Location', 'Location'),
+        f('Time_zone', 'Time zone', 'pick', { options: ['EST', 'CST', 'MST', 'PST'] }),
+        f('Availability', 'Availability'),
+      ] },
+      { title: 'Experience', fields: [
+        f('Year_of_admin_experience', 'Years of admin experience'),
+        f('Prev_service_industry_experience1', 'Previous service industry experience'),
+        f('Cleaning_industry_experience', 'Cleaning industry experience', 'bool'),
+        f('Systems_Tools', 'Systems and tools'),
+        f('Languages', 'Languages'),
+        f('VA_Bio', 'Bio', 'textarea'),
+        f('Resume', 'Resume', 'file'),
+      ] },
+      { title: 'Resume score', score: 'resume', fields: [
+        ...RESUME_PARTS.map(([k, label, max]) => f(k, `${label} (0-${max})`, 'num', { min: 0, max, step: 0.5 })),
+        f('Resume_Summary', 'Summary', 'textarea', { hint: 'A short summary of the applicant, for example from Claude.' }),
+      ] },
+      { title: 'Screening call score', score: 'call', fields: [
+        ...CALL_AREAS.map(([k, label], i) => f(k, `${label} (1-5)${i < CALL_REQUIRED ? '' : ', optional'}`, 'int', { min: 1, max: 5, hint: CALL_HINTS[k] })),
+        f('pre_Additional_Comments', 'Notes from the call', 'textarea'),
+      ] },
+      { title: 'Offer checklist', fields: OFFER_ITEMS.map(([k, label]) => f(k, label, 'bool')) },
+    ],
+  },
 };
 
 export const allFields = (key) => MODULES[key].sections.flatMap((s) => s.fields);
@@ -192,12 +294,14 @@ export const formFields = (key) => allFields(key).filter((x) => x.type !== 'file
 // A record's name and status from its field values.
 export function nameOf(key, data) {
   if (key === 'contacts') return [data.First_Name, data.Last_Name].filter(Boolean).join(' ').trim() || data.Email || 'No name';
+  if (key === 'applicants') return [data.Name, data.Last_Name].filter(Boolean).join(' ').trim() || data.Email || 'No name';
   return (data[MODULES[key].nameKey] || '').trim() || 'No name';
 }
 
 export function statusOf(key, data) {
   if (key === 'contacts') return data.Offboarded ? 'Offboarded' : 'Current';
   if (key === 'clients') return data.Status || 'Current';
+  if (key === 'applicants') return data.Applicant_Status || 'New application';
   return data.VA_Status || 'n/a';
 }
 

@@ -1,12 +1,13 @@
-// The pages for clients, client contacts and VAs kept in the app (see records.js).
+// The pages for clients, client contacts, VAs and applicants kept in the app (see records.js).
 
 import { esc } from './util.js';
-import { formatDate } from './time.js';
-import { MODULES, allFields, plainValue } from './fields.js';
+import { formatDate, REPORT_ZONE } from './time.js';
+import { MODULES, allFields, plainValue, STEPS, CLOSED, OFFER_ITEMS, RESUME_INVITE, resumeScore, callScore } from './fields.js';
 import { layout, icon, avatar, chip, section, empty, zohoTime, mailLink, phoneLink } from './views.js';
 
-const TONE = { Current: 'good', Active: 'good', Paused: 'warn', 'On Deck': 'info', Offboarded: 'muted', 'n/a': 'muted' };
-const tone = (status) => TONE[status] || 'muted';
+const TONE = { Current: 'good', Active: 'good', Paused: 'warn', 'On Deck': 'info', Offboarded: 'muted', 'n/a': 'muted', Hired: 'good', Declined: 'muted', Ghosted: 'muted' };
+const tone = (status) => TONE[status] || (STEPS.includes(status) ? 'info' : 'muted');
+const activeFor = (key) => (key === 'vas' ? '/admin/vas' : key === 'applicants' ? '/admin/applicants' : '/admin/clients');
 const isEmpty = (v) => v === null || v === undefined || v === '' || v === false || (Array.isArray(v) && !v.length);
 const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`);
 const when = (iso) => (iso ? zohoTime(iso.includes('T') ? iso : `${iso.replace(' ', 'T')}Z`) : '');
@@ -147,7 +148,113 @@ function filesHtml(key, record, files) {
   return upload + (list || empty('No files yet.'));
 }
 
-export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, source, zohoOrg, message }) {
+// ---- Hiring ----
+
+const OFFER_GUIDE = 'https://docs.google.com/document/d/1DAm6UrIaYzIW_gSTnDst_Xc8CJq-Lzf1YJX-Gw9tHPY/edit';
+
+// What to do at each hiring step (from the "Application Process" document).
+const STEP_HELP = {
+  'New application': `Screen the resume (for example with Claude) and fill in the resume score. ${RESUME_INVITE} or more: send a calendar invite for a screening call and move them on. Under ${RESUME_INVITE}: decline.`,
+  'Screening call scheduled': 'After the call, fill in the screening call score. If it is a match, walk them through the next steps and the training program, then move them on. If not, decline them and send the "Post Interview Rejection" email.',
+  'Screening call done': `Send the offer email with the W-9, the Subcontractor Agreement in SignNow, and the background check in Checkr (<a href="${OFFER_GUIDE}" target="_blank" rel="noopener">Sending Offer Letter and Running Background Check</a>). Then move them on.`,
+  'Offer sent': 'Tick each item on the offer checklist below as it comes in. When everything is in, move them on.',
+  'Training pending': 'Send the message that introduces the training program. Move them on when they start.',
+  'In training': 'Move them on when they finish the training program.',
+  'Training done': 'Follow up on any questions about the training. Move them on when you hire them.',
+  Hired: 'Make their VA record. It starts as On Deck on the VAs page.',
+  Ghosted: 'They stopped answering. Move them back to a step if they get in touch again.',
+  Declined: 'Not hired. Move them back to a step if that changes.',
+};
+
+const scoreText = (n) => `${Number.isInteger(n) ? n : n.toFixed(1)} / 10`;
+
+// The resume and screening call scores as chips (for the list and the applicant page).
+function scoreChips(d, status) {
+  const out = [];
+  const r = resumeScore(d);
+  if (r) out.push(chip(`Resume ${scoreText(r.total)}`, r.total >= RESUME_INVITE ? 'good' : 'warn'));
+  else if (status === 'New application') out.push(chip('Not screened yet', 'warn'));
+  const c = callScore(d);
+  if (c) out.push(chip(`Call ${scoreText(c.overall)}`, c.low.length ? 'bad' : 'good'));
+  return out.join('');
+}
+
+// Lines under a score section: the total and what it means.
+function scoreSummary(kind, d) {
+  if (kind === 'resume') {
+    const r = resumeScore(d);
+    if (!r) return '';
+    const verdict = r.missing ? `${r.missing} part${r.missing === 1 ? '' : 's'} not scored yet.`
+      : r.total >= RESUME_INVITE ? 'Invite them to a screening call.' : `Under ${RESUME_INVITE}: decline.`;
+    return `<p class="meta score-line"><b>Total: ${esc(scoreText(r.total))}</b> · ${esc(verdict)}</p>`;
+  }
+  const c = callScore(d);
+  if (!c) return '';
+  const notes = [];
+  if (c.low.length) notes.push(`<span class="chip bad">Under 4 in ${esc(c.low.join(', '))}: should not be hired</span>`);
+  if (c.missing.length) notes.push(`Still to score: ${esc(c.missing.join(', '))}.`);
+  return `<p class="meta score-line"><b>Overall: ${esc(scoreText(c.overall))}</b> (the average times 2)${notes.length ? ` · ${notes.join(' ')}` : ''}</p>`;
+}
+
+// The hiring step card on an applicant's page: where they are, what to do, and the buttons to move them.
+function hiringPanel(record, va) {
+  const d = record.data;
+  const here = `/admin/applicants/${record.id}`;
+  const step = record.status;
+  const i = STEPS.indexOf(step);
+  const closed = CLOSED.includes(step);
+  const next = i >= 0 && i < STEPS.length - 1 ? STEPS[i + 1] : null;
+  const progress = STEPS.map((s, n) => chip(`${n < i || step === 'Hired' ? '✓ ' : ''}${s}`, s === step ? 'info' : n < i ? 'good' : 'muted')).join('');
+  const move = (to, label, cls = '', confirm = '') => `<form method="post" action="${here}/step" ${confirm ? `data-confirm="${esc(confirm)}"` : ''}>
+    <input type="hidden" name="to" value="${esc(to)}"><button class="sm ${cls}">${label}</button></form>`;
+  const offerDone = OFFER_ITEMS.every(([k]) => d[k]);
+  const warn = [];
+  const c = callScore(d);
+  if (c?.low.length && !closed && step !== 'Hired') warn.push(`<div class="toast bad" style="display:block">Under 4 in ${esc(c.low.join(', '))} on the screening call: the scoring rubric says not to hire.</div>`);
+  if (step === 'Offer sent' && offerDone) warn.push('<div class="toast good" style="display:block">Everything on the offer checklist is in.</div>');
+  const declined = step === 'Declined' && d.Declined_Reason ? `<p class="meta"><b>Why declined:</b> ${esc(d.Declined_Reason)}</p>` : '';
+  const vaLine = va ? `<p class="meta">${icon('va')} VA record: <a href="/admin/vas/${esc(va.id)}">${esc(va.name)}</a> (${esc(va.status === 'n/a' ? 'no status' : va.status)})</p>` : '';
+
+  const buttons = [];
+  if (next) buttons.push(move(next, `${icon('check')} Move to ${esc(next)}`));
+  if (step === 'Hired' && !va) {
+    buttons.push(`<form method="post" action="${here}/hire" data-confirm="Make a VA record for ${esc(record.name)}? It starts as On Deck, with their contact details and resume.">
+      <button class="sm">${icon('va')} Make VA record</button></form>`);
+  }
+  if (!closed && step !== 'Hired') {
+    buttons.push(`<details class="list-opts inline-opts"><summary class="btn sm plain">Decline</summary>
+      <form method="post" action="${here}/step"><input type="hidden" name="to" value="Declined">
+        <label for="reason">Why? (optional)</label><input id="reason" type="text" name="reason" maxlength="500" placeholder="For example: resume score under 8">
+        <div class="actions"><button class="sm danger">Decline ${esc(record.name)}</button></div></form></details>`);
+    buttons.push(move('Ghosted', 'Ghosted', 'plain', `Mark ${record.name} as Ghosted (stopped answering)?`));
+  }
+  const others = [...STEPS, ...CLOSED].filter((s) => s !== step && s !== next);
+  const other = `<details class="list-opts"><summary>${closed ? 'Move back to a step' : 'Move to a different step'}</summary>
+    <form method="post" action="${here}/step" class="inline-form"><select name="to" aria-label="Hiring step">${others.map((s) => `<option>${esc(s)}</option>`).join('')}</select>
+      <button class="sm plain">Move</button></form></details>`;
+
+  return `<div class="card" id="step"><h2>Hiring step: ${esc(step)}</h2>
+    ${closed ? '' : `<div class="chips steps">${progress}</div><p class="meta step-count">Step ${i + 1} of ${STEPS.length}${next ? ` · next: ${esc(next)}` : ''}</p>`}
+    ${declined}${warn.join('')}
+    ${step === 'Hired' && va ? '' : `<p class="meta">${STEP_HELP[step] || ''}</p>`}${vaLine}
+    ${scoreChips(d, step) ? `<div class="chips">${scoreChips(d, step)}</div>` : ''}
+    <div class="actions">${buttons.join('')}</div>${other}</div>`;
+}
+
+// The offer checklist, ticked on the applicant's page.
+function offerChecklist(record) {
+  const d = record.data;
+  const done = OFFER_ITEMS.filter(([k]) => d[k]).length;
+  return section({
+    title: 'Offer checklist', count: `${done} of ${OFFER_ITEMS.length}`, key: 'offer', open: record.status === 'Offer sent',
+    hint: `From <a href="${OFFER_GUIDE}" target="_blank" rel="noopener">Sending Offer Letter and Running Background Check</a>.`,
+    body: `<form method="post" action="/admin/applicants/${record.id}/checklist">
+      ${OFFER_ITEMS.map(([k, label]) => `<label class="check"><input type="checkbox" name="${k}" value="1" ${d[k] ? 'checked' : ''}> ${esc(label)}</label>`).join('')}
+      <div class="actions" style="margin-top:12px"><button class="sm">${icon('check')} Save checklist</button></div></form>`,
+  });
+}
+
+export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, source, zohoOrg, message }) {
   const d = record.data;
   const mod = MODULES[key];
   const here = `/admin/${key}/${record.id}`;
@@ -201,9 +308,12 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     });
   }
 
+  if (key === 'applicants') related += hiringPanel(record, va);
+
   let hidden = 0;
   const filesBy = (fieldKey) => files.filter((f) => f.field === fieldKey);
   const sections = mod.sections.map((s) => {
+    if (key === 'applicants' && s.title === 'Offer checklist') return offerChecklist(record);
     const rows = s.fields.map((x) => {
       let html;
       if (x.type === 'file') html = filesBy(x.key).map((f) => `<a href="${fileLink(key, record.id, f)}" target="_blank" rel="noopener">${icon('doc')} ${esc(f.file_name)}</a>`).join('<br>');
@@ -214,6 +324,12 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     const reverse = s.fields.find((x) => x.reverse);
     if (reverse && referredHere.length) rows.push(`<div><dt>${esc(reverse.reverse)}</dt><dd>${referredHere.map((r) => linkTo(key, r.id, r.name)).join(', ')}</dd></div>`);
     const shown = rows.filter(Boolean);
+    if (s.score) {
+      // Score sections always show, with a link to fill them in.
+      const editLink = `<a class="btn sm plain" href="${here}/edit#edit-${esc(encodeURIComponent(s.title))}">${icon('edit')} ${shown.length ? 'Change the scores' : 'Fill in the scores'}</a>`;
+      return section({ title: s.title, count: shown.length || undefined, key: `sec-${s.title}`,
+        body: `${scoreSummary(s.score, d) || '<p class="meta">Not scored yet.</p>'}${shown.length ? `<dl class="fields">${shown.join('')}</dl>` : ''}<div class="actions">${editLink}</div>` });
+    }
     return shown.length ? section({ title: s.title, count: shown.length, key: `sec-${s.title}`, body: `<dl class="fields">${shown.join('')}</dl>` }) : '';
   }).join('');
   const extra = d._extra ? section({
@@ -223,7 +339,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
   }) : '';
 
   return layout({
-    title: record.name, user, active: key === 'vas' ? '/admin/vas' : '/admin/clients', message,
+    title: record.name, user, active: activeFor(key), message,
     body: `<div class="chips proj-tabs"><a class="chip muted" href="${esc(back[0])}">‹ ${esc(back[1])}</a></div>
     ${head}${related}
     ${sections || `<div class="card">${empty('No details yet. Click Edit to add them.')}</div>`}
@@ -249,7 +365,10 @@ function input(x, v, choices, owners) {
   switch (x.type) {
     case 'textarea': return `<div class="wide">${lbl}<textarea id="${id}" name="${name}">${esc(v || '')}</textarea>${hint}</div>`;
     case 'bool': return `<div><label class="check" style="margin-top:34px"><input type="checkbox" name="${name}" value="1" ${v ? 'checked' : ''}> ${esc(x.label)}</label>${hint}</div>`;
-    case 'int': return `<div>${lbl}<input id="${id}" type="number" step="1" name="${name}" value="${esc(v ?? '')}">${hint}</div>`;
+    case 'int': case 'num': {
+      const range = `${x.min !== undefined ? ` min="${x.min}"` : ''}${x.max !== undefined ? ` max="${x.max}"` : ''}`;
+      return `<div>${lbl}<input id="${id}" type="number" step="${x.step || (x.type === 'int' ? 1 : 'any')}"${range} name="${name}" value="${esc(v ?? '')}">${hint}</div>`;
+    }
     case 'money': return `<div>${lbl}<input id="${id}" type="number" step="0.01" min="0" name="${name}" value="${esc(v ?? '')}">${hint}</div>`;
     case 'date': return `<div>${lbl}<input id="${id}" type="date" name="${name}" value="${esc(v || '')}">${hint}</div>`;
     case 'email': return `<div>${lbl}<input id="${id}" type="email" name="${name}" value="${esc(v || '')}" autocomplete="off">${hint}</div>`;
@@ -290,12 +409,12 @@ export function editPage({ user, key, record, choices, owners, clients, error, m
     const fields = s.fields.filter((x) => x.type !== 'file');
     if (!fields.length) return '';
     const filled = fields.some((x) => !isEmpty(d[x.key]));
-    return section({ title: s.title, key: `edit-${s.title}`, open: i === 0 || filled, body: `<div class="form-grid">${fields.map((x) => input(x, d[x.key], choices, owners)).join('')}</div>` });
+    return section({ title: s.title, key: `edit-${s.title}`, open: i === 0 || filled || Boolean(s.score), body: `<div class="form-grid">${fields.map((x) => input(x, d[x.key], choices, owners)).join('')}</div>` });
   }).join('');
   const deleteText = key === 'clients' ? 'Delete this client, with its contacts, notes and files? This cannot be undone.'
     : `Delete this ${mod.one}, with their notes and files? This cannot be undone.`;
   return layout({
-    title, user, active: key === 'vas' ? '/admin/vas' : '/admin/clients', message,
+    title, user, active: activeFor(key), message,
     body: `<div class="chips proj-tabs"><a class="chip muted" href="${esc(back)}">‹ Back without saving</a></div>
     ${error ? `<div class="toast bad" role="alert">${esc(error)}</div>` : ''}
     <form method="post" action="${action}" class="record-form">
@@ -356,5 +475,75 @@ export function importPage({ user, state, counts, source, message }) {
       <p class="meta">The copy needs the Zoho key to include: <code>ZohoCRM.modules.accounts.READ</code>, <code>ZohoCRM.modules.contacts.READ</code>,
       <code>ZohoCRM.modules.custom.READ</code>, <code>ZohoCRM.modules.notes.READ</code>, <code>ZohoCRM.modules.attachments.READ</code> and <code>ZohoCRM.files.READ</code>
       (see README, "3. Zoho key").</p></div>`,
+  });
+}
+
+// ---- Hiring: the list of applicants, and the copy from Zoho ----
+
+const appliedOn = (iso) => (iso ? new Date(iso.includes('T') ? iso : `${iso.replace(' ', 'T')}Z`)
+  .toLocaleDateString('en-US', { timeZone: REPORT_ZONE, month: 'short', day: 'numeric', year: 'numeric' }) : '');
+
+export function applicantsPage({ user, records, imported, message }) {
+  const by = (s) => records.filter((r) => r.status === s);
+  const others = records.filter((r) => !STEPS.includes(r.status) && !CLOSED.includes(r.status));
+  const row = (r) => {
+    const d = r.data;
+    const sub = [d.Email, [d.Location, d.Time_zone].filter(Boolean).join(', '), `Applied ${appliedOn(r.created_at)}`].filter(Boolean).map(esc).join(' · ');
+    return recordRow('applicants', r, sub, `<span class="chips side-chips">${scoreChips(d, r.status)}</span>`);
+  };
+  const list = (label, rows, open) => (rows.length ? section({ title: label, count: rows.length, open, key: `applicants-${label}`, body: rows.map(row).join('') }) : '');
+  const open = records.filter((r) => STEPS.includes(r.status) && r.status !== 'Hired').length;
+  let copy = '';
+  if (imported?.status === 'running') copy = `<p class="meta">${icon('sync')} Copying applicants from Zoho now… <a href="/admin/applicants/import">See progress</a></p>`;
+  else if (!records.length) {
+    copy = `<div class="card"><h2>Bring your applicants over from Zoho</h2>
+      <p class="meta">Copy every applicant from Zoho CRM except the Rejected ones, with their notes and resumes.</p>
+      <a class="btn" href="/admin/applicants/import">${icon('sync')} Copy from Zoho</a></div>`;
+  }
+  return layout({
+    title: 'Hiring', user, active: '/admin/applicants', message,
+    body: `<p class="lead">Everyone who applied, by hiring step. Click an applicant to see their details, scores and notes, and to move them to the next step.</p>
+    ${copy}
+    <div class="actions" style="margin:0 0 14px"><a class="btn sm" href="/admin/applicants/new">${icon('plus')} New applicant</a>
+      <a class="btn sm plain" href="/admin/applicants/import">${icon('sync')} Copy from Zoho</a></div>
+    ${records.length ? `<div class="summary-chips">${chip(`${open} in progress`, 'info')}${chip(`${by('Hired').length} hired`, 'good')}${CLOSED.map((s) => chip(`${by(s).length} ${s.toLowerCase()}`, 'muted')).join('')}</div>
+    <label class="search" for="find-applicants">${icon('applicant')}<input id="find-applicants" type="search" placeholder="Search applicants, emails or places" autocomplete="off" data-filter="#applicants-list .item" data-empty="#applicants-none"></label>
+    <div id="applicants-list">${STEPS.map((s) => list(s, by(s), s !== 'Hired')).join('')}${CLOSED.map((s) => list(s, by(s), false)).join('')}${list('Other', others, false)}</div>
+    <div class="empty no-results" id="applicants-none">Nothing matches.</div>` : ''}`,
+  });
+}
+
+export function applicantImportPage({ user, state, count, message }) {
+  const s = state || {};
+  const done = s.counts ? `${s.counts.applicants} applicants, with ${s.counts.notes} new notes and ${s.counts.files} new files` : '';
+  let status = '<p class="meta">Not copied yet.</p>';
+  if (s.status === 'running') {
+    const left = (s.queue || []).length;
+    status = `<div class="toast info" style="display:block">${icon('sync')} Copying… ${esc(done)} so far, ${left} step${left === 1 ? '' : 's'} left.
+      It continues on its own every minute, even if you close this page. This page updates every minute.</div>`;
+  } else if (s.status === 'done') {
+    status = `<p class="meta">Last copy finished ${esc(zohoTime(s.finished_at))} (started by ${esc(s.by || 'an admin')}): ${esc(done)}.</p>`;
+  } else if (s.status === 'failed') {
+    status = `<div class="toast bad" style="display:block">The copy stopped ${esc(zohoTime(s.finished_at))}: ${esc(done)} were copied before that.
+      If the reason mentions a scope or permission, the Zoho key needs the permissions listed below.<br>
+      <code style="white-space:pre-wrap;word-break:break-word">${esc(s.error || '')}</code></div>`;
+  }
+  const problems = s.problems?.length ? `<details class="list-opts"><summary>${s.problems.length} file${s.problems.length === 1 ? '' : 's'} could not be copied</summary>
+    <ul class="changes">${s.problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></details>` : '';
+  const again = count ? 'Copying again replaces the details of every applicant that came from Zoho with what Zoho has now, including their hiring step. Scores, the offer checklist, notes, files and history added in the app stay. Continue?' : '';
+  return layout({
+    title: 'Copy applicants from Zoho', user, active: '/admin/applicants', message,
+    body: `<div class="chips proj-tabs"><a class="chip muted" href="/admin/applicants">‹ Hiring</a></div>
+    <div class="card" data-autorefresh><h2>Copy applicants from Zoho CRM</h2>
+      <p class="meta">Copies every applicant in Zoho CRM except the Rejected ones, with their notes, attachments and resumes. Zoho is only read, never changed.</p>
+      <p class="meta">Zoho's Applicant Status becomes a hiring step: "Video Interview Invite Sent" and "Ghosted by applicant" become Ghosted, the training modules become In training, and Hired/Archived becomes Hired.</p>
+      <p class="meta">In the app now: <b>${count}</b> applicants.</p>
+      ${status}${problems}
+      <form method="post" action="/admin/applicants/import" ${again ? `data-confirm="${esc(again)}"` : ''}>
+        <button ${s.status === 'running' ? 'disabled' : ''}>${icon('sync')} ${count ? 'Copy again from Zoho' : 'Copy from Zoho'}</button></form>
+    </div>
+    <div class="card"><h2>Zoho key permissions</h2>
+      <p class="meta">The copy needs the Zoho key to include: <code>ZohoCRM.modules.custom.READ</code>, <code>ZohoCRM.modules.notes.READ</code>,
+      <code>ZohoCRM.modules.attachments.READ</code> and <code>ZohoCRM.files.READ</code> (see README, "3. Zoho key").</p></div>`,
   });
 }

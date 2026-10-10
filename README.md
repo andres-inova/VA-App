@@ -289,7 +289,7 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 - **Holidays**: dates when nobody is expected to check in.
 - **Settings**: turn your time-off emails on or off, set the grace period, choose who gets the report emails, send a report now, and see the last email error.
 - **Clients** and **VAs** (under "Records"): every client (with its contacts) and every VA, kept in the app instead of Zoho CRM, with notes, files and a change history. See [Clients and VAs](#clients-and-vas).
-- **Applicants** (under "Records"): VA applicant information from Zoho CRM, to read only. Change it in Zoho. See [Applicants](#applicants-from-zoho-crm).
+- **Applicants** (under "Hiring"): every VA applicant, moved step by step through the hiring process, with scores, an offer checklist and a button that makes their VA record. See [Hiring](#hiring).
 
 **Automatic (the job runs every minute)**
 - **10 minutes** after a VA's earliest project start with no check-in: #check-in-tracker gets a message tagging Stephany (VA Lead), and the VA's management channel gets a message tagging the VA.
@@ -298,8 +298,7 @@ The app works on computers and phones. On a computer, the menu is on the left. O
 - **Weekly report**, Mondays at 9:00 AM Eastern: VAs with 2 or more missed check-ins in the previous Monday–Sunday. Posted in #check-in-tracker and sent as one email to the report recipients.
 - **Monthly report**, the 1st at 9:00 AM Eastern: VAs with 3 or more missed check-ins in the previous month. Posted and emailed the same way.
 - **Report recipients** are chosen on the Settings page: any of the admins, plus other email addresses. Until someone saves a choice, all admins get them.
-- **Applicants copy** at half past every hour (see [Applicants](#applicants-from-zoho-crm)).
-- **Copy of clients and VAs from Zoho**, while one is running: one step each minute until it is done.
+- **Copy of clients and VAs from Zoho**, and **copy of applicants from Zoho**, while one is running: one step each minute until it is done.
 - **Zoho sync** every hour: VAs with VA Status "Active" (in Zoho CRM, or in the app's VA records after the switch, see [Clients and VAs](#clients-and-vas)) can log in as VAs, and VAs who stop being Active lose access. Active projects are copied from Zoho Projects, and new ones are assigned by name (see below). Projects that are completed or closed in Zoho stop counting.
 
 ## Rules the app follows
@@ -359,14 +358,23 @@ Admin-only pages under **Records** in the menu; VAs can't open them. They replac
 
 **The switch** (on the Copy from Zoho page): until an admin clicks **Use the app's VA records**, VA logins, check-ins and the backup lists keep coming from Zoho CRM every hour. After the switch they come from the app's VA records, and a change to a VA (status, email, time zone, availability, Slack IDs, company affiliation) takes effect right away. **Go back to Zoho CRM** undoes the switch.
 
-## Applicants (from Zoho CRM)
+## Hiring
 
-An admin-only page under **Records**. Nothing can be changed here; change applicants in Zoho. (Applicants will later move to a Hiring area in the app.)
+An admin-only page: **Hiring → Applicants** in the menu. It replaces Zoho CRM's Applicants module and follows the "Application Process" Google Doc.
 
-- **Applicants**: every record in Zoho's Applicants module, newest first. The buttons at the top filter by **Applicant Status**. **In progress** (the default) leaves out Rejected, Ghosted by applicant and Hired/Archived, and groups the rest by hiring step. The search box looks through all applicants (name, email, phone, place). A list shows at most 200; search to find older ones.
-- **Opening an applicant** shows every filled-in field, read from Zoho at that moment, in the same sections and order as the Zoho page. **Open in Zoho** opens the record there. Resumes open from Zoho when clicked (PDFs and pictures in the browser; other files download); the app does not keep them.
-- **How the list stays current**: the list uses a small copy of each record (name, status, email, phone, place, a few more). At half past every hour the app copies the records that changed in Zoho; once a day it copies everything, which also removes records deleted in Zoho. **Copy from Zoho now** copies everything right away. If a copy fails, the page shows Zoho's reason.
-- **Needs** the Zoho key with the CRM permissions listed in [3. Zoho key](#3-zoho-key) (layouts and files). Until then, the page shows a message that the key needs new permissions.
+**The steps**, in order: New application → Screening call scheduled → Screening call done → Offer sent → Training pending → In training → Training done → Hired. An applicant can also be closed as **Declined** (with a reason) or **Ghosted**.
+
+- **Applicants list**: one section per step, newest first, with a search box (name, email, phone, place) and **New applicant**. Hired, Declined and Ghosted start folded. Each row shows the resume and screening call scores.
+- **An applicant's page** shows the current step at the top with a short note on what to do next, **Move to next step**, **Decline** (type the reason), **Ghosted**, and **Move to a different step** (to fix a mistake or bring someone back). Below are their details, **Notes**, **Files** (for example the resume) and **History**.
+- **Resume score**: 5 parts (phone/inbound up to 3, sales background 2, communication 2, reliability 1.5, bonus fit 1.5), out of 10. 8 or more means invite to a screening call.
+- **Screening call score**: 9 areas, each 1 to 5. The overall score is the average × 2 (out of 10). The first 4 areas must be filled in. Under 4 in any of the first 3 areas (time availability, accountability, personality) shows a warning that the applicant should not be hired.
+- **Offer checklist**: W-9, state ID, SignNow agreement, Tally onboarding form, Checkr background check, added to Slack. Tick each one as it comes in.
+- **Make VA record** (shown once the applicant is Hired and has no VA record yet): creates an **On Deck** VA in **Records → VAs** with the applicant's name, email, phone, place, time zone and availability, copies their files, and moves the applicant to Hired. If a VA with the same email already exists, the applicant is linked to that VA instead.
+- **The fields** are listed under `applicants` in `src/fields.js`.
+
+**Copy from Zoho** (button on the Applicants page): copies applicants from Zoho CRM's Applicants module, with their notes and resumes, one small step each minute. Zoho is only read. Rejected applicants and the 2 test records are left behind. Zoho's statuses become the new steps: Video Interview Invite Sent and Ghosted by applicant become **Ghosted**; the training module statuses become **In training**; Hired/Archived becomes **Hired**. It can be run again: applicants from Zoho are updated, and scores, the offer checklist and VA links entered in the app are kept. Needs the Zoho key with the CRM permissions in [3. Zoho key](#3-zoho-key).
+
+**New applications** still go from the Wufoo form to Zoho through Zapier. Sending them straight to the app comes later.
 
 ## Files
 
@@ -388,11 +396,10 @@ An admin-only page under **Records**. Nothing can be changed here; change applic
 | `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |
 | `src/zoho.js` | Reads active VAs from Zoho CRM (or the app's VA records after the switch) and active projects from Zoho Projects, assigns new projects by name, and finds each VA's Zoho Projects user |
 | `src/work.js` | Tasks, task lists and time logs in Zoho Projects (the Tasks & time page) |
-| `src/crm.js` | The Applicants page: copies the list from Zoho CRM and reads each applicant from Zoho when opened |
-| `src/fields.js` | The fields of clients, contacts and VAs, in sections |
-| `src/records.js` | The Clients and VAs pages: lists, record pages, editing, notes, files, history, the switch |
-| `src/records-views.js` | The HTML of the Clients and VAs pages |
-| `src/import.js` | Copies clients, contacts and VAs (with notes and files) from Zoho CRM, a few at a time |
+| `src/fields.js` | The fields of clients, contacts, VAs and applicants, in sections; the hiring steps and scores |
+| `src/records.js` | The Clients, VAs and Applicants pages: lists, record pages, editing, notes, files, history, the switch, hiring steps |
+| `src/records-views.js` | The HTML of the Clients, VAs and Applicants pages |
+| `src/import.js` | Copies clients, contacts, VAs and applicants (with notes and files) from Zoho CRM, a few at a time |
 | `src/notify.js` | Sends Slack messages, and emails through Gmail |
 | `src/time.js` | Time zone and date calculations |
 | `schema.sql` | The database tables, plus the 4 starting admins (used to create a new database) |

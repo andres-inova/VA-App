@@ -1,4 +1,5 @@
-// Copies clients (Accounts), their contacts and VAs from Zoho CRM into the app, with their notes and files.
+// Copies records from Zoho CRM into the app, with their notes and files. There are two separate copies:
+// "records" (clients from Accounts, their contacts, and VAs) and "applicants" (every applicant except Rejected).
 //
 // It runs in small steps: the first right away when an admin clicks "Copy from Zoho", then one each minute
 // (from the scheduled job) until it is done, so no single run asks Zoho for too much. The copy can be run
@@ -6,45 +7,53 @@
 // copied are skipped. Notes, files and history added in the app are kept.
 
 import { accessToken } from './zoho.js';
-import { MODULES, allFields, nameOf, statusOf, searchOf } from './fields.js';
+import { MODULES, allFields, nameOf, statusOf, searchOf, zohoStep } from './fields.js';
 
-const STATE_KEY = 'zoho_import';
 const CALLS_PER_RUN = 30; // Zoho requests per run (Cloudflare's free plan allows 50 per run)
-const ORDER = ['clients', 'contacts', 'vas'];
+// Each copy: where its progress is kept, and the modules it copies in order.
+const SETS = {
+  records: { key: 'zoho_import', order: ['clients', 'contacts', 'vas'] },
+  applicants: { key: 'zoho_import_applicants', order: ['applicants'] },
+};
+
+// Applicants left behind: Rejected ones, and two test records made in Zoho.
+const SKIP_APPLICANT_STATUS = new Set(['Rejected']);
+const TEST_APPLICANTS = new Set(['6851072000003662001', '6851072000003602027']);
 
 // Zoho's own bookkeeping fields, never copied.
 const SKIP = new Set(['id', 'Record_Status__s', 'Locked__s', 'Unsubscribed_Mode', 'Unsubscribed_Time', 'Enrich_Status__s',
   'Last_Enriched_Time__s', 'Change_Log_Time__s', 'Record_Image', 'Created_By', 'Modified_By', 'Created_Time', 'Modified_Time',
   'Last_Activity_Time', 'Timezone_West_East', 'Full_Name', 'Offboarded', 'Paused', 'Referred', 'Tag', '$']);
 
-export async function importState(env) {
-  const row = await env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind(STATE_KEY).first();
+export async function importState(env, set = 'records') {
+  const row = await env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind(SETS[set].key).first();
   return row ? JSON.parse(row.value) : null;
 }
-const saveState = (env, state) =>
-  env.DB.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').bind(STATE_KEY, JSON.stringify(state)).run();
+const saveState = (env, set, state) =>
+  env.DB.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').bind(SETS[set].key, JSON.stringify(state)).run();
 
 // Starts a new copy (unless one is already running) and runs its first step.
-export async function startImport(env, user) {
-  const state = await importState(env);
+export async function startImport(env, user, set = 'records') {
+  const state = await importState(env, set);
   if (state?.status === 'running' && Date.now() - Date.parse(state.step_at || state.started_at) < 10 * 60000) return state;
+  const { order } = SETS[set];
   const fresh = {
     status: 'running', started_at: new Date().toISOString(), by: user.name,
-    queue: [...ORDER.map((m) => ({ t: 'list', m })), { t: 'notes' }, { t: 'links' }],
-    counts: { clients: 0, contacts: 0, vas: 0, notes: 0, files: 0 }, problems: [],
+    queue: [...order.map((m) => ({ t: 'list', m })), { t: 'notes' }, { t: 'links' }],
+    counts: { ...Object.fromEntries(order.map((m) => [m, 0])), notes: 0, files: 0 }, problems: [],
   };
-  await saveState(env, fresh);
-  return runImportStep(env);
+  await saveState(env, set, fresh);
+  return runImportStep(env, set);
 }
 
 // One step: works through the queue until it has used its Zoho requests. Called each minute while running.
-export async function runImportStep(env) {
-  const state = await importState(env);
+export async function runImportStep(env, set = 'records') {
+  const state = await importState(env, set);
   if (state?.status !== 'running') return state;
   // Another step started less than a minute ago and may still be working.
   if (state.busy_until && Date.parse(state.busy_until) > Date.now()) return state;
   state.busy_until = new Date(Date.now() + 60000).toISOString();
-  await saveState(env, state);
+  await saveState(env, set, state);
 
   const ctx = { env, state, calls: 0, token: null };
   try {
@@ -66,7 +75,7 @@ export async function runImportStep(env) {
   }
   state.step_at = new Date().toISOString();
   delete state.busy_until;
-  await saveState(env, state);
+  await saveState(env, set, state);
   return state;
 }
 
@@ -83,11 +92,13 @@ async function runJob(ctx, job) {
   if (job.t === 'list') {
     // The ids of every record in the module; each record is then read in full.
     const mod = MODULES[job.m];
-    const params = new URLSearchParams({ fields: 'Modified_Time', per_page: '200', sort_by: 'id', sort_order: 'asc' });
+    const isApplicants = job.m === 'applicants';
+    const params = new URLSearchParams({ fields: isApplicants ? 'Modified_Time,Applicant_Status' : 'Modified_Time', per_page: '200', sort_by: 'id', sort_order: 'asc' });
     if (job.token) params.set('page_token', job.token); else params.set('page', String(job.page || 1));
     const res = await zoho(ctx, `${mod.zoho}?${params}`);
     const body = res ? await res.json() : { data: [] };
-    const recs = (body.data || []).map((r) => ({ t: 'rec', m: job.m, id: String(r.id) }));
+    const wanted = (body.data || []).filter((r) => !isApplicants || (!SKIP_APPLICANT_STATUS.has(r.Applicant_Status) && !TEST_APPLICANTS.has(String(r.id))));
+    const recs = wanted.map((r) => ({ t: 'rec', m: job.m, id: String(r.id) }));
     const more = body.info?.more_records ? [{ t: 'list', m: job.m, page: (job.page || 1) + 1, token: body.info.next_page_token || null }] : [];
     // After this list job: its records, then the next page (the queue's first item is removed by the caller).
     state.queue.splice(1, 0, ...recs, ...more);
@@ -188,6 +199,7 @@ function valueFrom(field, v, z) {
   switch (field.type) {
     case 'bool': return Boolean(v);
     case 'int': return empty(v) || Number.isNaN(Number(v)) ? null : Math.round(Number(v));
+    case 'num': return empty(v) || Number.isNaN(Number(v)) ? null : Number(v);
     case 'money': return empty(v) || Number.isNaN(Number(v)) ? null : Number(v);
     case 'date': return day(v);
     case 'multi': return (Array.isArray(v) ? v : empty(v) ? [] : [v]).map(String).filter((x) => x && x !== '-None-');
@@ -212,6 +224,7 @@ function dataFrom(key, z) {
     if (!empty(v) && v !== false) data[field.key] = v;
   }
   if (key === 'clients') data.Status = z.Offboarded ? 'Offboarded' : z.Paused ? 'Paused' : 'Current';
+  if (key === 'applicants') data.Applicant_Status = zohoStep(z.Applicant_Status);
   if (key === 'contacts') {
     if (z.Account_Name?.id) data._client = { zoho: String(z.Account_Name.id) };
     known.add('Account_Name');
@@ -242,6 +255,11 @@ async function saveRecord(env, key, z) {
   if (existing) {
     // Zoho's values replace the app's. Lookups are linked again by linkRecords() at the end of the copy.
     const old = JSON.parse(existing.data);
+    // Fields Zoho doesn't have (added in the app, like applicant scores) keep the app's values.
+    for (const field of allFields(key)) {
+      if (!(field.key in z) && !(field.key in data) && field.key in old) data[field.key] = old[field.key];
+    }
+    for (const [k, v] of Object.entries(old)) if (k.startsWith('_') && k !== '_extra' && !(k in data)) data[k] = v;
     const changes = [];
     for (const field of allFields(key)) {
       if (field.type === 'file' || field.type === 'lookup' || field.type === 'lookups') continue;

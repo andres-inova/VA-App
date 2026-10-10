@@ -187,27 +187,14 @@ CREATE TABLE IF NOT EXISTS timers (
   auto_stopped INTEGER NOT NULL DEFAULT 0
 );
 
--- A read-only copy of VA applicants (Zoho CRM Applicants), for admins.
--- Changed records are copied every hour, and everything once a day (see src/crm.js).
-CREATE TABLE IF NOT EXISTS crm_records (
-  module TEXT NOT NULL,      -- applicants
-  id TEXT NOT NULL,          -- the record's id in Zoho CRM
-  name TEXT NOT NULL,
-  status TEXT,               -- Zoho "Applicant Status"
-  search TEXT,               -- lowercase name, email, phone and location, for searching
-  created_at TEXT,           -- Zoho "Created Time"
-  data TEXT NOT NULL,        -- every field from Zoho, as JSON
-  PRIMARY KEY (module, id)
-);
-CREATE INDEX IF NOT EXISTS crm_records_status ON crm_records (module, status, created_at);
-
--- Clients, client contacts and VAs kept in the app (replacing Zoho CRM), with notes, files and change history.
+-- Clients, client contacts, VAs and applicants (Hiring) kept in the app (replacing Zoho CRM), with notes, files
+-- and change history.
 
 CREATE TABLE IF NOT EXISTS records (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  module TEXT NOT NULL,          -- clients, contacts or vas
+  module TEXT NOT NULL,          -- clients, contacts, vas or applicants
   name TEXT NOT NULL,
-  status TEXT,                   -- clients: Current, Paused, Offboarded; VAs: Active, On Deck, Offboarded, n/a; contacts: Current, Offboarded
+  status TEXT,                   -- clients: Current, Paused, Offboarded; VAs: Active, On Deck, Offboarded, n/a; contacts: Current, Offboarded; applicants: the hiring step
   parent_id INTEGER,             -- contacts: the client they belong to
   email TEXT,                    -- lowercase main email
   search TEXT,                   -- lowercase name, emails, phone and place, for searching

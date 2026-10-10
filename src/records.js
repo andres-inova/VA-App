@@ -1,9 +1,10 @@
-// Clients, client contacts and VAs, kept in the app (this replaces Zoho CRM for them). Admins only.
-// Each record has field values (see fields.js), notes, files and a history of changes.
+// Clients, client contacts, VAs and applicants (Hiring), kept in the app (this replaces Zoho CRM for them).
+// Admins only. Each record has field values (see fields.js), notes, files and a history of changes.
 // VA records drive VA logins and check-ins once an admin switches over from Zoho (see "switch" below).
+// Applicants move through the hiring steps, and a hired applicant can be turned into a VA record.
 
 import { redirect, page, isDate } from './util.js';
-import { MODULES, allFields, formFields, nameOf, statusOf, searchOf } from './fields.js';
+import { MODULES, allFields, formFields, nameOf, statusOf, searchOf, STEPS, CLOSED, OFFER_ITEMS } from './fields.js';
 import { FILE_TYPES, MAX_FILE } from './sops.js';
 import { vaSource, applyVaRecords } from './zoho.js';
 import { importState, startImport } from './import.js';
@@ -67,6 +68,7 @@ function readForm(key, field, fieldAll, old, allowed) {
     switch (x.type) {
       case 'bool': v = raw === '1'; break;
       case 'int': v = raw === '' || Number.isNaN(Number(raw)) ? null : Math.round(Number(raw)); break;
+      case 'num': v = raw === '' || Number.isNaN(Number(raw)) ? null : Number(raw); break;
       case 'money': v = raw === '' || Number.isNaN(Number(raw.replace(/[$,]/g, ''))) ? null : Number(raw.replace(/[$,]/g, '')); break;
       case 'date': v = isDate(raw) ? raw : null; break;
       case 'pick': case 'owner':
@@ -84,10 +86,17 @@ function readForm(key, field, fieldAll, old, allowed) {
   for (const x of formFields(key).filter((y) => y.type === 'email')) {
     if (data[x.key] && !EMAIL.test(data[x.key])) return { data, error: `"${data[x.key]}" doesn't look like an email address. Please check the ${x.label.toLowerCase()}.` };
   }
-  const nameMissing = key === 'contacts' ? !data.First_Name && !data.Last_Name : !data[MODULES[key].nameKey];
-  if (nameMissing) return { data, error: key === 'contacts' ? 'Please type a first or last name.' : `Please type the ${MODULES[key].one}'s name.` };
-  // Fields the form doesn't show stay as they were (for example "Other fields from Zoho").
-  if (old._extra) data._extra = old._extra;
+  for (const x of formFields(key).filter((y) => y.min !== undefined || y.max !== undefined)) {
+    const v = data[x.key];
+    if (v !== undefined && ((x.min !== undefined && v < x.min) || (x.max !== undefined && v > x.max))) {
+      return { data, error: `${x.label.replace(/ \(.*\)/, '')} must be a number from ${x.min} to ${x.max}.` };
+    }
+  }
+  const nameMissing = key === 'contacts' ? !data.First_Name && !data.Last_Name : key === 'applicants' ? !data.Name : !data[MODULES[key].nameKey];
+  if (nameMissing) return { data, error: key === 'contacts' ? 'Please type a first or last name.' : key === 'applicants' ? "Please type the applicant's first name." : `Please type the ${MODULES[key].one}'s name.` };
+  // Values the form doesn't show stay as they were (for example "Other fields from Zoho", or the VA record
+  // made from an applicant).
+  for (const [k, v] of Object.entries(old)) if (k.startsWith('_')) data[k] = v;
   return { data };
 }
 
@@ -136,6 +145,96 @@ async function deleteRecords(env, ids) {
     .concat(env.DB.prepare('DELETE FROM records WHERE id IN (SELECT value FROM json_each(?))').bind(list)));
 }
 
+// ---- Hiring: the buttons on an applicant's page ----
+
+async function saveApplicant(env, user, record, data, summary, changes, now) {
+  const name = nameOf('applicants', data);
+  await env.DB.batch([
+    env.DB.prepare('UPDATE records SET name = ?, status = ?, email = ?, search = ?, data = ?, updated_at = ?, updated_by = ? WHERE id = ?')
+      .bind(name, statusOf('applicants', data), (data.Email || '').toLowerCase() || null, searchOf('applicants', data, name), JSON.stringify(data), now, user.id, record.id),
+    env.DB.prepare('INSERT INTO record_history (record_id, user_id, summary, changes, at) VALUES (?, ?, ?, ?, ?)')
+      .bind(record.id, user.id, summary, changes.length ? JSON.stringify(changes) : null, now),
+  ]);
+}
+
+async function applicantAction(env, user, record, action, field, here, now) {
+  const old = record.data;
+
+  // Moving to another hiring step, or closing the applicant (Declined, with a reason, or Ghosted).
+  if (action === 'step') {
+    const to = field('to');
+    if (![...STEPS, ...CLOSED].includes(to) || to === record.status) return redirect(here);
+    const data = { ...old, Applicant_Status: to };
+    if (to === 'Declined') {
+      const reason = field('reason').slice(0, 500);
+      if (reason) data.Declined_Reason = reason; else delete data.Declined_Reason;
+    } else {
+      delete data.Declined_Reason;
+    }
+    const changes = [{ f: 'Applicant_Status', from: record.status, to }];
+    if ((old.Declined_Reason || null) !== (data.Declined_Reason || null)) changes.push({ f: 'Declined_Reason', from: old.Declined_Reason || null, to: data.Declined_Reason || null });
+    await saveApplicant(env, user, record, data, `Moved to ${to}`, changes, now);
+    return redirect(`${here}?msg=step-saved`);
+  }
+
+  // Ticking items on the offer checklist.
+  if (action === 'checklist') {
+    const data = { ...old };
+    const changes = [];
+    for (const [k] of OFFER_ITEMS) {
+      const on = field(k) === '1';
+      if (on) data[k] = true; else delete data[k];
+      if (Boolean(old[k]) !== on) changes.push({ f: k, from: Boolean(old[k]), to: on });
+    }
+    if (!changes.length) return redirect(`${here}?msg=no-changes#offer`);
+    await saveApplicant(env, user, record, data, 'Offer checklist updated', changes, now);
+    return redirect(`${here}?msg=checklist-saved#offer`);
+  }
+
+  // A hired applicant becomes a VA record (On Deck), with their details and resume.
+  if (action === 'hire') {
+    if (old._va && (await getRecord(env, 'vas', Number(old._va)))) return redirect(`/admin/vas/${old._va}`);
+    const email = (old.Email || '').toLowerCase();
+    const same = email ? await env.DB.prepare("SELECT id FROM records WHERE module = 'vas' AND email = ?").bind(email).first() : null;
+    let vaId = same?.id;
+    if (!vaId) {
+      const vaFields = new Map(allFields('vas').map((x) => [x.key, x]));
+      const va = { Name: record.name, VA_Status: 'On Deck', VA_Company_Affiliation: 'InoVA Local' };
+      if (old.Email) va.Email = old.Email;
+      if (old.Phone) va.Phone = old.Phone;
+      if (old.Location) va.Location = old.Location;
+      if (vaFields.get('Time_Zone').options.includes(old.Time_zone)) va.Time_Zone = old.Time_zone;
+      if (vaFields.get('Availability').options.includes(old.Availability)) va.Availability = old.Availability;
+      const row = await env.DB.prepare(
+        `INSERT INTO records (module, name, status, email, search, data, created_at, created_by, updated_at, updated_by)
+         VALUES ('vas', ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+      ).bind(va.Name, statusOf('vas', va), email || null, searchOf('vas', va, va.Name), JSON.stringify(va), now, user.id, now, user.id).first();
+      vaId = row.id;
+      await env.DB.prepare('INSERT INTO record_history (record_id, user_id, summary, at) VALUES (?, ?, ?, ?)')
+        .bind(vaId, user.id, `Created from applicant ${record.name}`, now).run();
+      // A copy of each resume, so deleting it from one record doesn't remove it from the other.
+      const { results: resumes } = await env.DB.prepare("SELECT * FROM record_files WHERE record_id = ? AND field = 'Resume'").bind(record.id).all();
+      for (const f of resumes) {
+        const object = await env.SOP_FILES.get(f.file_key);
+        if (!object) continue;
+        const fileKey = `records/${vaId}/${Date.now()}-${f.id}`;
+        await env.SOP_FILES.put(fileKey, await object.arrayBuffer(), { httpMetadata: { contentType: f.file_type || 'application/octet-stream' } });
+        await env.DB.prepare(
+          `INSERT INTO record_files (record_id, field, file_key, file_name, file_type, file_size, uploaded_by, uploader, uploaded_at)
+           VALUES (?, 'Resume', ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(vaId, fileKey, f.file_name, f.file_type, f.file_size, user.id, user.name, now).run();
+      }
+      await vaChanged(env, 'vas');
+    }
+    const data = { ...old, _va: vaId, Applicant_Status: 'Hired' };
+    const changes = record.status === 'Hired' ? [] : [{ f: 'Applicant_Status', from: record.status, to: 'Hired' }];
+    await saveApplicant(env, user, record, data, same ? 'Linked to the VA record with the same email' : 'Made a VA record (On Deck)', changes, now);
+    return redirect(`${here}?msg=${same ? 'va-linked' : 'va-made'}`);
+  }
+
+  return redirect(here);
+}
+
 // ---- Pages and actions ----
 
 export async function recordRoutes(env, user, path, method, field, fieldAll, form, message, url) {
@@ -165,6 +264,23 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     return redirect('/admin/records/import?msg=switched');
   }
 
+  // The copy of applicants from Zoho (separate from clients, contacts and VAs).
+  if (path === '/admin/applicants/import') {
+    if (method === 'POST') {
+      if (!env.ZOHO_REFRESH_TOKEN) return redirect('/admin/applicants/import?msg=import-no-zoho');
+      await startImport(env, user, 'applicants');
+      return redirect('/admin/applicants/import');
+    }
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM records WHERE module = 'applicants'").first();
+    return page(rv.applicantImportPage({ user, state: await importState(env, 'applicants'), count: n?.n || 0, message }));
+  }
+
+  if (path === '/admin/applicants' && method === 'GET') {
+    const { results } = await env.DB.prepare("SELECT * FROM records WHERE module = 'applicants' ORDER BY created_at DESC").all();
+    const records = results.map((r) => ({ ...r, data: JSON.parse(r.data) }));
+    return page(rv.applicantsPage({ user, records, imported: await importState(env, 'applicants'), message }));
+  }
+
   if ((m = path.match(/^\/admin\/(clients|vas)$/)) && method === 'GET') {
     const key = m[1];
     const { results } = await env.DB.prepare('SELECT * FROM records WHERE module = ? ORDER BY name COLLATE NOCASE').bind(key).all();
@@ -180,13 +296,14 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
   }
 
   // A new record: the empty form, then saving it.
-  if ((m = path.match(/^\/admin\/(clients|vas|contacts)\/new$/))) {
+  if ((m = path.match(/^\/admin\/(clients|vas|contacts|applicants)\/new$/))) {
     const key = m[1];
     const parentId = Number(url.searchParams.get('client') || field('parent_id')) || null;
     const clients = key === 'contacts' ? (await env.DB.prepare("SELECT id, name FROM records WHERE module = 'clients' ORDER BY name COLLATE NOCASE").all()).results : [];
     const choices = await lookupChoices(env, key, null);
     const owners = await adminNames(env);
-    const blank = { id: null, module: key, data: key === 'clients' ? { Status: 'Current' } : key === 'vas' ? { VA_Status: 'Active', VA_Company_Affiliation: 'InoVA Local' } : {}, parent_id: parentId };
+    const starts = { clients: { Status: 'Current' }, vas: { VA_Status: 'Active', VA_Company_Affiliation: 'InoVA Local' }, applicants: { Applicant_Status: STEPS[0] } };
+    const blank = { id: null, module: key, data: starts[key] || {}, parent_id: parentId };
     if (method === 'GET') return page(rv.editPage({ user, key, record: blank, choices, owners, clients, message }));
     if (method !== 'POST') return redirect(`/admin/${key}/new`);
     const allowed = { owners, ...Object.fromEntries(Object.entries(choices).map(([k, rows]) => [k, new Set(rows.map((r) => r.id))])) };
@@ -204,13 +321,17 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     return redirect(`/admin/${key}/${row.id}?msg=record-created`);
   }
 
-  m = path.match(/^\/admin\/(clients|vas|contacts)\/(\d+)(?:\/(edit|delete|notes|files)(?:\/(\d+)(?:\/(save|delete))?)?)?$/);
-  if (!m) return redirect('/admin/clients');
+  m = path.match(/^\/admin\/(clients|vas|contacts|applicants)\/(\d+)(?:\/(edit|delete|notes|files|step|checklist|hire)(?:\/(\d+)(?:\/(save|delete))?)?)?$/);
+  if (!m) return redirect(path.startsWith('/admin/applicants') ? '/admin/applicants' : '/admin/clients');
   const [, key, idText, action, subId, subAction] = m;
   const record = await getRecord(env, key, Number(idText));
   if (!record) return redirect(key === 'contacts' ? '/admin/clients' : `/admin/${key}`);
   const here = `/admin/${key}/${record.id}`;
   const now = new Date().toISOString();
+
+  if (key === 'applicants' && method === 'POST' && ['step', 'checklist', 'hire'].includes(action)) {
+    return applicantAction(env, user, record, action, field, here, now);
+  }
 
   if (!action && method === 'GET') {
     const names = await recordNames(env);
@@ -219,7 +340,8 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
       env.DB.prepare('SELECT f.*, u.name AS user_name FROM record_files f LEFT JOIN users u ON u.id = f.uploaded_by WHERE f.record_id = ? ORDER BY f.uploaded_at DESC').bind(record.id).all(),
       env.DB.prepare('SELECT h.*, u.name AS user_name FROM record_history h LEFT JOIN users u ON u.id = h.user_id WHERE h.record_id = ? ORDER BY h.at DESC, h.id DESC LIMIT 100').bind(record.id).all(),
     ]);
-    const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null };
+    const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null, va: null };
+    if (key === 'applicants' && record.data._va) extra.va = await getRecord(env, 'vas', Number(record.data._va));
     if (key === 'clients') {
       extra.contacts = (await env.DB.prepare("SELECT * FROM records WHERE module = 'contacts' AND parent_id = ? ORDER BY status, name").bind(record.id).all()).results
         .map((r) => ({ ...r, data: JSON.parse(r.data) }));

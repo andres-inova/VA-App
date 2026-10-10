@@ -54,7 +54,6 @@ const MESSAGES = {
   'sop-file-type': ['bad', "That kind of file can't be uploaded. Please use a PDF, Word, Excel or text file, or a picture."],
   'sop-file-big': ['bad', 'That file is too big. The limit is 15 MB.'],
   'sop-file-missing': ['bad', 'The file could not be found. Please upload it again.'],
-  'crm-synced': ['good', 'Applicants were copied from Zoho.'],
   'record-created': ['good', 'Added.'],
   'record-deleted': ['good', 'Deleted.'],
   'no-changes': ['info', 'Nothing was changed.'],
@@ -67,8 +66,10 @@ const MESSAGES = {
   'switched': ['good', 'Done. VA logins, check-ins and backups now use the VA records in this app.'],
   'switched-zoho': ['good', 'VA logins, check-ins and backups use Zoho CRM again (from the next hourly sync).'],
   'switch-not-ready': ['bad', 'There are no Active VAs in the app yet. Copy them from Zoho first.'],
-  'crm-sync-failed': ['bad', 'The copy from Zoho did not work. The reason is shown below.'],
-  'crm-gone': ['info', 'That record is no longer in Zoho, so it was removed from this list.'],
+  'step-saved': ['good', 'Hiring step saved.'],
+  'checklist-saved': ['good', 'Offer checklist saved.'],
+  'va-made': ['good', 'VA record made. It is On Deck on the VAs page.'],
+  'va-linked': ['info', 'A VA with the same email already exists, so this applicant was linked to that VA record.'],
 };
 
 // Status of a day: [label, color, symbol for the History grid].
@@ -315,6 +316,11 @@ a.item.pick{display:block;color:inherit;text-decoration:none;border-radius:12px}
 .fields>div{min-width:0}.fields dt{font-size:13px;color:var(--muted);font-weight:700}.fields dd{margin:2px 0 0;overflow-wrap:anywhere}
 .fields .wide{grid-column:1/-1}.fields .wide dd{white-space:pre-line}.fields a{display:inline-flex;align-items:center;gap:4px}
 .rec-head{display:flex;gap:14px;align-items:center}.rec-actions .btn{max-width:100%;overflow-wrap:anywhere}.rec-head h2{margin:0;font-size:22px}.rec-head .chips{margin:4px 0 0}
+.record-form .section,#offer,#step,#notes,#files{scroll-margin-top:80px}.steps .chip{font-weight:600}.step-count{display:none}@media (max-width:600px){.steps{display:none}.step-count{display:block}
+  #applicants-list .item-head{flex-wrap:wrap}#applicants-list .item-head>.grow{flex:1 1 calc(100% - 100px)}
+  #applicants-list .side-chips{order:3;flex:1 1 100%;justify-content:flex-start;padding-left:52px}#applicants-list .side-chips:empty{display:none}}.side-chips{margin:0;justify-content:flex-end}.score-line{margin:4px 8px 10px}
+.inline-opts{margin:0}.inline-opts>summary.btn{color:var(--text);font-size:14px;padding:6px 14px}.inline-opts[open]{flex:1 1 100%}
+.inline-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.inline-form select{width:auto;flex:1 1 200px}.inline-form button{margin:0}
 .form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:0 18px;padding:0 8px 10px}.form-grid>*{min-width:0}.form-grid .wide{grid-column:1/-1}
 .form-grid .small{margin-top:4px}.picks{border:0;padding:0;margin:12px 0 0;min-width:0}.picks legend{font-weight:700;font-size:14px;padding:0;margin-bottom:2px}
 .picks .check{display:inline-flex;margin:6px 16px 0 0;font-weight:600}.picks.scroll{max-height:240px;overflow-y:auto;border:1.5px solid var(--line);border-radius:12px;padding:6px 12px 10px}
@@ -325,7 +331,6 @@ a.item.pick{display:block;color:inherit;text-decoration:none;border-radius:12px}
 .note-add,.file-add{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:4px 8px 8px}.note-add textarea{flex:1 1 100%;min-height:70px}.note-add button,.file-add button{margin:0}
 .file-add input[type=file]{flex:1 1 14em;min-width:0}.file-add select{width:auto;flex:0 1 auto}.file-ic{width:40px;display:grid;place-items:center;color:var(--muted)}
 .changes{margin:6px 0 0;padding-left:18px;font-size:14px;color:var(--muted)}.changes li{overflow-wrap:anywhere}.changes b{color:var(--text)}
-.crm-sync{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin:-6px 0 14px}.crm-sync form{margin:0}.crm-sync button{margin:0}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after,::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important;transition:none!important}}
 @media (max-width:860px){
   .sidebar{position:fixed;z-index:20;left:0;top:0;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px rgba(0,0,0,.3)}
@@ -484,7 +489,8 @@ export function layout({ title, user, active, message, body }) {
     groups.push(['Daily', [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/calendar', 'Calendar', 'calendar'], ['/admin/history', 'History', 'history']]]);
     groups.push(['Setup', [['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'Coverage SOPs', 'doc'], ['/admin/people', 'People', 'people'],
       ['/admin/holidays', 'Holidays', 'holidays'], ['/admin/settings', 'Settings', 'settings']]]);
-    groups.push(['Records', [['/admin/clients', 'Clients', 'building'], ['/admin/vas', 'VAs', 'va'], ['/admin/applicants', 'Applicants', 'applicant']]]);
+    groups.push(['Records', [['/admin/clients', 'Clients', 'building'], ['/admin/vas', 'VAs', 'va']]]);
+    groups.push(['Hiring', [['/admin/applicants', 'Applicants', 'applicant']]]);
   }
   const link = ([href, label, ic, badge]) =>
     `<a class="side-link ${href === active ? 'on' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${badge ? `<span class="badge">${badge}</span>` : ''}</a>`;
@@ -1914,133 +1920,11 @@ export function adminSopsPage({ user, sops, message }) {
   });
 }
 
-// ---- Applicants (a read-only copy from Zoho CRM) ----
+// ---- Shared by the record pages ----
 
 export const zohoTime = (iso) => `${new Date(iso).toLocaleString('en-US', {
   timeZone: REPORT_ZONE, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
 })} ET`;
-const zohoDate = (iso) => (iso ? new Date(iso).toLocaleDateString('en-US', { timeZone: REPORT_ZONE, month: 'short', day: 'numeric', year: 'numeric' }) : '');
-
-// The text of a lookup (an object with a name) or of a "multi-select lookup" row (which holds one).
-const lookupName = (x) => {
-  if (x === null || x === undefined) return '';
-  if (typeof x !== 'object') return String(x);
-  return x.name || x.display_value || Object.values(x).map((y) => (y && typeof y === 'object' ? y.name : '')).find(Boolean) || '';
-};
 
 export const mailLink = (email) => `<a href="mailto:${esc(email)}">${esc(email)}</a>`;
 export const phoneLink = (phone) => `<a href="tel:${esc(String(phone).replace(/[^\d+]/g, ''))}">${esc(phone)}</a>`;
-
-// One Zoho field value as HTML, or '' when it is empty.
-function fieldValue(f, v, fileHref) {
-  if (v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length)) return '';
-  if (f.type === 'fileupload' && Array.isArray(v)) {
-    return v.map((file, n) => `<a href="${fileHref(f.api, n)}" target="_blank" rel="noopener">${icon('doc')} ${esc(file.File_Name__s || 'File')}</a>`).join('<br>');
-  }
-  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
-  if (Array.isArray(v)) return esc(v.map(lookupName).filter(Boolean).join(', '));
-  if (typeof v === 'object') return esc(lookupName(v));
-  const s = String(v);
-  if (f.type === 'email') return mailLink(s);
-  if (f.type === 'phone') return phoneLink(s);
-  if (f.type === 'website') return `<a href="${esc(/^https?:\/\//i.test(s) ? s : `https://${s}`)}" target="_blank" rel="noopener">${esc(s)}</a>`;
-  if (f.type === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(s)) return esc(formatDate(s, true));
-  if (f.type === 'datetime') return esc(zohoTime(s));
-  if (f.type === 'currency' && !Number.isNaN(Number(s))) return esc(`$${Number(s).toLocaleString('en-US')}`);
-  return esc(s);
-}
-
-// When the copy last ran, any problem, and a button to copy now.
-function crmSyncNote(sync, back) {
-  const err = sync?.error;
-  const problem = err ? `<div class="toast bad" style="display:block">The last copy from Zoho did not work (${esc(zohoTime(err.at))}).
-    If the reason mentions a scope or permission, the Zoho key needs the new permissions (README, "3. Zoho key").<br>
-    <code style="white-space:pre-wrap;word-break:break-word">${esc(err.message)}</code></div>` : '';
-  return `${problem}<div class="crm-sync small">
-    <span>${sync?.synced_at ? `Last copied from Zoho ${esc(zohoTime(sync.synced_at))}.` : 'Not copied from Zoho yet.'} Changes are copied every hour, and everything once a day.</span>
-    <form method="post" action="/admin/crm/sync"><input type="hidden" name="back" value="${esc(back)}"><button class="sm plain">${icon('sync')} Copy from Zoho now</button></form>
-  </div>`;
-}
-
-const recordLink = (key, r, sub, side) => `<a class="item flat pick" href="/admin/${key}/${esc(r.id)}"><div class="item-head">${avatar(r.name)}
-  <div class="grow"><div class="title">${esc(r.name)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${side}${icon('chevron', 'chev')}</div></a>`;
-
-const applicantTone = (status, closed) => (status === 'Hired/Archived' ? 'good' : closed.includes(status) ? 'muted' : 'info');
-
-export function applicantsPage({ user, applicants, more, counts, statusOrder, closed, q, status, sync, message }) {
-  const count = new Map(counts.map((c) => [c.status, c.n]));
-  const total = counts.reduce((n, c) => n + c.n, 0);
-  const inProgress = counts.filter((c) => !closed.includes(c.status)).reduce((n, c) => n + c.n, 0);
-  // Statuses in Zoho's order (the hiring steps), then any others.
-  const order = [...statusOrder, ...counts.map((c) => c.status).filter((s) => !statusOrder.includes(s)).sort()];
-  const tab = (value, label, n) => `<a class="chip ${!q && status === value ? 'on' : 'muted'}" href="/admin/applicants${value ? `?status=${encodeURIComponent(value)}` : ''}">${esc(label)} · ${n}</a>`;
-  const tabs = `<div class="chips proj-tabs">${tab('', 'In progress', inProgress)}${order.filter((s) => count.get(s)).map((s) => tab(s, s, count.get(s))).join('')}${tab('all', 'All', total)}</div>`;
-
-  const row = (a) => {
-    const d = a.data;
-    const sub = [a.created_at && `Applied ${zohoDate(a.created_at)}`, d.Time_zone, d.Location].filter(Boolean).map(esc).join(' · ');
-    return recordLink('applicants', a, sub, chip(a.status, applicantTone(a.status, closed)));
-  };
-  let list;
-  if (!applicants.length) {
-    list = `<div class="card">${empty(q ? 'No applicants match.' : total ? 'No applicants here.' : 'No applicants copied yet. Click "Copy from Zoho now".')}</div>`;
-  } else if (!q && !status) {
-    // In progress: one section per hiring step.
-    list = order.filter((s) => !closed.includes(s)).map((s) => {
-      const rows = applicants.filter((a) => a.status === s);
-      return rows.length ? section({ title: s, count: rows.length, key: `applicants-${s}`, body: rows.map(row).join('') }) : '';
-    }).join('');
-  } else {
-    list = `<div class="card" style="padding:8px">${applicants.map(row).join('')}</div>`;
-  }
-  return layout({
-    title: 'Applicants', user, active: '/admin/applicants', message,
-    body: `<p class="lead">A copy of the VA Applicants in Zoho CRM, newest first. To change an applicant, change them in Zoho.</p>
-    ${crmSyncNote(sync, '/admin/applicants')}
-    <form class="search" method="get" action="/admin/applicants" role="search">${icon('applicant')}
-      <input type="search" name="q" value="${esc(q)}" placeholder="Search all applicants by name, email, phone or place" autocomplete="off" aria-label="Search applicants"></form>
-    ${q ? `<p class="meta">Results for <b>${esc(q)}</b> among all applicants · <a href="/admin/applicants">Clear the search</a></p>` : tabs}
-    ${list}
-    ${more ? '<p class="meta">Showing the newest 200. Search by name to find someone older.</p>' : ''}`,
-  });
-}
-
-export function crmRecordPage({ user, key, record, layout: zohoLayout, closed, zohoUrl, zohoError, message }) {
-  const d = record.data;
-  // Without Zoho's layout (not copied yet), show the fields there are, under one heading.
-  if (!zohoLayout.sections.length) {
-    zohoLayout = { sections: [{ title: 'Details', fields: Object.keys(d).filter((f) => f !== 'id' && !f.startsWith('$')).map((f) => ({ api: f, label: f.replace(/_/g, ' '), type: '' })) }] };
-  }
-  const fileHref = (fieldName, n) => `/admin/${key}/${esc(record.id)}/file?field=${esc(encodeURIComponent(fieldName))}&amp;n=${n}`;
-  const files = zohoLayout.sections.flatMap((s) => s.fields).filter((f) => f.type === 'fileupload' && Array.isArray(d[f.api]) && d[f.api].length);
-  const contact = [d.Email && mailLink(d.Email), d.Phone && phoneLink(d.Phone), esc(d.Location || '')];
-  const tone = applicantTone(record.status, closed);
-  const head = `<div class="card">
-    <div class="rec-head">${avatar(record.name, 'lg')}<div class="grow"><h2>${esc(record.name)}</h2>
-      <div class="chips">${chip(record.status, tone)}</div></div></div>
-    <p class="meta">${contact.filter(Boolean).join(' · ')}</p>
-    <div class="actions rec-actions">
-      <a class="btn sm" href="${esc(zohoUrl)}" target="_blank" rel="noopener">${icon('external')} Open in Zoho</a>
-      ${files.flatMap((f) => d[f.api].map((file, n) => `<a class="btn sm plain" href="${fileHref(f.api, n)}" target="_blank" rel="noopener">${icon('doc')} ${esc(f.label)}: ${esc(file.File_Name__s || 'file')}</a>`)).join('')}
-    </div></div>`;
-
-  let hidden = 0;
-  const sections = zohoLayout.sections.map((s) => {
-    const rows = s.fields.map((f) => {
-      const html = fieldValue(f, d[f.api], fileHref);
-      if (!html) { hidden++; return ''; }
-      return `<div class="${f.type === 'textarea' ? 'wide' : ''}"><dt>${esc(f.label)}</dt><dd>${html}</dd></div>`;
-    }).filter(Boolean);
-    return rows.length ? section({ title: s.title, count: rows.length, key: `sec-${s.title}`, body: `<dl class="fields">${rows.join('')}</dl>` }) : '';
-  }).join('');
-
-  const [backHref, backLabel] = ['/admin/applicants', 'Applicants'];
-  return layout({
-    title: record.name, user, active: backHref, message,
-    body: `<div class="chips proj-tabs"><a class="chip muted" href="${backHref}">‹ ${backLabel}</a></div>
-    ${zohoError ? `<div class="toast bad" style="display:block">Zoho could not be reached just now, so only the basics saved in the app are shown. Try again in a minute, or open it in Zoho.<br>
-      <code style="white-space:pre-wrap;word-break:break-word">${esc(zohoError)}</code></div>` : ''}
-    ${head}${sections || `<div class="card">${empty('No fields copied yet. Use "Copy from Zoho now".')}</div>`}
-    ${hidden ? `<p class="meta">${hidden} empty field${hidden === 1 ? ' is' : 's are'} not shown.</p>` : ''}`,
-  });
-}

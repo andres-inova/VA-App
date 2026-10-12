@@ -8,10 +8,15 @@
 // "Onboarding Training" is for new hires: while it runs, they see only their training in the app,
 // and they can log in even before they are an Active VA. Back-Up and After-Hours trainings are for
 // current VAs, who keep all their usual pages.
+//
+// Hiring link: an admin can start an Onboarding Training from an applicant's page (Hiring). The
+// training remembers the applicant (trainings.applicant_id); starting it moves the applicant to
+// "In training", and marking it complete moves them to "Training done" (see applicantEvent in records.js).
 
 import { redirect, page, isDate } from './util.js';
 import { partsIn, addDays, weekdayOf, REPORT_ZONE } from './time.js';
 import { sendInvite } from './invites.js';
+import { applicantEvent } from './records.js';
 import * as tv from './training-views.js';
 
 export const ONBOARDING = 'Onboarding Training';
@@ -21,6 +26,10 @@ const ITEM_STATUSES = ['not_started', 'covered', 'carried_over'];
 // A training still active after this many workdays (Monday to Friday, counting the first day) is late.
 const DUE_WORKDAYS = 7;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Hiring steps from which "Start training" moves an applicant to In training, and from which completing
+// their training moves them to Training done. Applicants at later steps (or closed) are not moved.
+const BEFORE_TRAINING = ['Offer sent', 'Training pending'];
+const BEFORE_DONE = [...BEFORE_TRAINING, 'In training'];
 
 const today = () => partsIn(REPORT_ZONE).date;
 
@@ -36,8 +45,9 @@ export const isLate = (t) => t.status === 'active' && workdaysSince(t.start_date
 
 // ---- Reading ----
 
-const TRAINING_SQL = `SELECT t.*, te.name AS trainee_name, te.email AS trainee_email, tr.name AS trainer_name
-  FROM trainings t JOIN users te ON te.id = t.trainee_id JOIN users tr ON tr.id = t.trainer_id`;
+const TRAINING_SQL = `SELECT t.*, te.name AS trainee_name, te.email AS trainee_email, tr.name AS trainer_name, ap.name AS applicant_name
+  FROM trainings t JOIN users te ON te.id = t.trainee_id JOIN users tr ON tr.id = t.trainer_id
+  LEFT JOIN records ap ON ap.id = t.applicant_id AND ap.module = 'applicants'`;
 
 // Trainings a person is in right now (active or paused), as trainee or trainer. index.js adds them
 // to the logged-in person, for the menu and to show new hires only their training.
@@ -97,6 +107,13 @@ async function progressOf(env, ids) {
 async function withSummaries(env, trainings, days) {
   const { progress, signoffs } = await progressOf(env, trainings.map((t) => t.id));
   return trainings.map((t) => ({ ...t, late: isLate(t), workdays: workdaysSince(t.start_date), sum: summarize(days, progress.get(t.id), signoffs.get(t.id)) }));
+}
+
+// The trainings started from an applicant's page, newest first, with their progress (for that page).
+export async function applicantTrainings(env, applicantId) {
+  const days = await checklist(env);
+  const { results } = await env.DB.prepare(`${TRAINING_SQL} WHERE t.applicant_id = ? ORDER BY t.id DESC`).bind(applicantId).all();
+  return { trainings: await withSummaries(env, results, days), dayCount: days.length };
 }
 
 // The person's part in a training: trainer, trainee, admin (anyone else who is an admin), or null.
@@ -212,18 +229,33 @@ export async function adminTrainingRoutes(env, user, path, method, field, messag
     return page(tv.adminTrainingPage({ user, open: await withSummaries(env, open, days), finished, days, choices: await peopleChoices(env), today: today(), message }));
   }
 
+  // Starting a training: from the form on this page, or from an applicant's page (Hiring), which sends
+  // applicant_id and always starts an Onboarding Training for the applicant (their name and email).
   if (path === '/admin/training/start' && method === 'POST') {
-    const kind = KINDS.includes(field('kind')) ? field('kind') : null;
+    const applicantId = Number(field('applicant_id')) || null;
+    const applicant = applicantId
+      ? await env.DB.prepare("SELECT id, name, email, status FROM records WHERE id = ? AND module = 'applicants'").bind(applicantId).first() : null;
+    if (applicantId && !applicant) return redirect('/admin/applicants');
+    const fail = (msg) => redirect(applicant ? `/admin/applicants/${applicant.id}?msg=${msg}#training` : `/admin/training?msg=${msg}`);
+    const kind = applicant ? ONBOARDING : KINDS.includes(field('kind')) ? field('kind') : null;
     const trainer = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND (is_va = 1 OR is_admin = 1)').bind(field('trainer_id')).first();
     const start = isDate(field('start_date')) ? field('start_date') : null;
-    if (!kind || !trainer || !start) return redirect('/admin/training?msg=training-missing');
-    const trainee = await traineeFromForm(env, field);
-    if (!trainee) return redirect('/admin/training?msg=training-no-trainee');
-    if (trainee.id === trainer.id) return redirect('/admin/training?msg=training-same-person');
-    const dup = await env.DB.prepare("SELECT id FROM trainings WHERE trainee_id = ? AND kind = ? AND status IN ('active', 'paused')").bind(trainee.id, kind).first();
-    if (dup) return redirect(`/training/${dup.id}?msg=training-exists`);
-    const res = await env.DB.prepare('INSERT INTO trainings (kind, trainee_id, trainer_id, start_date, created_by) VALUES (?, ?, ?, ?, ?)')
-      .bind(kind, trainee.id, trainer.id, start, user.id).run();
+    if (!kind || !trainer || !start) return fail('training-missing');
+    const trainee = applicant ? await personFor(env, applicant.name, (applicant.email || '').trim().toLowerCase()) : await traineeFromForm(env, field);
+    if (!trainee) return fail(applicant ? 'training-no-email' : 'training-no-trainee');
+    if (trainee.id === trainer.id) return fail('training-same-person');
+    const dup = await env.DB.prepare("SELECT id, applicant_id FROM trainings WHERE trainee_id = ? AND kind = ? AND status IN ('active', 'paused')").bind(trainee.id, kind).first();
+    if (dup) {
+      // Already in training (for example started on the Training page before): link it to the applicant.
+      if (applicant && !dup.applicant_id) {
+        await env.DB.prepare('UPDATE trainings SET applicant_id = ? WHERE id = ?').bind(applicant.id, dup.id).run();
+        await applicantEvent(env, user, applicant.id, 'Linked to their training', 'In training', BEFORE_TRAINING);
+      }
+      return redirect(`/training/${dup.id}?msg=training-exists`);
+    }
+    const res = await env.DB.prepare('INSERT INTO trainings (kind, trainee_id, trainer_id, start_date, created_by, applicant_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(kind, trainee.id, trainer.id, start, user.id, applicant?.id || null).run();
+    if (applicant) await applicantEvent(env, user, applicant.id, 'Training started', 'In training', BEFORE_TRAINING);
     return redirect(`/training/${res.meta.last_row_id}?msg=training-started`);
   }
 
@@ -244,6 +276,13 @@ export async function adminTrainingRoutes(env, user, path, method, field, messag
     const finished = ['completed', 'cancelled'].includes(status);
     await env.DB.prepare('UPDATE trainings SET status = ?, finished_at = CASE WHEN ? THEN datetime(\'now\') ELSE NULL END WHERE id = ?')
       .bind(status, finished ? 1 : 0, t.id).run();
+    // A training started from an applicant: its end goes in the applicant's history, and completing it
+    // moves them to Training done. Cancelling leaves their hiring step as it is.
+    if (t.applicant_id && finished && t.status !== status) {
+      const moved = await applicantEvent(env, user, t.applicant_id, status === 'completed' ? 'Training completed' : 'Training cancelled',
+        status === 'completed' ? 'Training done' : null, BEFORE_DONE);
+      if (moved) return back('training-completed-applicant');
+    }
     return back(`training-${status}`);
   }
 
@@ -307,9 +346,15 @@ async function traineeFromForm(env, field) {
   } else {
     return null;
   }
+  return personFor(env, name, email, key);
+}
+
+// The login (users row) with this email, or a new one (not a VA login) with this name. Null without a valid email.
+async function personFor(env, name, email, key = null) {
+  if (!EMAIL.test(email || '')) return null;
   const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
   if (existing) return existing;
-  const res = await env.DB.prepare('INSERT INTO users (email, name, zoho_id) VALUES (?, ?, ?)').bind(email, name, key).run();
+  const res = await env.DB.prepare('INSERT INTO users (email, name, zoho_id) VALUES (?, ?, ?)').bind(email, name.slice(0, 200), key).run();
   return { id: res.meta.last_row_id };
 }
 

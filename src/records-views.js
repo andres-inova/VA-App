@@ -4,6 +4,7 @@ import { esc } from './util.js';
 import { formatDate, REPORT_ZONE } from './time.js';
 import { MODULES, allFields, plainValue, STEPS, CLOSED, OFFER_ITEMS, RESUME_INVITE, resumeScore, callScore } from './fields.js';
 import { layout, icon, avatar, chip, section, empty, zohoTime, mailLink, phoneLink } from './views.js';
+import { applicantTrainingRows } from './training-views.js';
 
 const TONE = { Current: 'good', Active: 'good', Paused: 'warn', 'On Deck': 'info', Offboarded: 'muted', 'n/a': 'muted', Hired: 'good', Declined: 'muted', Ghosted: 'muted' };
 const tone = (status) => TONE[status] || (STEPS.includes(status) ? 'info' : 'muted');
@@ -158,8 +159,8 @@ const STEP_HELP = {
   'Screening call scheduled': 'After the call, fill in the screening call score. If it is a match, walk them through the next steps and the training program, then move them on. If not, decline them and send the "Post Interview Rejection" email.',
   'Screening call done': `Send the offer email with the W-9, the Subcontractor Agreement in SignNow, and the background check in Checkr (<a href="${OFFER_GUIDE}" target="_blank" rel="noopener">Sending Offer Letter and Running Background Check</a>). Then move them on.`,
   'Offer sent': 'Tick each item on the offer checklist below as it comes in. When everything is in, move them on.',
-  'Training pending': 'Send the message that introduces the training program. Move them on when they start.',
-  'In training': 'Move them on when they finish the training program.',
+  'Training pending': 'Send the message that introduces the training program. When they start, press <b>Start training</b> below: it starts their Onboarding Training and moves them to In training.',
+  'In training': 'When their training (below) is marked complete on its page, they move to Training done. If they are training outside the app, move them on when they finish.',
   'Training done': 'Follow up on any questions about the training. Move them on when you hire them.',
   Hired: 'Make their VA record. It starts as On Deck on the VAs page.',
   Ghosted: 'They stopped answering. Move them back to a step if they get in touch again.',
@@ -241,6 +242,42 @@ function hiringPanel(record, va) {
     <div class="actions">${buttons.join('')}</div>${other}</div>`;
 }
 
+// Hiring steps where "Start training" shows (when no training is in progress for the applicant).
+const TRAINING_STEPS = ['Offer sent', 'Training pending', 'In training'];
+
+// The applicant's trainings (started from this page) and the "Start training" form.
+function trainingCard(record, training) {
+  if (!training) return '';
+  const { trainings, dayCount, trainers, today } = training;
+  const running = trainings.some((t) => ['active', 'paused'].includes(t.status));
+  const canStart = !running && TRAINING_STEPS.includes(record.status);
+  if (!trainings.length && !canStart) return '';
+  const email = (record.email || '').trim();
+  let start = '';
+  if (canStart && !email) {
+    start = `<p class="meta" style="padding:0 8px">To start their training, first add ${esc(record.name)}'s email with <a href="/admin/applicants/${record.id}/edit">Edit</a>. They log in to the training with it.</p>`;
+  } else if (canStart) {
+    const option = (u) => `<option value="${esc(u.id)}">${esc(u.name)}</option>`;
+    const pickable = trainers.filter((u) => u.email !== email.toLowerCase());
+    const moves = ['Offer sent', 'Training pending'].includes(record.status) ? ' and moves them to In training' : '';
+    start = `<form method="post" action="/admin/training/start" style="padding:0 8px 8px"><input type="hidden" name="applicant_id" value="${record.id}">
+      <p class="meta">Starts an <b>Onboarding Training</b> for ${esc(record.name)} (${esc(email)})${moves}. When it is marked complete, they move to Training done.</p>
+      <div class="row">
+        <div><label for="tr">Trainer</label><select id="tr" name="trainer_id" required><option value="">Choose the trainer</option>
+          <optgroup label="VAs">${pickable.filter((u) => u.is_va).map(option).join('')}</optgroup>
+          <optgroup label="Admins">${pickable.filter((u) => !u.is_va).map(option).join('')}</optgroup></select></div>
+        <div><label for="ts">First day</label><input id="ts" name="start_date" type="date" value="${esc(today)}" required></div>
+      </div>
+      <button>${icon('training')} Start training</button>
+      <p class="small">Next, send them a login invite from the training's page.</p></form>`;
+  }
+  return section({
+    title: 'Training', count: trainings.length || undefined, key: 'training',
+    hint: trainings.length ? 'Started from this page. Open one to see the checklist and sign-offs.' : '',
+    body: `${trainings.length ? applicantTrainingRows(trainings, dayCount) : ''}${start}`,
+  });
+}
+
 // The offer checklist, ticked on the applicant's page.
 function offerChecklist(record) {
   const d = record.data;
@@ -254,7 +291,7 @@ function offerChecklist(record) {
   });
 }
 
-export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, source, zohoOrg, message }) {
+export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, source, zohoOrg, message }) {
   const d = record.data;
   const mod = MODULES[key];
   const here = `/admin/${key}/${record.id}`;
@@ -308,7 +345,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     });
   }
 
-  if (key === 'applicants') related += hiringPanel(record, va);
+  if (key === 'applicants') related += hiringPanel(record, va) + trainingCard(record, training);
 
   let hidden = 0;
   const filesBy = (fieldKey) => files.filter((f) => f.field === fieldKey);

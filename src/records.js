@@ -8,6 +8,8 @@ import { MODULES, allFields, formFields, nameOf, statusOf, searchOf, STEPS, CLOS
 import { FILE_TYPES, MAX_FILE } from './sops.js';
 import { vaSource, applyVaRecords } from './zoho.js';
 import { importState, startImport } from './import.js';
+import { applicantTrainings } from './training.js';
+import { partsIn, REPORT_ZONE } from './time.js';
 import * as rv from './records-views.js';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -142,7 +144,11 @@ async function deleteRecords(env, ids) {
   for (const f of files) await env.SOP_FILES.delete(f.file_key);
   await env.DB.batch(['record_files', 'record_notes', 'record_history'].map((t) =>
     env.DB.prepare(`DELETE FROM ${t} WHERE record_id IN (SELECT value FROM json_each(?))`).bind(list))
-    .concat(env.DB.prepare('DELETE FROM records WHERE id IN (SELECT value FROM json_each(?))').bind(list)));
+    .concat(
+      // Trainings started from a deleted applicant stay, without the link.
+      env.DB.prepare('UPDATE trainings SET applicant_id = NULL WHERE applicant_id IN (SELECT value FROM json_each(?))').bind(list),
+      env.DB.prepare('DELETE FROM records WHERE id IN (SELECT value FROM json_each(?))').bind(list),
+    ));
 }
 
 // ---- Hiring: the buttons on an applicant's page ----
@@ -155,6 +161,23 @@ async function saveApplicant(env, user, record, data, summary, changes, now) {
     env.DB.prepare('INSERT INTO record_history (record_id, user_id, summary, changes, at) VALUES (?, ?, ?, ?, ?)')
       .bind(record.id, user.id, summary, changes.length ? JSON.stringify(changes) : null, now),
   ]);
+}
+
+// Something that happened to an applicant on the Training pages (a training started, completed or
+// cancelled). Written to the applicant's history; when `to` is given and the applicant is at one of the
+// steps in `from`, they also move to `to`, recorded like a step change made on their page.
+// Returns true when the applicant moved.
+export async function applicantEvent(env, user, applicantId, summary, to = null, from = []) {
+  const record = applicantId ? await getRecord(env, 'applicants', applicantId) : null;
+  if (!record) return false;
+  const now = new Date().toISOString();
+  if (to && to !== record.status && from.includes(record.status)) {
+    await saveApplicant(env, user, record, { ...record.data, Applicant_Status: to }, `Moved to ${to} (${summary.toLowerCase()})`,
+      [{ f: 'Applicant_Status', from: record.status, to }], now);
+    return true;
+  }
+  await env.DB.prepare('INSERT INTO record_history (record_id, user_id, summary, at) VALUES (?, ?, ?, ?)').bind(record.id, user.id, summary, now).run();
+  return false;
 }
 
 async function applicantAction(env, user, record, action, field, here, now) {
@@ -340,8 +363,14 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
       env.DB.prepare('SELECT f.*, u.name AS user_name FROM record_files f LEFT JOIN users u ON u.id = f.uploaded_by WHERE f.record_id = ? ORDER BY f.uploaded_at DESC').bind(record.id).all(),
       env.DB.prepare('SELECT h.*, u.name AS user_name FROM record_history h LEFT JOIN users u ON u.id = h.user_id WHERE h.record_id = ? ORDER BY h.at DESC, h.id DESC LIMIT 100').bind(record.id).all(),
     ]);
-    const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null, va: null };
+    const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null, va: null, training: null };
     if (key === 'applicants' && record.data._va) extra.va = await getRecord(env, 'vas', Number(record.data._va));
+    if (key === 'applicants') {
+      // The trainings started from this applicant's page, and who can be their trainer.
+      extra.training = await applicantTrainings(env, record.id);
+      extra.training.trainers = (await env.DB.prepare('SELECT id, name, email, is_va FROM users WHERE is_va = 1 OR is_admin = 1 ORDER BY name').all()).results;
+      extra.training.today = partsIn(REPORT_ZONE).date;
+    }
     if (key === 'clients') {
       extra.contacts = (await env.DB.prepare("SELECT * FROM records WHERE module = 'contacts' AND parent_id = ? ORDER BY status, name").bind(record.id).all()).results
         .map((r) => ({ ...r, data: JSON.parse(r.data) }));

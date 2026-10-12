@@ -79,6 +79,8 @@ const MESSAGES = {
   'training-active': ['good', 'Training resumed.'],
   'training-paused': ['good', 'Training paused.'],
   'training-completed': ['good', 'Training marked complete.'],
+  'training-completed-applicant': ['good', 'Training marked complete. On Hiring, the applicant moved to Training done.'],
+  'training-no-email': ['bad', "This applicant has no valid email. Add one with Edit first: the trainee logs in with it."],
   'training-cancelled': ['good', 'Training cancelled.'],
   'training-name-needed': ['bad', 'Please type a name first.'],
   'training-day-not-empty': ['bad', 'Only a day with no items can be removed. Delete or move its items first.'],

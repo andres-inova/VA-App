@@ -36,6 +36,24 @@ function trainingRow(t, days, line) {
     <div class="chips">${sum ? chip(`Day ${sum.currentDay} of ${days}`, 'muted') : ''}${statusChip(t)}</div>${icon('chevron', 'chev')}</div></a>`;
 }
 
+// The trainings started from an applicant's page, for that page (records-views.js).
+// The person is the applicant, so each row shows the training type instead of their name, with the
+// chips under the text (room enough on a phone).
+export function applicantTrainingRows(trainings, dayCount) {
+  return CSS + trainings.map((t) => {
+    const open = ['active', 'paused'].includes(t.status);
+    const line = open ? `trainer ${esc(t.trainer_name)} · started ${esc(formatDate(t.start_date))}`
+      : `trainer ${esc(t.trainer_name)} · ${t.status === 'completed' ? 'completed' : 'cancelled'} ${esc(signedOn(t.finished_at))}`;
+    const sum = t.sum;
+    return `<a class="item flat pick" href="/training/${t.id}"><div class="item-head">
+      <div class="grow"><div class="title">${esc(t.kind)}</div><div class="sub">${line}</div>
+      <div class="bar" title="${sum.covered} of ${sum.total} items covered"><span style="width:${sum.total ? Math.round(100 * sum.covered / sum.total) : 0}%"></span></div>
+      <div class="sub">${esc(progressText(sum).replace('DAYS', dayCount))}</div>
+      <div class="chips" style="margin-top:6px">${open ? chip(`Day ${sum.currentDay} of ${dayCount}`, 'muted') : ''}${statusChip(t)}</div></div>
+      ${icon('chevron', 'chev')}</div></a>`;
+  }).join('');
+}
+
 const kindLine = (t) => `${esc(t.kind)} · trainer ${esc(t.trainer_name)} · started ${esc(formatDate(t.start_date))}`;
 const finishedLine = (t) => `${esc(t.kind)} · trainer ${esc(t.trainer_name)} · ${t.status === 'completed' ? 'completed' : 'cancelled'} ${esc(signedOn(t.finished_at))}`;
 
@@ -190,6 +208,7 @@ export function trainingPage({ user, t, role, days, day, carried, progress, sign
     <div class="card">
       <div class="rec-head">${avatar(t.trainee_name, 'lg')}<div class="grow"><h2>${esc(t.trainee_name)}</h2>
         <div class="chips">${chip(t.kind, 'info')}${statusChip(t)}</div></div></div>
+      ${t.applicant_id && t.applicant_name && user.is_admin ? `<p class="meta" style="margin-top:10px">${icon('applicant')} From applicant: <a href="/admin/applicants/${esc(t.applicant_id)}">${esc(t.applicant_name)}</a></p>` : ''}
       <p class="meta" style="margin-top:10px">${who} Started ${esc(formatDate(t.start_date, true))}${t.status === 'active' ? ` · workday ${t.workdays} (due within 7)` : ''}</p>
       <div class="bar" title="${pct}%"><span style="width:${pct}%"></span></div>
       <p class="small" style="margin:0">${esc(progressText(sum).replace('DAYS', days.length))}${sum.carried ? ` · ${sum.carried} carried over` : ''}</p>

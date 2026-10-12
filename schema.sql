@@ -279,9 +279,11 @@ CREATE TABLE IF NOT EXISTS trainings (
   status TEXT NOT NULL DEFAULT 'active',
   created_by INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  finished_at TEXT
+  finished_at TEXT,
+  applicant_id INTEGER -- the applicant (records row, module 'applicants') it was started from, if any
 );
 CREATE INDEX IF NOT EXISTS trainings_trainee ON trainings (trainee_id, status);
+CREATE INDEX IF NOT EXISTS trainings_applicant ON trainings (applicant_id);
 CREATE INDEX IF NOT EXISTS trainings_trainer ON trainings (trainer_id, status);
 
 -- Each checklist item of a training. status: not_started, covered or carried_over (moves on to a later day).

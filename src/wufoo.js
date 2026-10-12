@@ -16,24 +16,33 @@ import { sameSecret } from './forms.js';
 // Capitals, spaces and punctuation don't matter ("E-mail address:" matches "email address").
 // Questions that match nothing are kept under "Other fields from Wufoo" on the applicant, and listed in the
 // Wufoo box on the Applicants page.
+// The long titles are the questions on the live form "InoVA Local - Applicant Form" (inova.wufoo.com/forms/q1cb52tu1f220n5),
+// as of 2026-10-12. Its other questions (home office, 8-hour availability, schedule changes, the scenario answers,
+// how they heard about us, text-message consent) have no app field and are kept under "Other fields from Wufoo".
 export const WUFOO_FIELDS = [
   ['_name', ['Name', 'Full name', 'Your name', 'Applicant name']], // first and last name together
   ['Name', ['First name', 'First']],
   ['Last_Name', ['Last name', 'Last', 'Surname']],
   ['Email', ['Email', 'Email address', 'Your email', 'Your email address']],
   ['Phone', ['Phone', 'Phone number', 'Cell phone', 'Cell phone number', 'Mobile', 'Mobile number', 'Best phone number']],
-  ['Location', ['Location', 'City', 'City and state', 'City state', 'Address', 'Where are you located', 'Where do you live']],
-  ['Time_zone', ['Time zone', 'Timezone', 'Your time zone', 'What time zone are you in', 'Which time zone are you in']],
-  ['Availability', ['Availability', 'Your availability', 'What is your availability', 'Hours available', 'Available hours']],
+  ['Location', ['Location', 'City', 'City and state', 'City state', 'Address', 'Where are you located', 'Where do you live',
+    'Where are you located? (city/state)']],
+  ['Time_zone', ['Time zone', 'Timezone', 'Your time zone', 'What time zone are you in', 'Which time zone are you in',
+    'What time zone do you currently work in?']],
+  ['Availability', ['Availability', 'Your availability', 'What is your availability', 'Hours available', 'Available hours',
+    'What days and times are you typically available to work? Please list time zone preference as well.']],
   ['Year_of_admin_experience', ['Years of admin experience', 'Year of admin experience', 'Years of administrative experience',
     'How many years of admin experience do you have', 'How many years of administrative experience do you have']],
   ['Prev_service_industry_experience1', ['Previous service industry experience', 'Prev service industry experience', 'Service industry experience',
-    'Do you have previous service industry experience']],
+    'Do you have previous service industry experience',
+    'Have you worked with clients in service-based industries (such as cleaning companies, home services, or similar)?']],
   ['Cleaning_industry_experience', ['Cleaning industry experience', 'Do you have cleaning industry experience']],
-  ['Systems_Tools', ['Systems Tools', 'Systems and tools', 'Systems tools used', 'Which systems tools have you used', 'Software', 'Tools']],
-  ['Languages', ['Languages', 'Languages spoken', 'What languages do you speak']],
+  ['Systems_Tools', ['Systems Tools', 'Systems and tools', 'Systems tools used', 'Which systems tools have you used', 'Software', 'Tools',
+    'Which systems or tools have you used in previous roles?']],
+  ['Languages', ['Languages', 'Languages spoken', 'What languages do you speak',
+    'Many of our clients value and seek out fluent bilingual admins for their businesses. Please let us know what languages you are fluent in below.']],
   ['VA_Bio', ['Bio', 'VA bio', 'Short bio']],
-  ['Resume', ['Resume', 'Resume CV', 'CV', 'Upload your resume', 'Attach your resume', 'Résumé']],
+  ['Resume', ['Resume', 'Resume CV', 'CV', 'Upload your resume', 'Attach your resume', 'Résumé', 'Upload your resume as a PDF']],
 ];
 
 const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');

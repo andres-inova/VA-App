@@ -85,6 +85,9 @@ const MESSAGES = {
   'training-name-needed': ['bad', 'Please type a name first.'],
   'training-day-not-empty': ['bad', 'Only a day with no items can be removed. Delete or move its items first.'],
   'day-signed': ['good', 'Day signed off.'],
+  'module-finished': ['good', 'Module marked finished.'],
+  'module-not-finished': ['good', 'Module marked not finished.'],
+  'module-link-bad': ['bad', 'Please paste the full link to the module, starting with https:// (or http://).'],
 };
 
 // Status of a day: [label, color, symbol for the History grid].
@@ -246,7 +249,7 @@ details.item>summary{cursor:pointer;border-radius:12px}details.item>summary:hove
 .actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
 .actions form{margin:0}
 label{display:block;font-weight:700;margin:12px 0 4px;font-size:14px}
-input[type=text],input[type=email],input[type=password],input[type=date],input[type=time],input[type=number],textarea,select{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);font:inherit}
+input[type=text],input[type=email],input[type=url],input[type=password],input[type=date],input[type=time],input[type=number],textarea,select{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);font:inherit}
 input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
 textarea{min-height:90px;resize:vertical}
 .check{display:flex;gap:8px;align-items:center;font-weight:600;margin-top:12px}.check input{width:18px;height:18px;accent-color:var(--accent)}

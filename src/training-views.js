@@ -18,6 +18,8 @@ const CSS = `<style>
 .sign{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}.sign .meta{margin:0}
 .item-form textarea{min-height:70px}.item-form .actions{margin-top:8px}
 .edit-item .actions form{margin:0}
+@media (max-width:600px){.train-row .item-head{flex-wrap:wrap}.train-row .item-head>.grow{flex:1 1 calc(100% - 100px)}
+  .train-row .train-chips{order:3;flex:1 1 100%;justify-content:flex-start;padding-left:52px;margin:0}}
 </style>`;
 
 // Opens the section or item named in the address (after a save), so the person lands where they were.
@@ -27,13 +29,16 @@ for(var e=h;e;e=e.parentElement){if(e.tagName==='DETAILS')e.open=true;}if(h)h.sc
 const statusChip = (t) => (t.late ? chip(`Late · workday ${t.workdays}`, 'bad') : chip(...STATUS_CHIP[t.status]));
 const progressText = (sum) => `${sum.covered} of ${sum.total} items covered · ${sum.daysSigned} of DAYS days signed off`;
 
+// "Modules 1/2": how many self-paced modules an Onboarding Training has finished (none when it has none).
+const modulesChip = (t) => (t.mods ? chip(`Modules ${t.mods.done}/${t.mods.total}`, t.mods.done === t.mods.total ? 'good' : 'warn') : '');
+
 // A row that opens a training.
 function trainingRow(t, days, line) {
   const sum = t.sum;
-  return `<a class="item flat pick" href="/training/${t.id}"><div class="item-head">${avatar(t.trainee_name)}
+  return `<a class="item flat pick train-row" href="/training/${t.id}"><div class="item-head">${avatar(t.trainee_name)}
     <div class="grow"><div class="title">${esc(t.trainee_name)}</div><div class="sub">${line}</div>
     ${sum ? `<div class="bar" title="${sum.covered} of ${sum.total} items covered"><span style="width:${sum.total ? Math.round(100 * sum.covered / sum.total) : 0}%"></span></div>` : ''}</div>
-    <div class="chips">${sum ? chip(`Day ${sum.currentDay} of ${days}`, 'muted') : ''}${statusChip(t)}</div>${icon('chevron', 'chev')}</div></a>`;
+    <div class="chips train-chips">${modulesChip(t)}${sum ? chip(`Day ${sum.currentDay} of ${days}`, 'muted') : ''}${statusChip(t)}</div>${icon('chevron', 'chev')}</div></a>`;
 }
 
 // The trainings started from an applicant's page, for that page (records-views.js).
@@ -49,7 +54,7 @@ export function applicantTrainingRows(trainings, dayCount) {
       <div class="grow"><div class="title">${esc(t.kind)}</div><div class="sub">${line}</div>
       <div class="bar" title="${sum.covered} of ${sum.total} items covered"><span style="width:${sum.total ? Math.round(100 * sum.covered / sum.total) : 0}%"></span></div>
       <div class="sub">${esc(progressText(sum).replace('DAYS', dayCount))}</div>
-      <div class="chips" style="margin-top:6px">${open ? chip(`Day ${sum.currentDay} of ${dayCount}`, 'muted') : ''}${statusChip(t)}</div></div>
+      <div class="chips" style="margin-top:6px">${modulesChip(t)}${open ? chip(`Day ${sum.currentDay} of ${dayCount}`, 'muted') : ''}${statusChip(t)}</div></div>
       ${icon('chevron', 'chev')}</div></a>`;
   }).join('');
 }
@@ -191,7 +196,40 @@ function signoffCard(t, role, day, s, sum, days) {
   return `<div class="card"><h2>Day ${day.day_number} sign-off</h2><div class="sign">${parts}</div>${button}${after}</div>`;
 }
 
-export function trainingPage({ user, t, role, days, day, carried, progress, signoff, sum, trainee, message, invite = null, trainers = [] }) {
+// The self-paced modules done before Day 1 (Onboarding Training only). Each module opens in a new tab;
+// the trainee (or an admin) marks it finished, since the module itself can't tell the app.
+function modulesSection(t, role, modules, user) {
+  if (!modules.length) return '';
+  const finished = modules.filter((m) => m.done).length;
+  const all = finished === modules.length;
+  const canMark = t.status === 'active' && (role === 'trainee' || user.is_admin);
+  const form = (m, done, label, cls) => `<form method="post" action="/training/${t.id}/module/${m.id}"><input type="hidden" name="done" value="${done}">
+    <button class="sm ${cls}">${label}</button></form>`;
+  const rows = modules.map((m, i) => {
+    const byAdmin = m.done && m.done.finished_by && m.done.finished_by !== t.trainee_id;
+    return `<div class="item flat" id="module-${m.id}"><div class="item-head" style="align-items:flex-start"><span class="step">${i + 1}.</span>
+      <div class="grow"><div class="title">${esc(m.name)}</div>${m.description ? `<div class="sub">${esc(m.description)}</div>` : ''}
+        <div class="chips" style="margin-top:6px">${m.done ? chip(`Finished on ${signedOn(m.done.finished_at)}`, 'good') : chip('Not started', 'muted')}</div>
+        ${byAdmin ? '<p class="small" style="margin:4px 0 0">Marked finished by an admin.</p>' : ''}
+        <div class="actions">
+          <a class="btn sm plain" style="margin:0" href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">${icon('external')} Open module</a>
+          ${canMark && !m.done ? form(m, 1, `${icon('check')} ${role === 'trainee' ? 'I finished this module' : 'Mark finished'}`, '') : ''}
+          ${canMark && m.done ? form(m, 0, 'Mark as not finished', 'plain') : ''}
+        </div></div></div></div>`;
+  }).join('');
+  const hint = role === 'trainee'
+    ? 'Go through these short online modules before Day 1 with your trainer. Each one opens in a new tab. When you finish one, come back here and press “I finished this module”.'
+    : `Short online modules ${esc(t.trainee_name)} goes through before Day 1. The modules can't tell the app who finished them, so the trainee marks each one here${user.is_admin ? ' (admins can mark them too)' : ''}. Unfinished modules don't stop Day 1.`;
+  return section({
+    title: role === 'trainee' ? 'Before your first day' : 'Before Day 1: self-paced modules', count: `${finished}/${modules.length}`,
+    open: !all, key: 'modules', tone: all || role === 'trainee' ? '' : 'attention', hint, body: rows,
+  });
+}
+
+export function trainingPage({ user, t, role, days, day, carried, progress, signoff, sum, trainee, message, invite = null, trainers = [], modules = [] }) {
+  const modsDone = modules.filter((m) => m.done).length;
+  const modsAll = modsDone === modules.length;
+  const modulesBox = modulesSection(t, role, modules, user);
   const pct = sum.total ? Math.round(100 * sum.covered / sum.total) : 0;
   const tabs = days.map((d) => `<a class="chip ${d.id === day?.id ? 'on' : sum.signed(d) ? 'signed' : 'muted'}" href="/training/${t.id}?day=${d.day_number}">${sum.signed(d) ? '✓ ' : ''}Day ${d.day_number}</a>`).join('');
   const who = role === 'trainer' ? `You are training <b>${esc(t.trainee_name)}</b>.`
@@ -205,6 +243,7 @@ export function trainingPage({ user, t, role, days, day, carried, progress, sign
     body: `${CSS}${inviteBox(invite)}
     ${role === 'admin' ? '<p class="lead"><a href="/admin/training">‹ All trainings</a></p>'
       : role === 'trainer' && !user.in_training ? '<p class="lead"><a href="/training">‹ My trainings</a></p>' : ''}
+    ${role === 'trainee' && !modsAll ? modulesBox : ''}
     <div class="card">
       <div class="rec-head">${avatar(t.trainee_name, 'lg')}<div class="grow"><h2>${esc(t.trainee_name)}</h2>
         <div class="chips">${chip(t.kind, 'info')}${statusChip(t)}</div></div></div>
@@ -213,8 +252,10 @@ export function trainingPage({ user, t, role, days, day, carried, progress, sign
       <div class="bar" title="${pct}%"><span style="width:${pct}%"></span></div>
       <p class="small" style="margin:0">${esc(progressText(sum).replace('DAYS', days.length))}${sum.carried ? ` · ${sum.carried} carried over` : ''}</p>
       ${notActive ? `<p class="meta" style="color:var(--warn)">${notActive}</p>` : ''}
+      ${modules.length && !modsAll && role !== 'trainee' ? `<p class="meta" style="color:var(--warn)"><b>Modules not finished yet:</b> ${modsDone} of ${modules.length} finished (see <a href="#modules">Before Day 1</a>). Day 1 can still go ahead.</p>` : ''}
       ${role === 'admin' ? adminControls(t, sum, trainee, trainers, day?.day_number || '') : ''}
     </div>
+    ${role !== 'trainee' || modsAll ? modulesBox : ''}
     ${section({ title: 'How training works', open: false, body: `<div style="padding:0 8px 8px">${howItWorks(role)}</div>` })}
     ${days.length ? `<div class="chips proj-tabs day-tabs">${tabs}</div>
     ${section({
@@ -281,7 +322,33 @@ export function adminTrainingPage({ user, open, finished, days, choices, today, 
 
 // ---- Admin: the checklist editor ----
 
-export function checklistPage({ user, days, used, message }) {
+// The self-paced modules on the checklist page: name, link and short description; add, edit, move, delete.
+function modulesEditor(modules) {
+  const fields = (m = {}, p = 'm') => `<div class="row">
+      <div><label for="${p}n">Module name</label><input id="${p}n" name="name" type="text" maxlength="200" required value="${esc(m.name || '')}"></div>
+      <div><label for="${p}u">Link (starts with https://)</label><input id="${p}u" name="url" type="url" maxlength="2000" required value="${esc(m.url || '')}" placeholder="https://"></div>
+    </div>
+    <label for="${p}d">Short description (one line under the name)</label><input id="${p}d" name="description" type="text" maxlength="500" value="${esc(m.description || '')}">`;
+  const editor = (m, i) => `<details class="item edit-item" id="module-${m.id}" data-key="module-${m.id}"><summary class="item-head"><span class="step">${i + 1}.</span>
+      <div class="grow"><div class="title">${esc(m.name)}</div><div class="sub">${esc(m.description)}</div></div>${icon('chevron', 'chev')}</summary>
+    <div class="item-body" style="padding-left:12px">
+      <form method="post" action="/admin/training/checklist/module/${m.id}">${fields(m, `m${m.id}`)}<button class="sm">Save</button></form>
+      <p class="small"><a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">${icon('external')} Open this module</a></p>
+      <div class="actions">
+        <form method="post" action="/admin/training/checklist/module/${m.id}/up"><button class="sm plain" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑ Move up</button></form>
+        <form method="post" action="/admin/training/checklist/module/${m.id}/down"><button class="sm plain" ${i === modules.length - 1 ? 'disabled' : ''} aria-label="Move down">↓ Move down</button></form>
+        <form method="post" action="/admin/training/checklist/module/${m.id}/delete" data-confirm="${esc(`Delete the module “${m.name}”? Who finished it is forgotten in every training.`)}"><button class="sm danger">${icon('trash')} Delete</button></form>
+      </div></div></details>`;
+  return section({
+    title: 'Before Day 1: self-paced modules', count: modules.length, open: false, key: 'modules',
+    hint: 'Short online modules (for example iSpring links) that a new hire goes through before Day 1 of an Onboarding Training. They show at the top of the trainee’s training page in this order, and the trainee marks each one finished.',
+    body: `${modules.map(editor).join('') || empty('No modules yet.')}
+      <details class="item" data-key="add-module"><summary class="item-head">${icon('plus')}<div class="grow"><div class="title">Add a module</div></div>${icon('chevron', 'chev')}</summary>
+        <div class="item-body" style="padding-left:12px"><form method="post" action="/admin/training/checklist/module/add">${fields({}, 'madd')}<button class="sm">${icon('plus')} Add module</button></form></div></details>`,
+  });
+}
+
+export function checklistPage({ user, days, modules = [], used, message }) {
   const fields = (it = {}, idPrefix = 'x') => `<div class="row">
       <div><label for="${idPrefix}n">Item</label><input id="${idPrefix}n" name="name" type="text" maxlength="300" required value="${esc(it.name || '')}"></div>
       <div><label for="${idPrefix}l">Where (system or channel)</label><input id="${idPrefix}l" name="location" type="text" maxlength="200" value="${esc(it.location || '')}" placeholder="For example CRM"></div>
@@ -311,6 +378,7 @@ export function checklistPage({ user, days, used, message }) {
     title: 'Training checklist', user, active: '/admin/training', message,
     body: `${CSS}<p class="lead"><a href="/admin/training">‹ Training</a> · Every training uses this checklist. Changes show right away${used ? ', including in trainings already in progress' : ''}. Only admins can change it.</p>
     <div data-remember="training-checklist">
+    ${modulesEditor(modules)}
     ${days.map(daySection).join('')}
     ${section({
       title: 'Add a day', open: false, key: 'add-day',

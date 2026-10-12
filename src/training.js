@@ -12,6 +12,11 @@
 // Hiring link: an admin can start an Onboarding Training from an applicant's page (Hiring). The
 // training remembers the applicant (trainings.applicant_id); starting it moves the applicant to
 // "In training", and marking it complete moves them to "Training done" (see applicantEvent in records.js).
+//
+// Self-paced modules: before Day 1 of an Onboarding Training, the trainee goes through short online
+// modules (iSpring links, table training_modules, edited by admins on the checklist page). The links
+// cannot tell the app who finished them, so the trainee (or an admin) presses "I finished this module".
+// Unfinished modules never block Day 1; the trainer and admins just see a warning.
 
 import { redirect, page, isDate } from './util.js';
 import { partsIn, addDays, weekdayOf, REPORT_ZONE } from './time.js';
@@ -32,6 +37,19 @@ const BEFORE_TRAINING = ['Offer sent', 'Training pending'];
 const BEFORE_DONE = [...BEFORE_TRAINING, 'In training'];
 
 const today = () => partsIn(REPORT_ZONE).date;
+
+// Only Onboarding Trainings have the self-paced modules.
+export const hasModules = (t) => t.kind === ONBOARDING;
+
+// A link typed by an admin, kept only when it is a full http(s) address.
+function httpLink(text) {
+  try {
+    const u = new URL(String(text || '').trim());
+    return ['http:', 'https:'].includes(u.protocol) && u.href.length <= 2000 ? u.href : null;
+  } catch {
+    return null;
+  }
+}
 
 // Workdays from the start date to today, counting both.
 export function workdaysSince(start, end = today()) {
@@ -88,6 +106,29 @@ export function summarize(days, progress, signoffs) {
   };
 }
 
+// The self-paced modules, in order.
+export async function modulesList(env) {
+  const { results } = await env.DB.prepare('SELECT * FROM training_modules ORDER BY position, id').all();
+  return results;
+}
+
+// Finished modules of each training: Map(training id -> Map(module id -> { finished_at, finished_by })).
+async function moduleProgressOf(env, ids) {
+  const done = new Map(ids.map((id) => [id, new Map()]));
+  if (!ids.length) return done;
+  const { results } = await env.DB.prepare('SELECT * FROM training_module_progress WHERE training_id IN (SELECT value FROM json_each(?))')
+    .bind(JSON.stringify(ids)).all();
+  for (const r of results) done.get(r.training_id)?.set(r.module_id, r);
+  return done;
+}
+
+// How many of the modules a training has finished, or null when it has none (not an Onboarding Training,
+// or no modules on the list).
+function moduleCount(t, modules, done) {
+  if (!hasModules(t) || !modules.length) return null;
+  return { done: modules.filter((m) => done?.has(m.id)).length, total: modules.length };
+}
+
 async function progressOf(env, ids) {
   const progress = new Map();
   const signoffs = new Map();
@@ -105,8 +146,12 @@ async function progressOf(env, ids) {
 
 // Trainings with their progress summary, for lists.
 async function withSummaries(env, trainings, days) {
-  const { progress, signoffs } = await progressOf(env, trainings.map((t) => t.id));
-  return trainings.map((t) => ({ ...t, late: isLate(t), workdays: workdaysSince(t.start_date), sum: summarize(days, progress.get(t.id), signoffs.get(t.id)) }));
+  const ids = trainings.map((t) => t.id);
+  const [{ progress, signoffs }, modules, done] = await Promise.all([progressOf(env, ids), modulesList(env), moduleProgressOf(env, ids)]);
+  return trainings.map((t) => ({
+    ...t, late: isLate(t), workdays: workdaysSince(t.start_date), sum: summarize(days, progress.get(t.id), signoffs.get(t.id)),
+    mods: moduleCount(t, modules, done.get(t.id)),
+  }));
 }
 
 // The trainings started from an applicant's page, newest first, with their progress (for that page).
@@ -155,6 +200,21 @@ export async function trainingRoutes(env, user, path, method, field, message, ur
   const back = (msg, anchor = '') => redirect(`/training/${t.id}?${new URLSearchParams({ ...(day ? { day } : {}), ...(msg ? { msg } : {}) })}${anchor}`);
   // Finished or paused trainings can be read, not changed.
   if (t.status !== 'active') return back('training-not-active');
+
+  // A self-paced module: the trainee (or an admin) marks it finished, or not finished again (done=0).
+  if ((m = rest.match(/^\/module\/(\d+)$/))) {
+    const mod = await env.DB.prepare('SELECT id FROM training_modules WHERE id = ?').bind(m[1]).first();
+    if (!mod || !hasModules(t) || (role !== 'trainee' && !user.is_admin)) return back();
+    if (field('done') === '1') {
+      await env.DB.prepare(
+        `INSERT INTO training_module_progress (training_id, module_id, finished_at, finished_by) VALUES (?, ?, datetime('now'), ?)
+         ON CONFLICT (training_id, module_id) DO NOTHING`
+      ).bind(t.id, mod.id, user.id).run();
+      return back('module-finished', '#modules');
+    }
+    await env.DB.prepare('DELETE FROM training_module_progress WHERE training_id = ? AND module_id = ?').bind(t.id, mod.id).run();
+    return back('module-not-finished', '#modules');
+  }
 
   // An item: the trainer sets its status and their notes; the trainee saves their own notes.
   if ((m = rest.match(/^\/item\/(\d+)$/))) {
@@ -209,9 +269,15 @@ async function trainingPage(env, user, t, role, dayNumber, message, extra = {}) 
     .flatMap((d) => d.items.filter((i) => p.get(i.id)?.status === 'carried_over').map((i) => ({ ...i, fromDay: d.day_number })));
   const trainee = await env.DB.prepare('SELECT id, name, email, password_hash, must_change_password, invited_at, is_va FROM users WHERE id = ?').bind(t.trainee_id).first();
   const trainers = role === 'admin' ? (await peopleChoices(env)).trainers : [];
+  // The self-paced modules, each with its finished row (or null), for Onboarding Trainings.
+  let modules = [];
+  if (hasModules(t)) {
+    const [list, done] = await Promise.all([modulesList(env), moduleProgressOf(env, [t.id])]);
+    modules = list.map((mod) => ({ ...mod, done: done.get(t.id).get(mod.id) || null }));
+  }
   return tv.trainingPage({
     user, t: { ...t, late: isLate(t), workdays: workdaysSince(t.start_date) }, role, days, day, carried,
-    progress: p, signoff: day ? signoffs.get(t.id).get(day.id) || null : null, sum, trainee, trainers, message, ...extra,
+    progress: p, signoff: day ? signoffs.get(t.id).get(day.id) || null : null, sum, trainee, trainers, modules, message, ...extra,
   });
 }
 
@@ -362,9 +428,10 @@ async function personFor(env, name, email, key = null) {
 
 async function checklistRoutes(env, user, path, method, field, message, days) {
   let m;
+  const modules = await modulesList(env);
   if (path === '/admin/training/checklist' && method === 'GET') {
     const used = await env.DB.prepare('SELECT COUNT(*) AS n FROM trainings').first();
-    return page(tv.checklistPage({ user, days, used: used?.n || 0, message }));
+    return page(tv.checklistPage({ user, days, modules, used: used?.n || 0, message }));
   }
   if (method !== 'POST') return redirect('/admin/training/checklist');
   const back = (msg, anchor = '') => redirect(`/admin/training/checklist?msg=${msg}${anchor}`);
@@ -394,6 +461,44 @@ async function checklistRoutes(env, user, path, method, field, message, days) {
     if (!title) return back('training-name-needed');
     await env.DB.prepare('UPDATE training_days SET title = ? WHERE id = ?').bind(title, day.id).run();
     return back('saved', `#day-${day.id}`);
+  }
+
+  // Self-paced modules (before Day 1 of an Onboarding Training): name, link, short description.
+  const moduleValues = () => [text('name', 200), httpLink(field('url')), text('description', 500)];
+  if (path === '/admin/training/checklist/module/add') {
+    const [name, link, description] = moduleValues();
+    if (!name) return back('training-name-needed', '#modules');
+    if (!link) return back('module-link-bad', '#modules');
+    const position = Math.max(0, ...modules.map((x) => x.position)) + 1;
+    const res = await env.DB.prepare('INSERT INTO training_modules (position, name, url, description) VALUES (?, ?, ?, ?)')
+      .bind(position, name, link, description).run();
+    return back('saved', `#module-${res.meta.last_row_id}`);
+  }
+  if ((m = path.match(/^\/admin\/training\/checklist\/module\/(\d+)(?:\/(delete|up|down))?$/))) {
+    const index = modules.findIndex((x) => x.id === Number(m[1]));
+    if (index < 0) return back('saved', '#modules');
+    const mod = modules[index];
+    if (m[2] === 'delete') {
+      await env.DB.batch([
+        env.DB.prepare('DELETE FROM training_module_progress WHERE module_id = ?').bind(mod.id),
+        env.DB.prepare('DELETE FROM training_modules WHERE id = ?').bind(mod.id),
+      ]);
+      return back('removed', '#modules');
+    }
+    if (m[2]) {
+      // Move up or down: number the modules again in the new order.
+      const order = [...modules];
+      const to = m[2] === 'up' ? index - 1 : index + 1;
+      if (to < 0 || to >= order.length) return back('saved', `#module-${mod.id}`);
+      [order[index], order[to]] = [order[to], order[index]];
+      await env.DB.batch(order.map((x, i) => env.DB.prepare('UPDATE training_modules SET position = ? WHERE id = ?').bind(i + 1, x.id)));
+      return back('saved', `#module-${mod.id}`);
+    }
+    const [name, link, description] = moduleValues();
+    if (!name) return back('training-name-needed', `#module-${mod.id}`);
+    if (!link) return back('module-link-bad', `#module-${mod.id}`);
+    await env.DB.prepare('UPDATE training_modules SET name = ?, url = ?, description = ? WHERE id = ?').bind(name, link, description, mod.id).run();
+    return back('saved', `#module-${mod.id}`);
   }
 
   const values = () => [text('location', 200), text('name'), text('trainer_text', 5000), text('trainee_text', 5000)];

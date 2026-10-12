@@ -12,6 +12,8 @@ const activeFor = (key) => (key === 'vas' ? '/admin/vas' : key === 'applicants' 
 const isEmpty = (v) => v === null || v === undefined || v === '' || v === false || (Array.isArray(v) && !v.length);
 const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`);
 const when = (iso) => (iso ? zohoTime(iso.includes('T') ? iso : `${iso.replace(' ', 'T')}Z`) : '');
+// Note text with its web addresses made clickable.
+const withLinks = (text) => esc(text).replace(/https?:\/\/[^\s<]+[^\s<.,;:)'"]/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
 const linkTo = (key, id, name) => `<a href="/admin/${key}/${esc(id)}">${esc(name)}</a>`;
 
 // A row on a list page that opens the record.
@@ -128,7 +130,7 @@ function notesHtml(key, record, notes, user) {
         <div class="actions"><button class="sm">Save note</button></div></form>
       <form method="post" action="${here}/notes/${n.id}/delete" data-confirm="Delete this note?"><button class="sm danger">${icon('trash')} Delete note</button></form></details>` : '';
     return `<div class="note">${avatar(who)}<div class="grow"><div class="sub"><b>${esc(who)}</b> · ${esc(when(n.created_at))}${n.updated_at && n.updated_at !== n.created_at ? ' · edited' : ''}${n.zoho_id ? ' · from Zoho' : ''}</div>
-      <div class="bubble">${esc(n.body)}</div>${edit}</div></div>`;
+      <div class="bubble">${withLinks(n.body)}</div>${edit}</div></div>`;
   }).join('');
   return add + (list || empty('No notes yet.'));
 }
@@ -370,8 +372,9 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     return shown.length ? section({ title: s.title, count: shown.length, key: `sec-${s.title}`, body: `<dl class="fields">${shown.join('')}</dl>` }) : '';
   }).join('');
   const extra = d._extra ? section({
-    title: 'Other fields from Zoho', count: Object.keys(d._extra).length, open: false, key: 'extra',
-    hint: 'Fields that were filled in Zoho but have no place in the app. Kept here so nothing is lost.',
+    title: d._wufoo ? 'Other fields from Wufoo' : 'Other fields from Zoho', count: Object.keys(d._extra).length, open: false, key: 'extra',
+    hint: d._wufoo ? 'Answers on the Wufoo form that have no place in the app. Kept here so nothing is lost.'
+      : 'Fields that were filled in Zoho but have no place in the app. Kept here so nothing is lost.',
     body: `<dl class="fields">${Object.entries(d._extra).map(([k, v]) => `<div><dt>${esc(k.replace(/_/g, ' '))}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>`,
   }) : '';
 
@@ -520,7 +523,37 @@ export function importPage({ user, state, counts, source, message }) {
 const appliedOn = (iso) => (iso ? new Date(iso.includes('T') ? iso : `${iso.replace(' ', 'T')}Z`)
   .toLocaleDateString('en-US', { timeZone: REPORT_ZONE, month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
-export function applicantsPage({ user, records, imported, message }) {
+// The Wufoo box on the Applicants page: where Wufoo sends new applications, and what arrived last.
+function wufooBox(w) {
+  if (!w) return '';
+  const lines = [];
+  lines.push(`<p class="meta">Wufoo sends each new application to this address (paste it into the WebHook settings of the application form in Wufoo):</p>
+    <p><code style="word-break:break-all">${esc(w.url)}</code></p>`);
+  lines.push(`<p class="meta">Handshake Key saved in Cloudflare (<code>WUFOO_HANDSHAKE_KEY</code>): <b>${w.keySet ? 'Yes' : 'No'}</b>${w.keySet ? '' : ' (until it is set, every application from Wufoo is turned away; see README, "Hiring")'}</p>`);
+  lines.push(w.last_at
+    ? `<p class="meta">Last application received: <b>${esc(zohoTime(w.last_at))}</b>${w.last_id ? ` (${linkTo('applicants', w.last_id, w.last_name || 'open')}${w.last_entry ? `, Wufoo entry #${esc(w.last_entry)}` : ''})` : ''}.</p>`
+    : '<p class="meta">No application has come from Wufoo yet.</p>');
+  if (w.last_at && w.structured === false) {
+    lines.push('<div class="toast bad" style="display:block">The last application came without question names. In Wufoo, tick <b>Include Field and Form Structures with Entry Data</b> in the WebHook settings.</div>');
+  }
+  if (w.unmatched?.length) {
+    lines.push(`<p class="meta">Questions in the last application whose answers did not go into a field in the app (they are under <b>Other fields from Wufoo</b> on the applicant, so nothing is lost):</p>
+      <ul class="changes">${w.unmatched.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+      <p class="small">To put one of them into a field, add its title to <code>WUFOO_FIELDS</code> in <code>src/wufoo.js</code>.</p>`);
+  }
+  if (w.file_problems?.length) {
+    lines.push(`<p class="meta">Files that could not be saved from the last application (the link is in a note on the applicant):</p>
+      <ul class="changes">${w.file_problems.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`);
+  }
+  if (w.rejected_at && (!w.last_at || w.rejected_at > w.last_at)) {
+    lines.push(`<p class="meta">Turned away ${esc(zohoTime(w.rejected_at))}: ${esc(w.rejected_why || 'wrong Handshake Key')}.</p>`);
+  }
+  const problem = !w.keySet || w.structured === false || (w.rejected_at && (!w.last_at || w.rejected_at > w.last_at));
+  return section({ title: 'New applications from Wufoo', key: 'wufoo', open: !w.last_at || problem, tone: problem ? 'attention' : '',
+    count: w.keySet ? undefined : 'not set up', body: `<div style="padding:0 8px 8px">${lines.join('')}</div>` });
+}
+
+export function applicantsPage({ user, records, imported, wufoo, message }) {
   const by = (s) => records.filter((r) => r.status === s);
   const others = records.filter((r) => !STEPS.includes(r.status) && !CLOSED.includes(r.status));
   const row = (r) => {
@@ -546,7 +579,8 @@ export function applicantsPage({ user, records, imported, message }) {
     ${records.length ? `<div class="summary-chips">${chip(`${open} in progress`, 'info')}${chip(`${by('Hired').length} hired`, 'good')}${CLOSED.map((s) => chip(`${by(s).length} ${s.toLowerCase()}`, 'muted')).join('')}</div>
     <label class="search" for="find-applicants">${icon('applicant')}<input id="find-applicants" type="search" placeholder="Search applicants, emails or places" autocomplete="off" data-filter="#applicants-list .item" data-empty="#applicants-none"></label>
     <div id="applicants-list">${STEPS.map((s) => list(s, by(s), s !== 'Hired')).join('')}${CLOSED.map((s) => list(s, by(s), false)).join('')}${list('Other', others, false)}</div>
-    <div class="empty no-results" id="applicants-none">Nothing matches.</div>` : ''}`,
+    <div class="empty no-results" id="applicants-none">Nothing matches.</div>` : ''}
+    ${wufooBox(wufoo)}`,
   });
 }
 

@@ -16,7 +16,7 @@ const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 // Compares two strings in a way that takes the same time whether or not they match.
-function sameSecret(a, b) {
+export function sameSecret(a, b) {
   const x = new TextEncoder().encode(a || '');
   const y = new TextEncoder().encode(b || '');
   if (!x.length || x.length !== y.length) return false;

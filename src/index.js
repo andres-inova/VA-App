@@ -5,6 +5,7 @@ import { checkLogin, startSession, currentUser, endSession, renewedCookie, remem
 import { dayInfo, checkinPause, getGraceMinutes, runEveryMinute, reportPeriod, sendReport, getReportRecipients, checkInStats, flaggedVAs } from './jobs.js';
 import { syncFromZoho } from './zoho.js';
 import { handleFormWebhook } from './forms.js';
+import { handleWufooWebhook } from './wufoo.js';
 import { handleSlackCommand } from './slack-commands.js';
 import { checkIn } from './actions.js';
 import { sendInvite, newTemporaryPassword } from './invites.js';
@@ -47,6 +48,8 @@ async function handle(request, env) {
 
   // Responses from the Google Form come from Google, not from the app's pages. They are checked with a secret instead.
   if (path === '/api/form/time-off' && method === 'POST') return handleFormWebhook(request, env);
+  // New job applications from the Wufoo form (a WebHook set up in Wufoo). Checked with the Handshake Key.
+  if (path === '/api/wufoo/application' && method === 'POST') return handleWufooWebhook(request, env);
   // The Slack /checkin command comes from Slack and are checked with Slack's signature instead.
   if (path === '/api/slack/command' && method === 'POST') return handleSlackCommand(request, env);
 

@@ -250,8 +250,20 @@ async function saveRecord(env, key, z) {
   const name = nameOf(key, data);
   const status = statusOf(key, data);
   const email = (data.Email || '').toLowerCase() || null;
-  const existing = await env.DB.prepare('SELECT id, data FROM records WHERE zoho_id = ?').bind(zohoId).first();
+  let existing = await env.DB.prepare('SELECT id, data FROM records WHERE zoho_id = ?').bind(zohoId).first();
   const now = new Date().toISOString();
+  // An application that came to the app straight from Wufoo and also reached Zoho through Zapier (while both
+  // ran): the same email, created in Zoho within a day of arriving in the app (the closest in time, if the
+  // person applied more than once that day). The two are joined, not doubled.
+  let linked = false;
+  if (!existing && key === 'applicants' && email && z.Created_Time) {
+    const at = Date.parse(z.Created_Time);
+    existing = Number.isNaN(at) ? null : await env.DB.prepare(
+      `SELECT id, data FROM records WHERE module = 'applicants' AND zoho_id IS NULL AND email = ? AND json_extract(data, '$._wufoo') IS NOT NULL
+       AND created_at BETWEEN ? AND ? ORDER BY ABS(julianday(created_at) - julianday(?)) LIMIT 1`
+    ).bind(email, new Date(at - 86400000).toISOString(), new Date(at + 86400000).toISOString(), new Date(at).toISOString()).first();
+    linked = Boolean(existing);
+  }
   if (existing) {
     // Zoho's values replace the app's. Lookups are linked again by linkRecords() at the end of the copy.
     const old = JSON.parse(existing.data);
@@ -260,6 +272,11 @@ async function saveRecord(env, key, z) {
       if (!(field.key in z) && !(field.key in data) && field.key in old) data[field.key] = old[field.key];
     }
     for (const [k, v] of Object.entries(old)) if (k.startsWith('_') && k !== '_extra' && !(k in data)) data[k] = v;
+    if (old._wufoo) {
+      // Applications from Wufoo are managed in the app: their hiring step stays, and Wufoo's extra answers are kept.
+      for (const k of ['Applicant_Status', 'Declined_Reason']) { if (k in old) data[k] = old[k]; else delete data[k]; }
+      if (old._extra) data._extra = { ...old._extra, ...(data._extra || {}) };
+    }
     const changes = [];
     for (const field of allFields(key)) {
       if (field.type === 'file' || field.type === 'lookup' || field.type === 'lookups') continue;
@@ -268,8 +285,10 @@ async function saveRecord(env, key, z) {
       if (a !== b) changes.push({ f: field.key, from: old[field.key] ?? null, to: data[field.key] ?? null });
     }
     await env.DB.batch([
-      env.DB.prepare('UPDATE records SET name = ?, status = ?, email = ?, search = ?, data = ?, updated_at = ? WHERE id = ?')
-        .bind(name, status, email, searchOf(key, data, name), JSON.stringify(data), now, existing.id),
+      env.DB.prepare('UPDATE records SET name = ?, status = ?, email = ?, search = ?, data = ?, zoho_id = ?, updated_at = ? WHERE id = ?')
+        .bind(nameOf(key, data), statusOf(key, data), email, searchOf(key, data, nameOf(key, data)), JSON.stringify(data), zohoId, now, existing.id),
+      ...(linked ? [env.DB.prepare('INSERT INTO record_history (record_id, summary, at) VALUES (?, ?, ?)')
+        .bind(existing.id, 'Linked to the same application in Zoho (it came from Wufoo to both)', now)] : []),
       ...(changes.length ? [env.DB.prepare('INSERT INTO record_history (record_id, summary, changes, at) VALUES (?, ?, ?, ?)')
         .bind(existing.id, 'Updated from Zoho', JSON.stringify(changes), now)] : []),
     ]);

@@ -8,6 +8,7 @@ import { MODULES, allFields, formFields, nameOf, statusOf, searchOf, STEPS, CLOS
 import { FILE_TYPES, MAX_FILE } from './sops.js';
 import { vaSource, applyVaRecords } from './zoho.js';
 import { importState, startImport } from './import.js';
+import { wufooState } from './wufoo.js';
 import { applicantTrainings } from './training.js';
 import { partsIn, REPORT_ZONE } from './time.js';
 import * as rv from './records-views.js';
@@ -301,7 +302,8 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
   if (path === '/admin/applicants' && method === 'GET') {
     const { results } = await env.DB.prepare("SELECT * FROM records WHERE module = 'applicants' ORDER BY created_at DESC").all();
     const records = results.map((r) => ({ ...r, data: JSON.parse(r.data) }));
-    return page(rv.applicantsPage({ user, records, imported: await importState(env, 'applicants'), message }));
+    const wufoo = { ...(await wufooState(env)), url: `${url.origin}/api/wufoo/application`, keySet: Boolean(env.WUFOO_HANDSHAKE_KEY) };
+    return page(rv.applicantsPage({ user, records, imported: await importState(env, 'applicants'), wufoo, message }));
   }
 
   if ((m = path.match(/^\/admin\/(clients|vas)$/)) && method === 'GET') {

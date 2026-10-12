@@ -377,7 +377,43 @@ An admin-only page: **Team → Applicants** in the menu. It replaces Zoho CRM's 
 
 **Copy from Zoho** (button on the Applicants page): copies applicants from Zoho CRM's Applicants module, with their notes and resumes, one small step each minute. Zoho is only read. Rejected applicants and the 2 test records are left behind. Zoho's statuses become the new steps: Video Interview Invite Sent and Ghosted by applicant become **Ghosted**; the training module statuses become **In training**; Hired/Archived becomes **Hired**. It can be run again: applicants from Zoho are updated, and scores, the offer checklist and VA links entered in the app are kept. Needs the Zoho key with the CRM permissions in [3. Zoho key](#3-zoho-key).
 
-**New applications** still go from the Wufoo form to Zoho through Zapier. Sending them straight to the app comes later.
+### New applications from Wufoo
+
+Each new entry on the Wufoo job application form can go straight into the app as a new applicant at **New application**, through a Wufoo "WebHook" (Wufoo sends the answers to the app's address the moment someone applies). Until this is set up, applications still go from Wufoo to Zoho through Zapier.
+
+What the app does with each application:
+- The answers go into the applicant's fields (name, email, phone, place, time zone, availability, experience, systems and tools, languages, bio). Wufoo questions are matched by their title, ignoring capitals and punctuation. The list of titles for each field is `WUFOO_FIELDS` at the top of `src/wufoo.js`; add a title there to send a question into a field.
+- Answers that have no field in the app are kept under **Other fields from Wufoo** on the applicant, so nothing is lost. The **New applications from Wufoo** box at the bottom of **Team → Applicants** lists the questions of the last application that did not go into a field.
+- The resume (a Wufoo file upload) is downloaded and saved under the applicant's **Files** (up to 15 MB; pdf, doc, docx, odt, rtf, txt, xls, xlsx, ods, png, jpg). If it can't be downloaded, the applicant is still added, with a note giving the reason and the Wufoo link to the file.
+- The applicant's **History** starts with "Created from Wufoo (entry #…)".
+- If Wufoo sends the same entry twice, the second one is ignored.
+- If someone with the same email applied before, a new applicant is still added, with the note "Applied again; earlier application:" and a link to the earlier one.
+- No email or Slack message is sent for a new application.
+
+**Set it up** (signed in to Wufoo as the account owner):
+
+1. **Make a Handshake Key** (a secret code that proves an application really comes from your Wufoo form). In PowerShell, run:
+   ```bash
+   [guid]::NewGuid().ToString('N')
+   ```
+   Keep the window open. You paste the code in two places below, and nowhere else.
+2. **Give the code to the app.** In the project folder, run this and paste the code when asked:
+   ```bash
+   npx wrangler secret put WUFOO_HANDSHAKE_KEY
+   ```
+   The Wufoo box on **Team → Applicants** then shows "Handshake Key saved in Cloudflare: Yes". Until then, the app turns away everything Wufoo sends.
+3. **Add the WebHook in Wufoo.** Open the **Form Manager**, find the job application form, open its **Edit** menu and choose **Notifications** (on some Wufoo screens this is called **Integrations** or **Add Notifications**). In the list of integrations, choose **WebHook**, then **Add Integration**. Fill in:
+   - **WebHook URL**: `https://inova-va-app.andres-261.workers.dev/api/wufoo/application` (also shown in the Wufoo box on Team → Applicants).
+   - **Handshake Key**: the code from step 1.
+   - Tick **Include Field and Form Structures with Entry Data**. Without it, Wufoo sends only "Field1, Field2, …" instead of the question titles, and the answers can't go into the right fields.
+
+   Click **Save**.
+4. **Send a test entry.** Fill in the application form yourself with made-up answers, your own email, and a small PDF as the resume. Within a few seconds the test applicant appears under **New application** on **Team → Applicants**. Open it and check the details, the resume under **Files**, and **Other fields from Wufoo**. Then look at the Wufoo box at the bottom of the Applicants page: it shows when the entry arrived and which questions did not go into a field. If an important question (for example the name or email) is listed there, add its title to `WUFOO_FIELDS` in `src/wufoo.js` (or ask for it to be added). When everything looks right, delete the test applicant (**Edit**, then **Delete applicant**). The Zap also sent the test to Zoho, so delete it there too.
+5. **Turn off the Zapier Zap.** Once a real application has arrived in the app and looks right, go to Zapier, open the Zap that sends Wufoo entries to Zoho CRM, and switch it **Off**. From then on, applications only go to the app.
+
+While both are running, each application goes to the app and to Zoho. If you press **Copy from Zoho** on the applicants copy page during that time, the copy joins the Zoho copy of an application to the one that came from Wufoo (same email, made in Zoho within a day) instead of adding it twice. The applicant keeps the hiring step it has in the app, and the extra Wufoo answers stay.
+
+If Wufoo shows an error for the WebHook, the box on Team → Applicants says why the last entry was turned away (for example "wrong Handshake Key"). Then check that the code in Wufoo and the one saved with `npx wrangler secret put WUFOO_HANDSHAKE_KEY` are the same.
 
 ## Training
 
@@ -410,6 +446,7 @@ The VA training program, moved here from the separate training tracker app. A **
 | `src/sops.js` | Coverage SOPs: the template, saving, file uploads and who may open each one |
 | `src/timeoff.js` | Finds a VA's other time off within a week of a request |
 | `src/forms.js` | Receives responses from the time-off/coverage Google Form |
+| `src/wufoo.js` | Receives new job applications from the Wufoo form (WebHook); `WUFOO_FIELDS` says which question goes into which applicant field |
 | `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |
 | `src/zoho.js` | Reads active VAs from Zoho CRM (or the app's VA records after the switch) and active projects from Zoho Projects, assigns new projects by name, and finds each VA's Zoho Projects user |
 | `src/work.js` | Tasks, task lists and time logs in Zoho Projects (the Tasks & time page) |

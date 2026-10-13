@@ -225,7 +225,9 @@ const CSS = `
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 "Nunito Sans","Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
 a{color:var(--brand)}.ic{width:20px;height:20px;flex:none}
 .app{display:flex;min-height:100vh}
-.sidebar{width:248px;flex:none;background:var(--side);color:var(--side-ink);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;padding:14px 10px}
+.sidebar{width:248px;flex:none;background:var(--side);color:var(--side-ink);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;height:100dvh;padding:14px 10px;overflow-y:auto}
+/* The page links scroll on their own when the window is short, so Settings, Password and Log out stay in view. */
+.side-brand,.side-user{flex:none}.side-nav{flex:1 1 auto;min-height:96px;overflow-y:auto;overscroll-behavior:contain;position:relative;scrollbar-width:thin;scrollbar-color:var(--side-hover) transparent}
 .side-brand{display:flex;align-items:center;gap:10px;padding:6px 8px 14px}.side-brand strong{display:block;font-size:16px}.side-brand small{color:var(--side-muted)}
 .logo{width:38px;height:38px;border-radius:12px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:800}
 .side-group{margin-top:10px}.side-label{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--side-muted);padding:4px 10px}
@@ -515,6 +517,9 @@ const SCRIPT = `<script type="speculationrules">{"prefetch":[{"where":{"href_mat
   if (toggle) document.querySelectorAll('.sidebar a').forEach(function (a) {
     a.addEventListener('click', function () { toggle.checked = false; });
   });
+  // Short window: scroll the menu so the current page's link is in view.
+  var sideNav = document.querySelector('.side-nav'), sideOn = sideNav && sideNav.querySelector('.on');
+  if (sideOn && sideOn.offsetTop + sideOn.offsetHeight > sideNav.clientHeight) sideNav.scrollTop = sideOn.offsetTop - 8;
 })();
 </script>`;
 
@@ -549,7 +554,7 @@ export function layout({ title, user, active, message, body }) {
     `<a class="side-link ${href === active ? 'on' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${badge ? `<span class="badge">${badge}</span>` : ''}</a>`;
   const sidebar = `<aside class="sidebar" aria-label="Menu">
     <div class="side-brand"><div class="logo">IV</div><div><strong>InoVA Check-in</strong><small>InoVA Local</small></div></div>
-    ${groups.map(([label, links]) => `<div class="side-group"><div class="side-label">${label}</div>${links.map(link).join('')}</div>`).join('')}
+    <nav class="side-nav" aria-label="Pages">${groups.map(([label, links]) => `<div class="side-group"><div class="side-label">${label}</div>${links.map(link).join('')}</div>`).join('')}</nav>
     <div class="side-user">
       <div class="me">${avatar(user.name)}<div><strong>${esc(user.name)}</strong><small>${user.is_admin ? 'Admin' : user.is_va && !user.in_training ? 'VA' : 'In training'}</small></div></div>
       ${user.is_admin ? `<a class="side-link ${active === '/admin/settings' ? 'on' : ''}" href="/admin/settings">${icon('settings')}<span>Settings</span></a>` : ''}

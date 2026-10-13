@@ -10,6 +10,7 @@ import { vaSource, applyVaRecords } from './zoho.js';
 import { importState, startImport } from './import.js';
 import { wufooState } from './wufoo.js';
 import { applicantTrainings } from './training.js';
+import { recordEmails, forgetRecordEmails } from './email.js';
 import { partsIn, REPORT_ZONE } from './time.js';
 import * as rv from './records-views.js';
 
@@ -140,6 +141,8 @@ async function vaChanged(env, key) {
 
 async function deleteRecords(env, ids) {
   if (!ids.length) return;
+  // Saved emails that belonged only to these records are deleted with them.
+  await forgetRecordEmails(env, ids);
   const list = JSON.stringify(ids);
   const { results: files } = await env.DB.prepare('SELECT file_key FROM record_files WHERE record_id IN (SELECT value FROM json_each(?))').bind(list).all();
   for (const f of files) await env.SOP_FILES.delete(f.file_key);
@@ -365,7 +368,7 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
       env.DB.prepare('SELECT f.*, u.name AS user_name FROM record_files f LEFT JOIN users u ON u.id = f.uploaded_by WHERE f.record_id = ? ORDER BY f.uploaded_at DESC').bind(record.id).all(),
       env.DB.prepare('SELECT h.*, u.name AS user_name FROM record_history h LEFT JOIN users u ON u.id = h.user_id WHERE h.record_id = ? ORDER BY h.at DESC, h.id DESC LIMIT 100').bind(record.id).all(),
     ]);
-    const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null, va: null, training: null };
+    const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null, va: null, training: null, mail: null };
     if (key === 'applicants' && record.data._va) extra.va = await getRecord(env, 'vas', Number(record.data._va));
     if (key === 'applicants') {
       // The trainings started from this applicant's page, and who can be their trainer.
@@ -378,6 +381,8 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
         .map((r) => ({ ...r, data: JSON.parse(r.data) }));
       extra.projects = (await projectsByClient(env)).get(record.name.trim().toLowerCase()) || [];
     }
+    // Saved emails (see email.js). A client's page also shows its contacts' emails.
+    if (key !== 'applicants') extra.mail = await recordEmails(env, user, [record.id, ...extra.contacts.map((c) => c.id)]);
     if (key === 'contacts' && record.parent_id) extra.parent = await getRecord(env, 'clients', record.parent_id);
     if (key === 'vas') extra.login = (await vaLogins(env))(record);
     // "Clients referred" / "VAs referred": records that list this one under "Referred by".

@@ -52,6 +52,7 @@ The **app** runs on its own on Cloudflare, even when nobody is chatting with Cla
 | Slack bot token | Post messages, only in channels the bot has been invited to |
 | Zoho key | Read the Virtual Assistants, Accounts (clients) and Applicants modules in Zoho CRM, their page layouts and uploaded files (resumes, contracts); read projects and work with tasks and time logs in Zoho Projects. It can't change anything in Zoho CRM. |
 | Gmail key | Send email as inovaagent@inovalocal.com. It can't read the inbox. |
+| Connect Gmail (each admin) | Read (never send, change or delete) that admin's own mailbox, to save emails with clients, contacts and VAs. See [Shared email](#shared-email-connect-gmail). |
 
 ---
 
@@ -359,6 +360,47 @@ Admin-only pages under **Records** in the menu; VAs can't open them. They replac
 
 **The switch** (on the Copy from Zoho page): until an admin clicks **Use the app's VA records**, VA logins, check-ins and the backup lists keep coming from Zoho CRM every hour. After the switch they come from the app's VA records, and a change to a VA (status, email, time zone, availability, Slack IDs, company affiliation) takes effect right away. **Go back to Zoho CRM** undoes the switch.
 
+## Shared email (Connect Gmail)
+
+This replaces Zoho CRM's email feature. Each admin connects their own **@inovalocal.com** Gmail once. The app then saves **only** emails to or from an address of a client, a client contact or a VA in the app (the Email fields on their pages). Every other email is never saved. The app only reads Gmail: it never sends, changes or deletes anything there.
+
+- **Where:** Settings → **Email**. Each person clicks **Connect Gmail**, chooses **Shared with the team** (every admin sees those emails on the records) or **Private** (only they see them), and signs in with Google. The choice can be changed at any time on the same page, and it applies to all emails saved from that inbox.
+- **What happens next:** the app looks through the last 90 days, a little each minute (so a busy inbox can take a while), then checks for new emails every few minutes. The Email page shows each person's status, the last sync time, how many emails are saved, and any problem in plain words.
+- **On the records:** client, contact and VA pages have an **Emails** section, newest first, grouped into conversations. A client's page also shows its contacts' emails. Click an email to read its full text (only the plain text is kept, up to 20 KB; the rest stays in Gmail). Attachments are listed by name and size and open live from the owner's Gmail. The owner also sees **Open in Gmail**. An email that is in two people's inboxes shows once.
+- **A new email address on a record:** older emails to that address are not fetched by themselves. Click **Look for older emails** in the record's Emails section (last 90 days, every connected inbox).
+- **Disconnect** (on the Email page, any admin can do it, for example for someone who left): the app stops reading that mailbox and tells Google to end the connection. The box "Also delete the emails saved from this inbox" is ticked by default; untick it to keep them.
+- **Deleting a record** also deletes the emails that belonged only to it.
+- The Google key of each person is stored encrypted with the `EMAIL_TOKEN_KEY` secret and is never shown on any page.
+
+### Setting it up (once)
+
+Do steps 1 and 2 signed in to Google as **inovaagent@inovalocal.com** (the account that made the Gmail key in [4. Gmail key](#4-gmail-key)).
+
+1. **Google Cloud: the sign-in address.** At https://console.cloud.google.com, open the **VA App** project → **Google Auth Platform → Clients** → click the existing web client (the one whose Client ID is saved as `GMAIL_CLIENT_ID`). Under **Authorized redirect URIs**, click **Add URI** and paste:
+   ```
+   https://inova-va-app.andres-261.workers.dev/admin/email/callback
+   ```
+   Keep the `https://developers.google.com/oauthplayground` line that is already there. Click **Save**. (Only add `http://127.0.0.1:8787/admin/email/callback` too if you want to try Connect Gmail on this computer; it isn't needed otherwise.)
+2. **Google Cloud: Gmail API and audience.**
+   - Search for **Gmail API** and check that it says **Enabled** (it should be, from the Gmail key).
+   - **Google Auth Platform → Audience**: the user type should be **Internal**. Internal means only @inovalocal.com accounts can sign in, and Google does not need to review the app for reading Gmail.
+   - **Google Auth Platform → Data Access → Add or remove scopes**: add `https://www.googleapis.com/auth/gmail.readonly` (next to the `gmail.send` that is already there), then **Save**.
+   - **If the audience says External:** click **Make internal**. Don't leave it External: in "Testing" mode only listed test users can connect and every connection stops after 7 days, and "In production" needs a Google review (with a paid security check) for reading Gmail. If **Make internal** isn't offered, the project is not inside the inovalocal.com Google organization; tell Claude before going further.
+   - If someone later sees "This app is blocked" when connecting, a Google Workspace admin can allow it at admin.google.com under **Security → Access and data control → API controls → Manage Third-Party App Access**: find **VA App** and set it to **Trusted**.
+3. **Cloudflare: the encryption key.** In PowerShell, make a random key (it prints one line):
+   ```powershell
+   $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)
+   ```
+   Then save it in Cloudflare and paste the line when asked:
+   ```bash
+   npx wrangler secret put EMAIL_TOKEN_KEY
+   ```
+   Keep a copy in your password manager. Never paste it into a chat, email or file. If this key is ever changed or lost, saved emails stay, but everyone has to click Connect Gmail again.
+4. **Each person (Pratap, Andres, Kelli, Stephany):** log in to the app → Settings → **Email** → choose **Shared with the team** or **Private** → **Connect Gmail** → sign in with your @inovalocal.com account → tick the box that lets the app read your email → **Continue**. Back in the app, the page says "Gmail connected". The first emails show on the records within a few minutes.
+5. **When the emails on the records look right**, stop using Zoho CRM's email (part 3 of leaving Zoho CRM): in Zoho CRM, each person disconnects their mailbox (IMAP) in their email settings.
+
+Until step 3 is done, the Email page says "Connect Gmail is not set up yet" and nothing is read.
+
 ## Hiring
 
 An admin-only page: **Team → Applicants** in the menu. It replaces Zoho CRM's Applicants module and follows the "Application Process" Google Doc.
@@ -460,6 +502,8 @@ The VA training program, moved here from the separate training tracker app. A **
 | `src/training-views.js` | The HTML of the Training pages |
 | `src/import.js` | Copies clients, contacts, VAs and applicants (with notes and files) from Zoho CRM, a few at a time |
 | `src/notify.js` | Sends Slack messages, and emails through Gmail |
+| `src/email.js` | Shared email: Connect Gmail (Google sign-in), reading each connected inbox a little each minute, saving only emails with records, Shared/Private, attachments |
+| `src/email-views.js` | The HTML of Settings → Email, the Emails section on records, and one saved email |
 | `src/time.js` | Time zone and date calculations |
 | `schema.sql` | The database tables, plus the 4 starting admins (used to create a new database) |
 | `migrations/` | Changes to apply to an existing database. Already applied to the online database. |

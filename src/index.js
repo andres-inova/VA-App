@@ -16,6 +16,7 @@ import { isNearby, nearbyText } from './timeoff.js';
 import * as work from './work.js';
 import { sopRoutes, adminSopRoutes, vaSops, allSops, coveringSops } from './sops.js';
 import { recordRoutes } from './records.js';
+import { emailRoutes } from './email.js';
 import { trainingRoutes, adminTrainingRoutes, myTrainings, lateTrainings, ONBOARDING } from './training.js';
 import * as views from './views.js';
 
@@ -134,6 +135,8 @@ async function handle(request, env) {
   if (path === '/admin' || path.startsWith('/admin/')) {
     if (!user.is_admin) return redirect(homeOf(user));
     if (path === '/admin/training' || path.startsWith('/admin/training/')) return adminTrainingRoutes(env, user, path, method, field, message, url);
+    // Shared email: Settings > Email (Connect Gmail), saved emails and their attachments.
+    if (/^\/admin\/emails?(\/|$)/.test(path)) return emailRoutes(env, user, path, method, field, message, url);
     return adminRoutes(env, user, path, method, field, message, url, fieldAll);
   }
 

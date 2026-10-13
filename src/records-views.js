@@ -5,6 +5,7 @@ import { formatDate, REPORT_ZONE } from './time.js';
 import { MODULES, allFields, plainValue, STEPS, CLOSED, OFFER_ITEMS, RESUME_INVITE, resumeScore, callScore } from './fields.js';
 import { layout, icon, avatar, chip, section, empty, zohoTime, mailLink, phoneLink } from './views.js';
 import { applicantTrainingRows } from './training-views.js';
+import { emailsSection } from './email-views.js';
 
 const TONE = { Current: 'good', Active: 'good', Paused: 'warn', 'On Deck': 'info', Offboarded: 'muted', 'n/a': 'muted', Hired: 'good', Declined: 'muted', Ghosted: 'muted' };
 const tone = (status) => TONE[status] || (STEPS.includes(status) ? 'info' : 'muted');
@@ -293,7 +294,7 @@ function offerChecklist(record) {
   });
 }
 
-export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, source, zohoOrg, message }) {
+export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, mail, source, zohoOrg, message }) {
   const d = record.data;
   const mod = MODULES[key];
   const here = `/admin/${key}/${record.id}`;
@@ -312,6 +313,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
       ${key === 'clients' ? `<a class="btn sm plain" href="/admin/contacts/new?client=${record.id}">${icon('plus')} Add contact</a>` : ''}
       <a class="btn sm plain" href="#notes">${icon('note')} Notes · ${notes.length}</a>
       <a class="btn sm plain" href="#files">${icon('doc')} Files · ${files.length}</a>
+      ${mail ? `<a class="btn sm plain" href="#emails">${icon('mail')} Emails · ${mail.emails.length}${mail.more ? '+' : ''}</a>` : ''}
       ${zohoUrl ? `<a class="btn sm plain" href="${zohoUrl}" target="_blank" rel="noopener">${icon('external')} Open in Zoho</a>` : ''}
     </div></div>`;
 
@@ -385,6 +387,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     ${sections || `<div class="card">${empty('No details yet. Click Edit to add them.')}</div>`}
     ${hidden ? `<p class="meta">${hidden} empty field${hidden === 1 ? ' is' : 's are'} not shown. Click Edit to fill ${hidden === 1 ? 'it' : 'them'} in.</p>` : ''}
     ${extra}
+    ${mail ? emailsSection({ user, record, ...mail }) : ''}
     ${section({ title: 'Notes', count: notes.length, key: 'notes', body: notesHtml(key, record, notes, user) })}
     ${section({ title: 'Files', count: files.length, key: 'files', body: filesHtml(key, record, files) })}
     ${section({ title: 'History', count: history.length, open: false, key: 'history', hint: 'Who changed what, newest first.', body: historyHtml(key, history, names) })}`,

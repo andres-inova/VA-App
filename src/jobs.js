@@ -3,7 +3,8 @@
 import { REPORT_ZONE, zoneFor, partsIn, zonedTimeToUtc, parseHHMM, weekdayIndex, addDays, formatHM, formatDate } from './time.js';
 import { postToSlack, sendEmail, slackSafe } from './notify.js';
 import { syncFromZoho } from './zoho.js';
-import { runImportStep } from './import.js';
+import { runImportStep, importState } from './import.js';
+import { syncEmail } from './email.js';
 import { esc } from './util.js';
 import * as messages from './messages.js';
 
@@ -297,6 +298,14 @@ export async function runEveryMinute(env, now = new Date()) {
   await safely('Shift check', () => checkShifts(env, now));
   await safely('Reports', () => maybeSendReports(env, now));
   await safely('Timers', () => stopLongTimers(env, now));
+  // Shared email (Connect Gmail): a small step per connected inbox. Skipped on the hour (the Zoho sync) and while
+  // a copy from Zoho runs, so one run never asks other services for too much.
+  if (now.getUTCMinutes() !== 0) {
+    await safely('Email sync', async () => {
+      const copying = (await importState(env, 'records'))?.status === 'running' || (await importState(env, 'applicants'))?.status === 'running';
+      if (!copying) await syncEmail(env, now);
+    });
+  }
 }
 
 // A timer stops by itself after 8 hours. It then waits on the VA's Tasks & time page to be saved with notes.

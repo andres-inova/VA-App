@@ -87,6 +87,22 @@ const MESSAGES = {
   'day-signed': ['good', 'Day signed off.'],
   'module-finished': ['good', 'Module marked finished.'],
   'module-not-finished': ['good', 'Module marked not finished.'],
+  'email-not-set-up': ['bad', 'Connect Gmail is not set up yet (a secret is missing in Cloudflare). See README, "Shared email (Connect Gmail)".'],
+  'email-choose-share': ['bad', 'Please choose Shared with the team or Private first.'],
+  'email-bad-state': ['bad', 'That Google sign-in did not match a Connect Gmail click on this page (it was too old, or came from somewhere else). Nothing was saved. Please click Connect Gmail again.'],
+  'email-cancelled': ['info', 'Google sign-in was cancelled. Nothing was connected.'],
+  'email-google-failed': ['bad', 'Google did not finish the sign-in, so nothing was connected. Please try again. If it keeps happening, see README, "Shared email (Connect Gmail)".'],
+  'email-no-read': ['bad', 'Google did not give the app permission to read email, so nothing was connected. Click Connect Gmail again and tick the box that lets the app read your email.'],
+  'email-wrong-domain': ['bad', 'Only @inovalocal.com Google accounts can be connected. Nothing was saved. Please sign in with your work account.'],
+  'email-taken': ['bad', 'That mailbox is already connected by another admin.'],
+  'email-connected': ['good', 'Gmail connected. The app now looks through the last 90 days, a little each minute. Emails show on client, contact and VA pages as they are found.'],
+  'email-share-saved': ['good', 'Saved. This applies to every email saved from your inbox.'],
+  'email-disconnected': ['good', 'Disconnected. The app no longer reads that mailbox. Its saved emails were kept.'],
+  'email-disconnected-deleted': ['good', 'Done. The app no longer reads that mailbox, and the emails saved from it were deleted.'],
+  'email-lookup-queued': ['good', "The app will look for emails to and from this record's addresses (last 90 days) in each connected inbox, a little each minute."],
+  'email-lookup-none': ['info', 'No Gmail inbox is connected yet, so there is nothing to look through. See Settings > Email.'],
+  'email-lookup-no-address': ['info', 'This record has no email address yet. Add one with Edit first.'],
+  'email-gone': ['bad', "That email is not saved any more, or it is in someone's Private inbox."],
   'module-link-bad': ['bad', 'Please paste the full link to the module, starting with https:// (or http://).'],
 };
 
@@ -161,7 +177,8 @@ export const chip = (label, tone = 'muted') => `<span class="chip ${tone}">${esc
 const pageTabs = (tabs, on) => `<div class="chips proj-tabs">${tabs.map(([href, label]) =>
   `<a class="chip ${href === on ? 'on' : 'muted'}" href="${href}">${esc(label)}</a>`).join('')}</div>`;
 const CALENDAR_TABS = [['/admin/calendar', 'Time off calendar'], ['/admin/history', 'Check-in history']];
-const SETTINGS_TABS = [['/admin/settings', 'Settings'], ['/admin/holidays', 'Holidays']];
+const SETTINGS_TABS = [['/admin/settings', 'Settings'], ['/admin/email', 'Email'], ['/admin/holidays', 'Holidays']];
+export const settingsTabs = (on) => pageTabs(SETTINGS_TABS, on);
 
 const pill = (status) => {
   const [label, tone] = STATUS[status] || [status, 'muted'];
@@ -352,6 +369,12 @@ a.item.pick{display:block;color:inherit;text-decoration:none;border-radius:12px}
 .picks.scroll legend{float:left;width:100%;margin:0}.picks.scroll .check{display:flex}
 .save-bar{position:sticky;bottom:12px;z-index:4;display:flex;gap:8px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.12);width:max-content;max-width:100%}
 .save-bar button,.save-bar .btn{margin:0}
+.mail-body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.5;border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+.mail-snippet{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mail-msgs{padding:0 4px 8px 12px}.mail-subject,.mail-head dd{overflow-wrap:anywhere}
+.mail-files{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.mail-files .btn{max-width:100%;overflow-wrap:anywhere;white-space:normal}
+.mail-person-body{padding:0 8px 10px 60px}.mail-disconnect .check{margin:6px 0}
+@media (max-width:860px){.mail-person-body{padding-left:8px}}
 .note{display:flex;gap:12px;padding:10px 8px;align-items:flex-start}.note+.note{border-top:1px solid var(--line)}.note .bubble{overflow-wrap:anywhere}
 .note-add,.file-add{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:4px 8px 8px}.note-add textarea{flex:1 1 100%;min-height:70px}.note-add button,.file-add button{margin:0}
 .file-add input[type=file]{flex:1 1 14em;min-width:0}.file-add select{width:auto;flex:0 1 auto}.file-ic{width:40px;display:grid;place-items:center;color:var(--muted)}

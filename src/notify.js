@@ -93,7 +93,7 @@ export async function sendEmail(env, to, subject, text, html) {
   }
   let problem;
   try {
-    const message = buildMessage({ from: env.EMAIL_FROM, fromName: 'InoVA Check-in Tracker', to, subject, text, html });
+    const message = buildMessage({ from: env.EMAIL_FROM, fromName: 'InoVA Local', to, subject, text, html });
     const raw = base64(message).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
       method: 'POST',

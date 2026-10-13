@@ -1,13 +1,12 @@
-// Clients, client contacts, VAs and applicants (Hiring), kept in the app (this replaces Zoho CRM for them).
-// Admins only. Each record has field values (see fields.js), notes, files and a history of changes.
-// VA records drive VA logins and check-ins once an admin switches over from Zoho (see "switch" below).
-// Applicants move through the hiring steps, and a hired applicant can be turned into a VA record.
+// Clients, client contacts, VAs and applicants (Hiring), kept in the app. Admins only. Each record has field values
+// (see fields.js), notes, files and a history of changes. VA records drive VA logins, check-ins and the backup lists
+// (see applyVaRecords in zoho.js). Applicants move through the hiring steps, and a hired applicant can be turned into
+// a VA record. Records copied from Zoho CRM in 2026 keep their Zoho id (zoho_id) as history; nothing reads Zoho CRM.
 
 import { redirect, page, isDate } from './util.js';
 import { MODULES, allFields, formFields, nameOf, statusOf, searchOf, STEPS, CLOSED, OFFER_ITEMS } from './fields.js';
 import { FILE_TYPES, MAX_FILE } from './sops.js';
-import { vaSource, applyVaRecords } from './zoho.js';
-import { importState, startImport } from './import.js';
+import { applyVaRecords } from './zoho.js';
 import { wufooState } from './wufoo.js';
 import { applicantTrainings, linkApplicantToTraining } from './training.js';
 import { recordEmails, forgetRecordEmails } from './email.js';
@@ -98,8 +97,8 @@ function readForm(key, field, fieldAll, old, allowed) {
   }
   const nameMissing = key === 'contacts' ? !data.First_Name && !data.Last_Name : key === 'applicants' ? !data.Name : !data[MODULES[key].nameKey];
   if (nameMissing) return { data, error: key === 'contacts' ? 'Please type a first or last name.' : key === 'applicants' ? "Please type the applicant's first name." : `Please type the ${MODULES[key].one}'s name.` };
-  // Values the form doesn't show stay as they were (for example "Other fields from Zoho", or the VA record
-  // made from an applicant).
+  // Values the form doesn't show stay as they were (for example "Other fields from Zoho" or "from Wufoo", or the VA
+  // record made from an applicant).
   for (const [k, v] of Object.entries(old)) if (k.startsWith('_')) data[k] = v;
   return { data };
 }
@@ -134,9 +133,9 @@ function changesBetween(key, before, after) {
   return changes;
 }
 
-// After a VA record changes: once the app is the source of VA details, logins and backups follow right away.
+// After a VA record changes, VA logins and the backup lists follow right away.
 async function vaChanged(env, key) {
-  if (key === 'vas' && (await vaSource(env)) === 'app') await applyVaRecords(env);
+  if (key === 'vas') await applyVaRecords(env);
 }
 
 async function deleteRecords(env, ids) {
@@ -267,60 +266,24 @@ async function applicantAction(env, user, record, action, field, here, now) {
 export async function recordRoutes(env, user, path, method, field, fieldAll, form, message, url) {
   let m;
 
-  // The copy from Zoho, and switching VA details over to the app.
-  if (path === '/admin/records/import') {
-    if (method === 'POST') {
-      if (!env.ZOHO_REFRESH_TOKEN) return redirect('/admin/records/import?msg=import-no-zoho');
-      await startImport(env, user);
-      return redirect('/admin/records/import');
-    }
-    const counts = await env.DB.prepare(
-      "SELECT SUM(module = 'clients') AS clients, SUM(module = 'contacts') AS contacts, SUM(module = 'vas') AS vas FROM records"
-    ).first();
-    return page(rv.importPage({ user, state: await importState(env), counts, source: await vaSource(env), message }));
-  }
-  if (path === '/admin/records/switch' && method === 'POST') {
-    if (field('to') === 'zoho') {
-      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('va_source', 'zoho')").run();
-      return redirect('/admin/records/import?msg=switched-zoho');
-    }
-    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM records WHERE module = 'vas' AND status = 'Active'").first();
-    if (!n?.n) return redirect('/admin/records/import?msg=switch-not-ready');
-    await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('va_source', 'app')").run();
-    await applyVaRecords(env);
-    return redirect('/admin/records/import?msg=switched');
-  }
-
-  // The copy of applicants from Zoho (separate from clients, contacts and VAs).
-  if (path === '/admin/applicants/import') {
-    if (method === 'POST') {
-      if (!env.ZOHO_REFRESH_TOKEN) return redirect('/admin/applicants/import?msg=import-no-zoho');
-      await startImport(env, user, 'applicants');
-      return redirect('/admin/applicants/import');
-    }
-    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM records WHERE module = 'applicants'").first();
-    return page(rv.applicantImportPage({ user, state: await importState(env, 'applicants'), count: n?.n || 0, message }));
-  }
-
   if (path === '/admin/applicants' && method === 'GET') {
     const { results } = await env.DB.prepare("SELECT * FROM records WHERE module = 'applicants' ORDER BY created_at DESC").all();
     const records = results.map((r) => ({ ...r, data: JSON.parse(r.data) }));
     const wufoo = { ...(await wufooState(env)), url: `${url.origin}/api/wufoo/application`, keySet: Boolean(env.WUFOO_HANDSHAKE_KEY) };
-    return page(rv.applicantsPage({ user, records, imported: await importState(env, 'applicants'), wufoo, message }));
+    return page(rv.applicantsPage({ user, records, wufoo, message }));
   }
 
   if ((m = path.match(/^\/admin\/(clients|vas)$/)) && method === 'GET') {
     const key = m[1];
     const { results } = await env.DB.prepare('SELECT * FROM records WHERE module = ? ORDER BY name COLLATE NOCASE').bind(key).all();
     const records = results.map((r) => ({ ...r, data: JSON.parse(r.data) }));
-    const source = await vaSource(env);
     if (key === 'clients') {
       const names = await recordNames(env);
       const projects = await projectsByClient(env);
-      return page(rv.clientsPage({ user, records, names, projects, imported: await importState(env), message }));
+      return page(rv.clientsPage({ user, records, names, projects, message }));
     }
     const login = await vaLogins(env);
-    return page(rv.vasPage({ user, records: records.map((r) => ({ ...r, ...login(r) })), source, imported: await importState(env), message }));
+    return page(rv.vasPage({ user, records: records.map((r) => ({ ...r, ...login(r) })), message }));
   }
 
   // A new record: the empty form, then saving it.
@@ -395,7 +358,7 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
       ).bind(key, record.id).all();
       extra.referredHere = results;
     }
-    return page(rv.recordPage({ user, key, record, names, notes, files, history, ...extra, source: await vaSource(env), zohoOrg: env.ZOHO_CRM_ORG, message }));
+    return page(rv.recordPage({ user, key, record, names, notes, files, history, ...extra, message }));
   }
 
   if (action === 'edit') {

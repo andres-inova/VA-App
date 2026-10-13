@@ -3,7 +3,7 @@
 
 import { checkLogin, startSession, currentUser, endSession, renewedCookie, rememberedEmail, rememberEmailCookie, hashPassword, verifyPassword, passwordProblem } from './auth.js';
 import { dayInfo, checkinPause, getGraceMinutes, runEveryMinute, reportPeriod, sendReport, getReportRecipients, checkInStats, flaggedVAs } from './jobs.js';
-import { syncFromZoho } from './zoho.js';
+import { syncVAsAndProjects } from './zoho.js';
 import { handleFormWebhook } from './forms.js';
 import { handleWufooWebhook } from './wufoo.js';
 import { handleSlackCommand } from './slack-commands.js';
@@ -56,7 +56,7 @@ async function handle(request, env) {
 
   // Only accept form submissions that come from this app's own pages.
   if (method === 'POST' && request.headers.get('Origin') !== url.origin) {
-    return new Response('This form must be sent from the check-in app.', { status: 403 });
+    return new Response('This form must be sent from the InoVA Local app.', { status: 403 });
   }
   const isForm = /form/.test(request.headers.get('Content-Type') || '');
   const form = method === 'POST' && isForm ? await request.formData() : null;
@@ -627,7 +627,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
   if (path === '/admin/sync' && method === 'POST') {
     const back = field('back') === '/admin/projects' ? '/admin/projects' : '/admin/people';
     try {
-      await syncFromZoho(env);
+      await syncVAsAndProjects(env);
       return redirect(`${back}?msg=synced`);
     } catch (err) {
       console.error(err.message);
@@ -802,7 +802,7 @@ async function reopenDays(env, req, now) {
   ).bind(req.user_id, today > req.start_date ? today : req.start_date, req.end_date).run();
 }
 
-// A VA who can cover (Active or On Deck in Zoho), chosen by their Zoho record id.
+// A VA who can cover (VA Status Active or On Deck on their VA record), chosen by their key (Zoho id or "app-<id>").
 async function backupCandidate(env, zohoId) {
   if (!zohoId) return null;
   return env.DB.prepare('SELECT * FROM backup_candidates WHERE zoho_id = ?').bind(zohoId).first();
@@ -987,7 +987,7 @@ function cleanDays(values) {
   return [...new Set(values.filter((v) => /^[0-6]$/.test(v)))].sort().join(',');
 }
 
-// On Deck VAs from Zoho (they don't log in or check in, but can cover for others).
+// On Deck VAs, from the VA records (they don't log in or check in, but can cover for others).
 async function onDeckVAs(env) {
   const { results } = await env.DB.prepare("SELECT * FROM backup_candidates WHERE status = 'On Deck' ORDER BY name").all();
   return results;

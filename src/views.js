@@ -16,8 +16,8 @@ const MESSAGES = {
   'approved': ['good', 'Request approved.'],
   'denied': ['good', 'Request denied.'],
   'saved': ['good', 'Saved.'],
-  'synced': ['good', 'VAs and projects were updated from Zoho.'],
-  'sync-failed': ['bad', 'The Zoho sync did not work. Check the Zoho settings (see README).'],
+  'synced': ['good', 'VA logins were updated from the VA records, and projects from Zoho Projects.'],
+  'sync-failed': ['bad', 'The Zoho Projects sync did not work. Check the Zoho key (see README). VA logins were still updated from the VA records.'],
   'report-sent': ['good', 'Report posted in #check-in-tracker and emailed to the report recipients.'],
   'report-email-failed': ['bad', 'The report was posted in #check-in-tracker, but the email did not send. See "Last email problem" below.'],
   'password-changed': ['good', 'Your password was changed.'],
@@ -64,10 +64,6 @@ const MESSAGES = {
   'note-deleted': ['good', 'Note deleted.'],
   'note-empty': ['bad', 'Please type the note first.'],
   'file-uploaded': ['good', 'File added.'],
-  'import-no-zoho': ['bad', 'The Zoho key is not set up, so nothing can be copied from Zoho.'],
-  'switched': ['good', 'Done. VA logins, check-ins and backups now use the VA records in this app.'],
-  'switched-zoho': ['good', 'VA logins, check-ins and backups use Zoho CRM again (from the next hourly sync).'],
-  'switch-not-ready': ['bad', 'There are no Active VAs in the app yet. Copy them from Zoho first.'],
   'step-saved': ['good', 'Hiring step saved.'],
   'checklist-saved': ['good', 'Offer checklist saved.'],
   'va-made': ['good', 'VA record made. It is On Deck on the VAs page.'],
@@ -530,7 +526,7 @@ export function layout({ title, user, active, message, body }) {
 <meta name="theme-color" content="#008069"><link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="InoVA"><meta name="apple-mobile-web-app-status-bar-style" content="default"><title>${esc(title)} · InoVA Check-in</title>
+<meta name="apple-mobile-web-app-title" content="InoVA"><meta name="apple-mobile-web-app-status-bar-style" content="default"><title>${esc(title)} · InoVA Local</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>${CSS}</style></head><body>`;
 
@@ -553,7 +549,7 @@ export function layout({ title, user, active, message, body }) {
   const link = ([href, label, ic, badge]) =>
     `<a class="side-link ${href === active ? 'on' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${badge ? `<span class="badge">${badge}</span>` : ''}</a>`;
   const sidebar = `<aside class="sidebar" aria-label="Menu">
-    <div class="side-brand"><div class="logo">IV</div><div><strong>InoVA Check-in</strong><small>InoVA Local</small></div></div>
+    <div class="side-brand"><div class="logo">IV</div><div><strong>InoVA Local</strong><small>VA App</small></div></div>
     <nav class="side-nav" aria-label="Pages">${groups.map(([label, links]) => `<div class="side-group"><div class="side-label">${label}</div>${links.map(link).join('')}</div>`).join('')}</nav>
     <div class="side-user">
       <div class="me">${avatar(user.name)}<div><strong>${esc(user.name)}</strong><small>${user.is_admin ? 'Admin' : user.is_va && !user.in_training ? 'VA' : 'In training'}</small></div></div>
@@ -616,7 +612,7 @@ export function loginPage(error, email = '') {
     body: `<div class="card">
       <div class="logo">IV</div>
       <h2 style="font-size:22px">Welcome back</h2>
-      <p class="lead">Log in to the InoVA check-in app.</p>
+      <p class="lead">Log in to the InoVA Local app.</p>
       ${error ? `<div class="toast bad">${esc(errors[error] || error)}</div>` : ''}
       <form method="post" action="/login">
         <label for="email">Email</label><input id="email" name="email" type="email" required autocomplete="username" value="${esc(email)}"${email ? '' : ' autofocus'}>
@@ -1035,7 +1031,7 @@ export function adminTodayPage({ user, rows, week, todo, message, paused = false
       ${rows.length ? `<div class="summary-chips">${summary}</div>
       ${groups.filter(([g]) => by(g).length).map(([g, title, tone, open]) =>
         section({ title, count: by(g).length, open, tone, key: `group-${g}`, body: by(g).map(rowHtml).join('') })).join('')}`
-      : `<div class="card">${empty('No active VAs yet. Go to People and click "Sync with Zoho now".')}</div>`}
+      : `<div class="card">${empty('No active VAs yet. Add them on Team → VAs (VA Status Active, with an email).')}</div>`}
     </div>`,
   });
 }
@@ -1127,9 +1123,9 @@ export function timeOffPage({ user, pending, current, recent, vas, unmatched, va
     ${section({ title: 'Past, denied and cancelled', count: recent.length, open: false, body: requestCards(recent, true) })}
     ${section({
       title: 'Who can cover', count: backups.length, open: false,
-      hint: 'Only ticked VAs appear in the "who covers" lists. Untick anyone who is not able or willing to cover. The list comes from Zoho (VA Status Active or On Deck); new VAs start ticked.',
+      hint: 'Only ticked VAs appear in the "who covers" lists. Untick anyone who is not able or willing to cover. The list is every VA on Team → VAs with VA Status Active or On Deck; new VAs start ticked.',
       body: `<form method="post" action="/admin/time-off/backups" style="padding:0 8px">
-        ${allBackups.map((b) => `<label class="check" style="margin-top:6px"><input type="checkbox" name="can_cover" value="${esc(b.zoho_id)}" ${b.hidden ? '' : 'checked'}> ${esc(b.name)} <span class="small">(${esc(b.status)})</span></label>`).join('') || empty('Nobody yet. Sync with Zoho on the People page.')}
+        ${allBackups.map((b) => `<label class="check" style="margin-top:6px"><input type="checkbox" name="can_cover" value="${esc(b.zoho_id)}" ${b.hidden ? '' : 'checked'}> ${esc(b.name)} <span class="small">(${esc(b.status)})</span></label>`).join('') || empty('Nobody yet. VAs with VA Status Active or On Deck on Team → VAs appear here.')}
         <button>Save</button>
       </form>`,
     })}`,
@@ -1160,11 +1156,12 @@ export function peoplePage({ user, people, onDeck = [], message, tempPassword })
     const affiliation = (p.affiliation || '').trim();
     const exempt = isExempt(p);
     const why = p.exempt ? 'Exempted by an admin'
-      : !affiliation ? 'VA Company Affiliation is empty in Zoho'
-      : affiliation !== 'InoVA Local' ? `Affiliation in Zoho: ${affiliation}` : 'Affiliation in Zoho: InoVA Local';
-    const byZoho = affiliation !== 'InoVA Local';
-    // VAs exempt because of Zoho are changed in Zoho; the button only exempts (or un-exempts) InoVA Local VAs.
-    const button = byZoho && !p.exempt ? '<span class="small">Change the affiliation in Zoho to check this VA.</span>' : `
+      : !affiliation ? 'VA Company Affiliation is empty on their VA record'
+      : affiliation !== 'InoVA Local' ? `VA Company Affiliation: ${affiliation}` : 'VA Company Affiliation: InoVA Local';
+    const byAffiliation = affiliation !== 'InoVA Local';
+    // VAs exempt because of their affiliation are changed on their VA record; the button only exempts (or un-exempts)
+    // InoVA Local VAs.
+    const button = byAffiliation && !p.exempt ? '<span class="small">To check this VA, change the VA Company Affiliation on their VA record (Team → VAs).</span>' : `
       <form method="post" action="/admin/people/${p.id}/exempt" data-confirm="${esc(p.exempt ? `Start checking ${p.name} again?` : `Stop checking ${p.name}? They won't get late alerts or appear in reports.`)}">
         <input type="hidden" name="exempt" value="${p.exempt ? 0 : 1}">
         <button class="sm plain">${p.exempt ? 'Remove exemption' : 'Exempt this VA'}</button>
@@ -1175,8 +1172,8 @@ export function peoplePage({ user, people, onDeck = [], message, tempPassword })
   const vaRow = (p) => {
     const c = checked(p);
     const warnings = [
-      !zoneFor(p.time_zone) && 'Time zone missing in Zoho (using EST)',
-      !p.slack_channel_id && 'Slack management channel not set in Zoho',
+      !zoneFor(p.time_zone) && 'Time zone missing on their VA record (using EST)',
+      !p.slack_channel_id && 'Slack Management ID missing on their VA record',
     ].filter(Boolean);
     return item({
       name: p.name, title: esc(p.name), sub: esc(p.project_list || 'No projects'), side: c.chip,
@@ -1189,9 +1186,9 @@ export function peoplePage({ user, people, onDeck = [], message, tempPassword })
   };
 
   const onDeckRow = (p) => item({
-    name: p.name, title: esc(p.name), sub: esc(p.email || 'No email in Zoho'), side: chip('On Deck', 'info'),
+    name: p.name, title: esc(p.name), sub: esc(p.email || 'No email on their VA record'), side: chip('On Deck', 'info'),
     body: `<div class="chips">${chip(p.time_zone || 'No time zone', 'muted')}${chip(p.availability || 'No availability', 'muted')}</div>
-      <p class="meta">On Deck VAs don't check in. They can be chosen to cover when someone takes time off. To make them Active, change their VA Status in Zoho and sync.</p>`,
+      <p class="meta">On Deck VAs don't check in. They can be chosen to cover when someone takes time off. To make them Active, change their VA Status on Team → VAs.</p>`,
   });
 
   const adminRow = (p) => item({
@@ -1203,13 +1200,13 @@ export function peoplePage({ user, people, onDeck = [], message, tempPassword })
     title: 'People', user, active: '/admin/people', message,
     body: `${tempBox}
     <div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
-      <p class="lead" style="margin:0;flex:1;min-width:240px">VAs come from Zoho CRM every hour. To change a VA's details, change them in Zoho, then sync.</p>
-      <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/people"><button style="margin:0">${icon('sync')} Sync with Zoho now</button></form>
+      <p class="lead" style="margin:0;flex:1;min-width:240px">VAs come from the VA records on Team → VAs: Active VAs with an email can log in, and On Deck VAs can cover. To change a VA's details, edit their VA record; the change shows here right away.</p>
+      <a class="btn" style="margin:0" href="/admin/vas">${icon('va')} Open VA records</a>
     </div>
     <label class="search" for="find-person">${icon('people')}<input id="find-person" type="search" placeholder="Search people" autocomplete="off" data-filter="#people .item" data-empty="#people-none"></label>
     <div id="people">
     ${section({ title: 'Active VAs', count: vas.length, open: true, body: vas.length ? vas.map(vaRow).join('') : empty('No active VAs yet.') })}
-    ${section({ title: 'On Deck VAs', count: onDeck.length, open: true, body: onDeck.length ? onDeck.map(onDeckRow).join('') : empty('No On Deck VAs in Zoho.') })}
+    ${section({ title: 'On Deck VAs', count: onDeck.length, open: true, body: onDeck.length ? onDeck.map(onDeckRow).join('') : empty('No On Deck VAs.') })}
     ${section({
       title: 'Admins', count: admins.length, open: false,
       body: `${admins.map(adminRow).join('')}
@@ -1327,7 +1324,7 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
   const coverage = projects.filter((p) => p.is_coverage);
   const coverageIds = new Set(projects.filter((p) => p.is_coverage).map((p) => p.id));
 
-  // The time zone for a start time. "" means the VA's own zone from Zoho.
+  // The time zone for a start time. "" means the VA's own zone (from their VA record).
   const zoneSelect = (selected, vaZone) => `<select name="time_zone" aria-label="Time zone">
     <option value="">${vaZone ? `VA's zone (${esc(vaZone)})` : "VA's zone"}</option>
     ${['PST', 'MST', 'CST', 'EST'].map((z) => `<option value="${z}" ${z === selected ? 'selected' : ''}>${z}</option>`).join('')}</select>`;
@@ -1388,7 +1385,7 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
     ${section({ title: 'Projects', count: assigned.length, open: true, body: assigned.length ? assigned.map((p) => projectRow(p)).join('') : empty('No projects yet. Click "Sync with Zoho now".') })}
     ${coverage.length ? section({
       title: 'Coverage projects', count: coverage.length, open: false, key: 'coverage-projects',
-      hint: 'Named "Client - VA - Coverage" in Zoho. The backup VA logs coverage time there. They need no Coverage SOP, and count for check-ins only on days that VA is the approved backup for the client. Their start time is copied from the regular VA of the client when the project first appears.',
+      hint: 'Named "Client - VA - Coverage" in Zoho Projects. The backup VA logs coverage time there. They need no Coverage SOP, and count for check-ins only on days that VA is the approved backup for the client. Their start time is copied from the regular VA of the client when the project first appears.',
       body: coverage.map((p) => projectRow(p)).join(''),
     }) : ''}
     </div><div id="projects-none" class="card empty no-results">No project matches your search.</div>`,

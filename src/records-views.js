@@ -21,16 +21,7 @@ const linkTo = (key, id, name) => `<a href="/admin/${key}/${esc(id)}">${esc(name
 const recordRow = (key, r, sub, side = '') => `<a class="item flat pick" href="/admin/${key}/${esc(r.id)}"><div class="item-head">${avatar(r.name)}
   <div class="grow"><div class="title">${esc(r.name)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${side}${icon('chevron', 'chev')}</div></a>`;
 
-// A line pointing to the copy from Zoho (on the list pages).
-function importLine(state, count) {
-  if (state?.status === 'running') return `<p class="meta">${icon('sync')} Copying from Zoho now… <a href="/admin/records/import">See progress</a></p>`;
-  if (!count) return `<div class="card"><h2>Bring your records over from Zoho</h2>
-    <p class="meta">Copy every client, contact and VA from Zoho CRM, with their notes and files. You can copy again later, until you stop using Zoho.</p>
-    <a class="btn" href="/admin/records/import">${icon('sync')} Copy from Zoho</a></div>`;
-  return '';
-}
-
-function listPage({ user, key, title, active, lead, records, statuses, rowOf, extraHead = '', imported, searchHint, message }) {
+function listPage({ user, key, title, active, lead, records, statuses, rowOf, searchHint, message }) {
   const by = (s) => records.filter((r) => r.status === s);
   const others = records.filter((r) => !statuses.includes(r.status));
   const list = (label, rows, open) => (rows.length ? section({ title: label, count: rows.length, open, key: `${key}-${label}`, body: rows.map(rowOf).join('') }) : '');
@@ -38,9 +29,7 @@ function listPage({ user, key, title, active, lead, records, statuses, rowOf, ex
   return layout({
     title, user, active, message,
     body: `<p class="lead">${lead}</p>
-    ${extraHead}${importLine(imported, records.length)}
-    <div class="actions" style="margin:0 0 14px"><a class="btn sm" href="/admin/${key}/new">${icon('plus')} New ${MODULES[key].one}</a>
-      <a class="btn sm plain" href="/admin/records/import">${icon('sync')} Copy from Zoho</a></div>
+    <div class="actions" style="margin:0 0 14px"><a class="btn sm" href="/admin/${key}/new">${icon('plus')} New ${MODULES[key].one}</a></div>
     ${records.length ? `<div class="summary-chips">${statuses.filter((s) => by(s).length).map((s) => chip(`${by(s).length} ${s === 'n/a' ? 'no status' : s.toLowerCase()}`, tone(s))).join('')}</div>
     <label class="search" for="find-${key}">${icon('building')}<input id="find-${key}" type="search" placeholder="${esc(searchHint)}" autocomplete="off" data-filter="#${key}-list .item" data-empty="#${key}-none"></label>
     <div id="${key}-list">${statuses.map((s) => list(s === 'n/a' ? 'No status' : s, by(s), !closed.includes(s))).join('')}${list('Other', others, false)}</div>
@@ -48,9 +37,9 @@ function listPage({ user, key, title, active, lead, records, statuses, rowOf, ex
   });
 }
 
-export function clientsPage({ user, records, names, projects, imported, message }) {
+export function clientsPage({ user, records, names, projects, message }) {
   return listPage({
-    user, key: 'clients', title: 'Clients', active: '/admin/clients', imported, message, records,
+    user, key: 'clients', title: 'Clients', active: '/admin/clients', message, records,
     lead: 'Every client, with contacts, notes and files. Click a client to see or change it.',
     statuses: MODULES.clients.statuses, searchHint: 'Search clients, emails or places',
     rowOf: (r) => {
@@ -63,12 +52,10 @@ export function clientsPage({ user, records, names, projects, imported, message 
   });
 }
 
-export function vasPage({ user, records, source, imported, message }) {
-  const note = source === 'app' ? '' : records.length
-    ? `<div class="toast info" style="display:block">Check-ins and VA logins still use the VA details in Zoho CRM. When these records look right, <a href="/admin/records/import#switch">switch to the app</a>.</div>` : '';
+export function vasPage({ user, records, message }) {
   return listPage({
-    user, key: 'vas', title: 'VAs', active: '/admin/vas', imported, message, records, extraHead: note,
-    lead: 'Every VA, with contact details, pay notes, scores, notes and files. Click a VA to see or change them.',
+    user, key: 'vas', title: 'VAs', active: '/admin/vas', message, records,
+    lead: 'Every VA, with contact details, pay notes, scores, notes and files. Active VAs can log in and check in. Click a VA to see or change them; changes count right away.',
     statuses: MODULES.vas.statuses, searchHint: 'Search VAs, emails or places',
     rowOf: (r) => {
       const d = r.data;
@@ -112,8 +99,8 @@ function historyHtml(key, history, names) {
       const short = (t) => (t.length > 120 ? `${t.slice(0, 120)}…` : t);
       return `<li><b>${esc(x.label)}</b>: ${esc(short(from))} → ${esc(short(to))}</li>`;
     }).join('');
-    return `<div class="item flat"><div class="item-head" style="align-items:flex-start">${avatar(h.user_name || 'Zoho')}<div class="grow">
-      <div class="title">${esc(h.summary)}</div><div class="sub">${esc(h.user_name || 'Zoho copy')} · ${esc(when(h.at))}</div>
+    return `<div class="item flat"><div class="item-head" style="align-items:flex-start">${avatar(h.user_name || 'Automatic')}<div class="grow">
+      <div class="title">${esc(h.summary)}</div><div class="sub">${esc(h.user_name || 'Automatic')} · ${esc(when(h.at))}</div>
       ${lines ? `<ul class="changes">${lines}</ul>` : ''}</div></div></div>`;
   }).join('');
 }
@@ -147,7 +134,7 @@ function filesHtml(key, record, files) {
     <p class="small" style="margin:4px 8px 10px">PDF, Word, Excel, text or a picture, up to 15 MB.</p>`;
   const list = files.map((f) => `<div class="item flat"><div class="item-head"><span class="file-ic">${icon('doc')}</span>
     <div class="grow"><div class="title"><a href="${fileLink(key, record.id, f)}" target="_blank" rel="noopener">${esc(f.file_name)}</a></div>
-      <div class="sub">${esc(label(f))} · ${esc(size(f.file_size))} · ${esc(f.user_name || f.uploader || 'Zoho')} · ${esc(when(f.uploaded_at))}</div></div>
+      <div class="sub">${esc(label(f))} · ${esc(size(f.file_size))} · ${esc(f.user_name || f.uploader || 'Automatic')} · ${esc(when(f.uploaded_at))}</div></div>
     <form method="post" action="${here}/files/${f.id}/delete" data-confirm="Delete ${esc(f.file_name)}?"><button class="sm plain" aria-label="Delete ${esc(f.file_name)}">${icon('trash')}</button></form></div></div>`).join('');
   return upload + (list || empty('No files yet.'));
 }
@@ -294,7 +281,7 @@ function offerChecklist(record) {
   });
 }
 
-export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, mail, source, zohoOrg, message }) {
+export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, mail, message }) {
   const d = record.data;
   const mod = MODULES[key];
   const here = `/admin/${key}/${record.id}`;
@@ -303,7 +290,6 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     : [`/admin/${key}`, `All ${mod.label.toLowerCase()}`];
   const status = record.status === 'n/a' ? 'No status' : record.status;
   const contactLine = [d.Title && esc(d.Title), d.Email && mailLink(d.Email), d.Phone && phoneLink(d.Phone), d.Location && esc(d.Location)].filter(Boolean);
-  const zohoUrl = record.zoho_id && zohoOrg ? `https://crm.zoho.com/crm/${esc(zohoOrg)}/tab/${mod.zohoTab}/${esc(record.zoho_id)}` : '';
   const head = `<div class="card">
     <div class="rec-head">${avatar(record.name, 'lg')}<div class="grow"><h2>${esc(record.name)}</h2>
       <div class="chips">${key === 'contacts' ? (parent ? chip(`Contact at ${parent.name}`, 'info') : chip('No client', 'warn')) : ''}${chip(status, tone(record.status))}</div></div></div>
@@ -314,7 +300,6 @@ export function recordPage({ user, key, record, names, notes, files, history, co
       <a class="btn sm plain" href="#notes">${icon('note')} Notes · ${notes.length}</a>
       <a class="btn sm plain" href="#files">${icon('doc')} Files · ${files.length}</a>
       ${mail ? `<a class="btn sm plain" href="#emails">${icon('mail')} Emails · ${mail.emails.length}${mail.more ? '+' : ''}</a>` : ''}
-      ${zohoUrl ? `<a class="btn sm plain" href="${zohoUrl}" target="_blank" rel="noopener">${icon('external')} Open in Zoho</a>` : ''}
     </div></div>`;
 
   let related = '';
@@ -335,9 +320,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
   }
   if (key === 'vas') {
     const u = login?.user;
-    const access = source !== 'app'
-      ? 'Check-ins and logins still use Zoho CRM. Changes here take effect after you switch to the app (Copy from Zoho page).'
-      : u?.is_va ? `Can log in to this app as ${esc(u.email)}.${u.has_password ? '' : ' Has not set a password yet.'}`
+    const access = u?.is_va ? `Can log in to this app as ${esc(u.email)}.${u.has_password ? '' : ' Has not set a password yet.'}`
         : record.status === 'Active' ? 'Active, but has no email, so cannot log in.' : 'Not Active, so cannot log in to this app.';
     related += section({
       title: 'Clients and projects', count: login?.projects.length || 0, key: 'projects',
@@ -376,7 +359,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
   const extra = d._extra ? section({
     title: d._wufoo ? 'Other fields from Wufoo' : 'Other fields from Zoho', count: Object.keys(d._extra).length, open: false, key: 'extra',
     hint: d._wufoo ? 'Answers on the Wufoo form that have no place in the app. Kept here so nothing is lost.'
-      : 'Fields that were filled in Zoho but have no place in the app. Kept here so nothing is lost.',
+      : 'Fields that were filled in Zoho CRM (before this record moved to the app) and have no place in the app. Kept here so nothing is lost.',
     body: `<dl class="fields">${Object.entries(d._extra).map(([k, v]) => `<div><dt>${esc(k.replace(/_/g, ' '))}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>`,
   }) : '';
 
@@ -469,59 +452,7 @@ export function editPage({ user, key, record, choices, owners, clients, error, m
   });
 }
 
-// ---- Copy from Zoho, and the switch ----
-
-export function importPage({ user, state, counts, source, message }) {
-  const c = counts || {};
-  const inApp = (c.clients || 0) + (c.contacts || 0) + (c.vas || 0);
-  const s = state || {};
-  const done = s.counts ? `${s.counts.clients} clients, ${s.counts.contacts} contacts and ${s.counts.vas} VAs, with ${s.counts.notes} new notes and ${s.counts.files} new files` : '';
-  let status = '<p class="meta">Not copied yet.</p>';
-  if (s.status === 'running') {
-    const left = (s.queue || []).length;
-    status = `<div class="toast info" style="display:block">${icon('sync')} Copying… ${esc(done)} so far, ${left} step${left === 1 ? '' : 's'} left.
-      It continues on its own every minute, even if you close this page. This page updates every minute.</div>`;
-  } else if (s.status === 'done') {
-    status = `<p class="meta">Last copy finished ${esc(zohoTime(s.finished_at))} (started by ${esc(s.by || 'an admin')}): ${esc(done)}.</p>`;
-  } else if (s.status === 'failed') {
-    status = `<div class="toast bad" style="display:block">The copy stopped ${esc(zohoTime(s.finished_at))}: ${esc(done)} were copied before that.
-      If the reason mentions a scope or permission, the Zoho key needs the permissions listed below.<br>
-      <code style="white-space:pre-wrap;word-break:break-word">${esc(s.error || '')}</code></div>`;
-  }
-  const problems = s.problems?.length ? `<details class="list-opts"><summary>${s.problems.length} file${s.problems.length === 1 ? '' : 's'} could not be copied</summary>
-    <ul class="changes">${s.problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></details>` : '';
-  const again = inApp ? 'Copying again replaces the details of every client, contact and VA that came from Zoho with what Zoho has now. Changes made in the app to those details are lost (notes, files and history added in the app stay). Continue?' : '';
-
-  const switchCard = source === 'app'
-    ? `<p class="meta"><b>The app's VA records are in use.</b> VA logins, check-ins and the backup lists follow the VA pages in this app. Changes in Zoho CRM are ignored.</p>
-      <form method="post" action="/admin/records/switch" data-confirm="Go back to using the VA details in Zoho CRM? The next hourly sync copies them from Zoho again."><input type="hidden" name="to" value="zoho">
-      <button class="sm plain">Go back to Zoho CRM</button></form>`
-    : `<p class="meta"><b>Zoho CRM is still in use.</b> VA logins, check-ins and the backup lists are copied from Zoho CRM every hour. Changes to VAs in this app don't affect them yet.</p>
-      <p class="meta">When the VA records here look right, switch. From then on, a VA's status, email, time zone, availability, Slack IDs and company affiliation come from this app, and changes take effect right away.</p>
-      <form method="post" action="/admin/records/switch" data-confirm="Use the VA records in this app for logins, check-ins and backups from now on?"><input type="hidden" name="to" value="app">
-      <button ${c.vas ? '' : 'disabled'}>${icon('check')} Use the app's VA records</button></form>`;
-
-  return layout({
-    title: 'Copy from Zoho', user, active: '/admin/clients', message,
-    body: `<div class="chips proj-tabs"><a class="chip muted" href="/admin/clients">‹ Clients</a><a class="chip muted" href="/admin/vas">‹ VAs</a></div>
-    <div data-autorefresh>
-    <div class="card"><h2>1. Copy clients, contacts and VAs from Zoho CRM</h2>
-      <p class="meta">Copies every client (Zoho Accounts), contact and VA, with their notes, attachments, resumes and contracts. Zoho is only read, never changed.</p>
-      <p class="meta">In the app now: <b>${c.clients || 0}</b> clients, <b>${c.contacts || 0}</b> contacts, <b>${c.vas || 0}</b> VAs.</p>
-      ${status}${problems}
-      <form method="post" action="/admin/records/import" ${again ? `data-confirm="${esc(again)}"` : ''}>
-        <button ${s.status === 'running' ? 'disabled' : ''}>${icon('sync')} ${inApp ? 'Copy again from Zoho' : 'Copy from Zoho'}</button></form>
-    </div>
-    <div class="card" id="switch"><h2>2. Use the app's VA records for check-ins</h2>${switchCard}</div>
-    </div>
-    <div class="card"><h2>Zoho key permissions</h2>
-      <p class="meta">The copy needs the Zoho key to include: <code>ZohoCRM.modules.accounts.READ</code>, <code>ZohoCRM.modules.contacts.READ</code>,
-      <code>ZohoCRM.modules.custom.READ</code>, <code>ZohoCRM.modules.notes.READ</code>, <code>ZohoCRM.modules.attachments.READ</code> and <code>ZohoCRM.files.READ</code>
-      (see README, "3. Zoho key").</p></div>`,
-  });
-}
-
-// ---- Hiring: the list of applicants, and the copy from Zoho ----
+// ---- Hiring: the list of applicants ----
 
 const appliedOn = (iso) => (iso ? new Date(iso.includes('T') ? iso : `${iso.replace(' ', 'T')}Z`)
   .toLocaleDateString('en-US', { timeZone: REPORT_ZONE, month: 'short', day: 'numeric', year: 'numeric' }) : '');
@@ -556,7 +487,7 @@ function wufooBox(w) {
     count: w.keySet ? undefined : 'not set up', body: `<div style="padding:0 8px 8px">${lines.join('')}</div>` });
 }
 
-export function applicantsPage({ user, records, imported, wufoo, message }) {
+export function applicantsPage({ user, records, wufoo, message }) {
   const by = (s) => records.filter((r) => r.status === s);
   const others = records.filter((r) => !STEPS.includes(r.status) && !CLOSED.includes(r.status));
   const row = (r) => {
@@ -566,58 +497,14 @@ export function applicantsPage({ user, records, imported, wufoo, message }) {
   };
   const list = (label, rows, open) => (rows.length ? section({ title: label, count: rows.length, open, key: `applicants-${label}`, body: rows.map(row).join('') }) : '');
   const open = records.filter((r) => STEPS.includes(r.status) && r.status !== 'Hired').length;
-  let copy = '';
-  if (imported?.status === 'running') copy = `<p class="meta">${icon('sync')} Copying applicants from Zoho now… <a href="/admin/applicants/import">See progress</a></p>`;
-  else if (!records.length) {
-    copy = `<div class="card"><h2>Bring your applicants over from Zoho</h2>
-      <p class="meta">Copy every applicant from Zoho CRM except the Rejected ones, with their notes and resumes.</p>
-      <a class="btn" href="/admin/applicants/import">${icon('sync')} Copy from Zoho</a></div>`;
-  }
   return layout({
     title: 'Hiring', user, active: '/admin/applicants', message,
     body: `<p class="lead">Everyone who applied, by hiring step. Click an applicant to see their details, scores and notes, and to move them to the next step.</p>
-    ${copy}
-    <div class="actions" style="margin:0 0 14px"><a class="btn sm" href="/admin/applicants/new">${icon('plus')} New applicant</a>
-      <a class="btn sm plain" href="/admin/applicants/import">${icon('sync')} Copy from Zoho</a></div>
+    <div class="actions" style="margin:0 0 14px"><a class="btn sm" href="/admin/applicants/new">${icon('plus')} New applicant</a></div>
     ${records.length ? `<div class="summary-chips">${chip(`${open} in progress`, 'info')}${chip(`${by('Hired').length} hired`, 'good')}${CLOSED.map((s) => chip(`${by(s).length} ${s.toLowerCase()}`, 'muted')).join('')}</div>
     <label class="search" for="find-applicants">${icon('applicant')}<input id="find-applicants" type="search" placeholder="Search applicants, emails or places" autocomplete="off" data-filter="#applicants-list .item" data-empty="#applicants-none"></label>
     <div id="applicants-list">${STEPS.map((s) => list(s, by(s), s !== 'Hired')).join('')}${CLOSED.map((s) => list(s, by(s), false)).join('')}${list('Other', others, false)}</div>
     <div class="empty no-results" id="applicants-none">Nothing matches.</div>` : ''}
     ${wufooBox(wufoo)}`,
-  });
-}
-
-export function applicantImportPage({ user, state, count, message }) {
-  const s = state || {};
-  const done = s.counts ? `${s.counts.applicants} applicants, with ${s.counts.notes} new notes and ${s.counts.files} new files` : '';
-  let status = '<p class="meta">Not copied yet.</p>';
-  if (s.status === 'running') {
-    const left = (s.queue || []).length;
-    status = `<div class="toast info" style="display:block">${icon('sync')} Copying… ${esc(done)} so far, ${left} step${left === 1 ? '' : 's'} left.
-      It continues on its own every minute, even if you close this page. This page updates every minute.</div>`;
-  } else if (s.status === 'done') {
-    status = `<p class="meta">Last copy finished ${esc(zohoTime(s.finished_at))} (started by ${esc(s.by || 'an admin')}): ${esc(done)}.</p>`;
-  } else if (s.status === 'failed') {
-    status = `<div class="toast bad" style="display:block">The copy stopped ${esc(zohoTime(s.finished_at))}: ${esc(done)} were copied before that.
-      If the reason mentions a scope or permission, the Zoho key needs the permissions listed below.<br>
-      <code style="white-space:pre-wrap;word-break:break-word">${esc(s.error || '')}</code></div>`;
-  }
-  const problems = s.problems?.length ? `<details class="list-opts"><summary>${s.problems.length} file${s.problems.length === 1 ? '' : 's'} could not be copied</summary>
-    <ul class="changes">${s.problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></details>` : '';
-  const again = count ? 'Copying again replaces the details of every applicant that came from Zoho with what Zoho has now, including their hiring step. Scores, the offer checklist, notes, files and history added in the app stay. Continue?' : '';
-  return layout({
-    title: 'Copy applicants from Zoho', user, active: '/admin/applicants', message,
-    body: `<div class="chips proj-tabs"><a class="chip muted" href="/admin/applicants">‹ Hiring</a></div>
-    <div class="card" data-autorefresh><h2>Copy applicants from Zoho CRM</h2>
-      <p class="meta">Copies every applicant in Zoho CRM except the Rejected ones, with their notes, attachments and resumes. Zoho is only read, never changed.</p>
-      <p class="meta">Zoho's Applicant Status becomes a hiring step: "Video Interview Invite Sent" and "Ghosted by applicant" become Ghosted, the training modules become In training, and Hired/Archived becomes Hired.</p>
-      <p class="meta">In the app now: <b>${count}</b> applicants.</p>
-      ${status}${problems}
-      <form method="post" action="/admin/applicants/import" ${again ? `data-confirm="${esc(again)}"` : ''}>
-        <button ${s.status === 'running' ? 'disabled' : ''}>${icon('sync')} ${count ? 'Copy again from Zoho' : 'Copy from Zoho'}</button></form>
-    </div>
-    <div class="card"><h2>Zoho key permissions</h2>
-      <p class="meta">The copy needs the Zoho key to include: <code>ZohoCRM.modules.custom.READ</code>, <code>ZohoCRM.modules.notes.READ</code>,
-      <code>ZohoCRM.modules.attachments.READ</code> and <code>ZohoCRM.files.READ</code> (see README, "3. Zoho key").</p></div>`,
   });
 }

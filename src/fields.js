@@ -1,7 +1,7 @@
-// The fields of clients, client contacts, VAs and applicants, grouped into sections. The record pages, the edit
-// forms and the copy from Zoho CRM all use this list. Each field's key is its Zoho CRM API name, so the copy from
-// Zoho knows where each value goes (fields that are new in the app have new names). To add a field, add one line
-// to a section.
+// The fields of clients, client contacts, VAs and applicants, grouped into sections. The record pages and the edit
+// forms use this list. Most keys are the names the fields had in Zoho CRM, where the records came from in 2026
+// (fields that are new in the app have new names); the saved records use these keys, so don't rename one.
+// To add a field, add one line to a section.
 //
 // Field types: text, email, phone, url, textarea, int, num (a number that may have a decimal), money, date, bool,
 // pick (one choice from `options`), multi (several choices from `options`), tags (comma-separated words),
@@ -14,26 +14,6 @@ const f = (key, label, type = 'text', more = {}) => ({ key, label, type, ...more
 // applicant can leave before being hired.
 export const STEPS = ['New application', 'Screening call scheduled', 'Screening call done', 'Offer sent', 'Training pending', 'In training', 'Training done', 'Hired'];
 export const CLOSED = ['Declined', 'Ghosted'];
-
-// Applicant Status values in Zoho CRM and the step each one becomes (the training modules all become
-// "In training"). Rejected applicants are not copied.
-const ZOHO_STEPS = {
-  '1. Form Submitted': 'New application',
-  '2. Scheduling Email Sent': 'Screening call scheduled',
-  '3. Formal Screening Scheduled': 'Screening call scheduled',
-  '4. Formal Screening Completed': 'Screening call done',
-  '5. Casual Hiring Scheduled': 'Screening call done',
-  '6. Casual Hiring Completed': 'Screening call done',
-  '7. Pending Offer & Hiring Material': 'Offer sent',
-  '15. Training Completed': 'Training done',
-  '16. Scheduled Final Interview': 'Training done',
-  '17. Completed Final Interview': 'Training done',
-  'Hired/Archived': 'Hired',
-  'Ghosted by applicant': 'Ghosted',
-  'Video Interview Invite Sent': 'Ghosted',
-  Rejected: 'Declined',
-};
-export const zohoStep = (status) => ZOHO_STEPS[status] || (/^(8|9|1[0-4])\. Module/.test(status || '') ? 'In training' : 'New application');
 
 // The scoring sheets. Resume score ("Applicant Scoring - Hiring"): five parts adding up to 10; 8 or more means
 // invite to a screening call. Screening call ("Applicant Scoring System"): each area 1-5, overall = the average
@@ -77,7 +57,7 @@ export const OFFER_ITEMS = [['Offer_W9', 'W-9 form received'], ['Offer_State_ID'
 
 export const MODULES = {
   clients: {
-    label: 'Clients', one: 'client', zoho: 'Accounts', zohoTab: 'Accounts',
+    label: 'Clients', one: 'client',
     nameKey: 'Account_Name', statusKey: 'Status', statuses: ['Current', 'Paused', 'Offboarded'],
     sections: [
       { title: 'Client information', fields: [
@@ -151,7 +131,7 @@ export const MODULES = {
   },
 
   contacts: {
-    label: 'Contacts', one: 'contact', zoho: 'Contacts', zohoTab: 'Contacts',
+    label: 'Contacts', one: 'contact',
     nameKey: null, statusKey: null,
     sections: [
       { title: 'Contact information', fields: [
@@ -196,7 +176,7 @@ export const MODULES = {
   },
 
   vas: {
-    label: 'VAs', one: 'VA', zoho: 'Virtual_Assistants', zohoTab: 'CustomModule1',
+    label: 'VAs', one: 'VA',
     nameKey: 'Name', statusKey: 'VA_Status', statuses: ['Active', 'On Deck', 'Offboarded', 'n/a'],
     sections: [
       { title: 'VA information', fields: [
@@ -250,7 +230,7 @@ export const MODULES = {
   },
 
   applicants: {
-    label: 'Applicants', one: 'applicant', zoho: 'Applicants', zohoTab: 'CustomModule3',
+    label: 'Applicants', one: 'applicant',
     nameKey: null, statusKey: 'Applicant_Status', statuses: [...STEPS, ...CLOSED],
     sections: [
       { title: 'Applicant', fields: [

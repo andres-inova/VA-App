@@ -1,13 +1,7 @@
-// Copies active VAs from Zoho CRM (or, once an admin switches over, from the VA records kept in the app)
-// and active projects from Zoho Projects.
+// The hourly sync: VA logins and the backup list from the VA records kept in the app (Team -> VAs), then active
+// projects from Zoho Projects.
 
 import { parseStart, ZONES } from './time.js';
-
-// Zoho fields the app reads. "Slack_Management_ID" is the VA's management
-// channel; "Slack_ID" is the VA's own Slack user ID (used to tag them). "VA_Company_Affiliation"
-// decides whether the VA is checked at all (only "InoVA Local" VAs are).
-const AFFILIATION = 'VA_Company_Affiliation';
-const FIELDS = ['Name', 'Email', 'Time_Zone', 'Availability', 'VA_Status', 'Slack_ID', 'Slack_Management_ID', AFFILIATION];
 
 // A short piece of the saved Zoho key, so a new key (with new permissions) is used right away.
 const keyTag = (env) => (env.ZOHO_REFRESH_TOKEN || '').trim().slice(-8);
@@ -32,31 +26,17 @@ export async function accessToken(env) {
   return data.access_token;
 }
 
-async function fetchVAs(env, token) {
-  const records = [];
-  for (let page = 1; page <= 20; page++) {
-    const url = `${env.ZOHO_API_URL}/crm/v8/Virtual_Assistants?fields=${FIELDS.join(',')}&per_page=200&page=${page}`;
-    const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${token}` } });
-    if (res.status === 204) break;
-    if (!res.ok) throw new Error(`Zoho sync failed: ${res.status} ${await res.text()}`);
-    const data = await res.json();
-    records.push(...(data.data || []));
-    if (!data.info?.more_records) break;
-  }
-  return records;
-}
-
 const clean = (value) => (value || '').toString().trim() || null;
 
-// Copies VAs from Zoho CRM, then projects from Zoho Projects (in that order,
-// because projects are matched to VAs by name).
-export async function syncFromZoho(env) {
+// Updates VA logins from the app's VA records, then copies projects from Zoho Projects (in that order,
+// because projects are matched to VAs by name). Without a Zoho key, only the VA logins are updated.
+export async function syncVAsAndProjects(env) {
+  const vas = await applyVaRecords(env);
   if (!env.ZOHO_REFRESH_TOKEN) {
-    console.log('[Zoho not set up] Skipping sync.');
-    return { skipped: true };
+    console.log('[Zoho not set up] Skipping the Zoho Projects sync.');
+    return { vas, skipped: true };
   }
   const token = await accessToken(env);
-  const vas = (await vaSource(env)) === 'app' ? await applyVaRecords(env) : await syncVAs(env, token);
   const projects = await syncProjects(env, token);
   // Needs the newer Zoho key (with Zoho Projects user access); the rest of the sync works without it.
   let projectUsers = null;
@@ -68,33 +48,16 @@ export async function syncFromZoho(env) {
   return { vas, projects, projectUsers };
 }
 
-async function syncVAs(env, token) {
-  return saveVAs(env, await fetchVAs(env, token));
-}
-
-// Where VA details come from: 'zoho' (Zoho CRM) until an admin switches to 'app' (the VA records in the app).
-export async function vaSource(env) {
-  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'va_source'").first();
-  return row?.value === 'app' ? 'app' : 'zoho';
-}
-
-// Updates VA logins and the backup list from the VA records kept in the app (after the switch).
-// Imported VAs keep their Zoho id; VAs added in the app use "app-<record id>" in its place.
+// Updates VA logins and the backup list from the VA records kept in the app. Runs at every sync and right after
+// a VA record is added, changed or deleted. VAs copied from Zoho CRM in 2026 keep their Zoho id as their key;
+// VAs added in the app use "app-<record id>" in its place.
 export async function applyVaRecords(env) {
   const { results } = await env.DB.prepare("SELECT id, zoho_id, data FROM records WHERE module = 'vas'").all();
   // No VA records at all is more likely a mistake than every VA leaving, so change nothing.
   if (!results.length) return 0;
   const records = results.map((r) => ({ ...JSON.parse(r.data), id: r.zoho_id || `app-${r.id}` }));
-  return saveVAs(env, records, true);
-}
-
-// Saves VA logins and the backup list from VA records shaped like Zoho's (field names as in Zoho CRM).
-async function saveVAs(env, records, fromApp = false) {
   const active = records.filter((r) => r.VA_Status === 'Active' && r.Email);
-  // Zoho leaves out fields that don't exist. If the affiliation field is missing entirely
-  // (for example, renamed in Zoho), keep the saved values instead of making every VA exempt.
-  const hasAffiliation = fromApp || records.some((r) => AFFILIATION in r);
-  if (!hasAffiliation) console.error(`Zoho sync: field ${AFFILIATION} not found; affiliations were not updated.`);
+  // Field names are the keys in fields.js (Name, Email, Time_Zone, Availability, Slack_ID, ...).
   const statements = active.map((r) =>
     env.DB.prepare(
       `INSERT INTO users (email, name, is_va, zoho_id, time_zone, availability, slack_channel_id, slack_user_id, affiliation)
@@ -103,18 +66,18 @@ async function saveVAs(env, records, fromApp = false) {
          name = excluded.name, is_va = 1, zoho_id = excluded.zoho_id,
          time_zone = excluded.time_zone, availability = excluded.availability,
          slack_channel_id = excluded.slack_channel_id, slack_user_id = excluded.slack_user_id,
-         affiliation = CASE WHEN ?9 THEN excluded.affiliation ELSE users.affiliation END`
+         affiliation = excluded.affiliation`
     ).bind(
       r.Email.trim().toLowerCase(), (r.Name || '').trim() || r.Email.trim(), String(r.id), clean(r.Time_Zone), clean(r.Availability),
-      clean(r.Slack_Management_ID), clean(r.Slack_ID), clean(r[AFFILIATION]), hasAffiliation ? 1 : 0
+      clean(r.Slack_Management_ID), clean(r.Slack_ID), clean(r.VA_Company_Affiliation)
     )
   );
-  // VAs who are no longer Active in Zoho lose VA access (admins keep admin access).
+  // VAs who are no longer Active lose VA access (admins keep admin access).
   const emails = JSON.stringify(active.map((r) => r.Email.trim().toLowerCase()));
   statements.push(
     env.DB.prepare('UPDATE users SET is_va = 0 WHERE is_va = 1 AND email NOT IN (SELECT value FROM json_each(?))').bind(emails)
   );
-  // Everyone who can cover for another VA: Active or On Deck in Zoho.
+  // Everyone who can cover for another VA: VA Status Active or On Deck.
   const candidates = records.filter((r) => ['Active', 'On Deck'].includes(r.VA_Status) && r.Name);
   statements.push(env.DB.prepare('DELETE FROM backup_candidates'));
   for (const r of candidates) {
@@ -225,7 +188,7 @@ async function syncProjects(env, token) {
     const va = matchVA(project.va_name, vas);
     if (!va) continue;
     // A coverage project starts when the client's regular VA starts (in that VA's time zone);
-    // otherwise, and for normal projects, at the start of the VA's Zoho availability.
+    // otherwise, and for normal projects, at the start of the VA's availability (on their VA record).
     let start = defaultStartTime(va.availability);
     let zone = null;
     if (project.is_coverage) {

@@ -1,6 +1,6 @@
-# InoVA VA App: check-in tracker
+# InoVA Local VA App
 
-A web app where InoVA Local VAs check in at the start of each work day, track tasks and time in Zoho Projects, and see their time-off requests. Check-ins come from the projects each VA is assigned to. Admins see who checked in on time, approve time off, and get Slack alerts and reports.
+A web app (named **InoVA Local** on screen) where InoVA Local VAs check in at the start of each work day, track tasks and time in Zoho Projects, and see their time-off requests. Check-ins come from the projects each VA is assigned to. Admins see who checked in on time, approve time off, and get Slack alerts and reports. The app also keeps the clients, contacts, VAs and applicants (it replaced Zoho CRM for them in October 2026).
 
 **Live address:** https://inova-va-app.andres-261.workers.dev
 
@@ -14,7 +14,7 @@ A web app where InoVA Local VAs check in at the start of each work day, track ta
 |---|---|
 | Cloudflare app | Online as `inova-va-app` in andres@inovalocal.com's Cloudflare account. Runs a scheduled job every minute. |
 | Database | `inova-checkin` (Cloudflare D1), with all tables and the 4 admins: Andres, Pratap, Kelli, Stephany |
-| Zoho fields | The Virtual Assistants module already has **Slack Management ID** and **Slack ID**, filled in for all 12 active VAs. The app reads both. |
+| Zoho CRM | No longer used by the app (since 2026-10-13). Clients, contacts, VAs and applicants were copied into the app in October 2026 and are kept there. |
 | Zoho Projects | The app reads active projects from the `inovalocalprojects` portal (id `890895306`). 15 of the 18 active projects match an active VA by name and are assigned automatically at the first sync. |
 | Admin password | Set |
 | Slack IDs | Checked: #check-in-tracker (`C0AT17VS51S`), Stephany Baldwin (`U079G0RQCBG`), Kelli Joy (`U014WK8DMC6`) |
@@ -50,7 +50,7 @@ The **app** runs on its own on Cloudflare, even when nobody is chatting with Cla
 | Key | What the app can do with it |
 |---|---|
 | Slack bot token | Post messages, only in channels the bot has been invited to |
-| Zoho key | Read the Virtual Assistants, Accounts (clients) and Applicants modules in Zoho CRM, their page layouts and uploaded files (resumes, contracts); read projects and work with tasks and time logs in Zoho Projects. It can't change anything in Zoho CRM. |
+| Zoho key | Read projects and work with tasks and time logs in Zoho Projects. (The current key can also read Zoho CRM, from the 2026 copy; the app no longer uses that.) |
 | Gmail key | Send email as inovaagent@inovalocal.com. It can't read the inbox. |
 | Connect Gmail (each admin) | Read (never send, change or delete) that admin's own mailbox, to save emails with clients, contacts and VAs. See [Shared email](#shared-email-connect-gmail). |
 
@@ -90,11 +90,13 @@ Done. Other admins get a temporary password from the **People** page (step 5 bel
 ## 3. Zoho key
 
 1. Go to https://api-console.zoho.com → **Add Client** → **Self Client** → **Create**.
-2. On the **Generate Code** tab, enter these scopes, separated by commas and no spaces (copy the whole line):
+2. On the **Generate Code** tab, enter these scopes, separated by commas and no spaces (copy the whole line). They are all for Zoho Projects:
    ```
-   ZohoCRM.modules.custom.READ,ZohoCRM.modules.accounts.READ,ZohoCRM.modules.contacts.READ,ZohoCRM.modules.notes.READ,ZohoCRM.modules.attachments.READ,ZohoCRM.settings.layouts.READ,ZohoCRM.files.READ,ZohoProjects.projects.READ,ZohoProjects.tasks.ALL,ZohoProjects.tasklists.READ,ZohoProjects.tasklists.CREATE,ZohoProjects.tasklists.UPDATE,ZohoProjects.tasklists.DELETE,ZohoProjects.timesheets.ALL,ZohoProjects.users.READ
+   ZohoProjects.projects.READ,ZohoProjects.tasks.ALL,ZohoProjects.tasklists.READ,ZohoProjects.tasklists.CREATE,ZohoProjects.tasklists.UPDATE,ZohoProjects.tasklists.DELETE,ZohoProjects.timesheets.ALL,ZohoProjects.users.READ
    ```
-   Choose **10 minutes**, type any description, and click **Create**. Copy the code. Use an account that can see the Virtual Assistants, Accounts and Applicants modules in Zoho CRM and is an **admin in the Zoho Projects portal** (andres@inovalocal.com). Time logs the app saves show this account in Zoho's **Created By** column; the **User** column is the VA.
+   Choose **10 minutes**, type any description, and click **Create**. Copy the code. Use an account that is an **admin in the Zoho Projects portal** (andres@inovalocal.com). Time logs the app saves show this account in Zoho's **Created By** column; the **User** column is the VA.
+
+   The key in use now (made in October 2026) also has Zoho CRM scopes (`ZohoCRM.modules.custom.READ`, `ZohoCRM.modules.accounts.READ`, `ZohoCRM.modules.contacts.READ`, `ZohoCRM.modules.notes.READ`, `ZohoCRM.modules.attachments.READ`, `ZohoCRM.settings.layouts.READ`, `ZohoCRM.files.READ`). They were only for copying records from Zoho CRM, which the app no longer does. There is no need to change the key now; leave them out the next time you make one.
 3. On the **Client Secret** tab, copy the **Client ID** and **Client Secret**.
 4. Within 10 minutes, swap the code for a long-lasting refresh token. In the command below, replace the three `YOUR_...` values, then run it:
    ```bash
@@ -111,9 +113,9 @@ Done. Other admins get a temporary password from the **People** page (step 5 bel
    ```bash
    npx wrangler secret put ZOHO_REFRESH_TOKEN
    ```
-6. The app starts using a new key right away. On the **People** page, click **Sync with Zoho now** so each VA is matched to their Zoho Projects account (by email, or else by name).
+6. The app starts using a new key right away. On the **Projects** page, click **Sync with Zoho now** so each VA is matched to their Zoho Projects account (by email, or else by name).
 
-**Adding permissions later** (for example the Tasks & time, Applicants, or clients-and-VAs copy permissions): repeat steps 2, 4 and 5 with the full list of scopes above. You can keep the same Client ID and Client Secret, so only `ZOHO_REFRESH_TOKEN` needs saving again.
+**Adding permissions later**: repeat steps 2, 4 and 5 with the full list of scopes above. You can keep the same Client ID and Client Secret, so only `ZOHO_REFRESH_TOKEN` needs saving again.
 
 ## 4. Gmail key
 
@@ -192,7 +194,7 @@ If creating a checklist fails, the request is still approved. The reason appears
 
 ## Slack command: /checkin
 
-VAs can check in by typing `/checkin` in any Slack channel. Only they see the app's reply. (There is no `/callout`: VAs who can't work message their management channel.) The app finds the VA by their **Slack ID** in Zoho, so that field must be filled in.
+VAs can check in by typing `/checkin` in any Slack channel. Only they see the app's reply. (There is no `/callout`: VAs who can't work message their management channel.) The app finds the VA by the **Slack ID** on their VA record (**Team → VAs**), so that field must be filled in.
 
 Setup, done once in the Slack app you created (VA App):
 
@@ -225,7 +227,7 @@ Needs: the Zoho key with the Tasks & time scopes (see [3. Zoho key](#3-zoho-key)
 
 ## Put the app on a phone or computer
 
-The app can be installed like a regular app, with its own icon, and opens without the browser bars.
+The app can be installed like a regular app, with its own icon, and opens without the browser bars. It is named **InoVA Local** (on a phone's home screen the short name **InoVA** shows under the icon). A copy installed before October 13, 2026 may keep its old name, InoVA Check-in, until it is removed and installed again; it works the same either way.
 
 - **iPhone:** open the app's address in **Safari**, tap **Share**, then **Add to Home Screen**.
 - **Android:** open it in **Chrome**, tap the three dots, then **Install app** (or **Add to Home screen**).
@@ -245,14 +247,14 @@ Every email and Slack message the app sends follows the same format (`src/messag
 6. **One button**: for example "Open History in the app" or "Log in now".
 7. **Footer**: a small note explaining terms or who to ask.
 
-Emails come from inovaagent@inovalocal.com with a green "InoVA Check-in" header, and also include a plain-text version. In Slack the same parts appear as a formatted message with a button.
+Emails come from inovaagent@inovalocal.com (sender name **InoVA Local**) with a green "InoVA Local" header, and also include a plain-text version. In Slack the same parts appear as a formatted message with a button.
 
 **Login invites.** On the **People** page, open a person and click **Send login invite**. The app makes a new temporary password and sends the invite by email, and also by Slack direct message for VAs with a Slack ID. The invite includes the app link, their email, the temporary password, the three steps to log in, how to add the app to their phone, and (for VAs) how to use `/checkin`. The page then confirms where it was sent and shows the temporary password once, in case they can't find the message. **Just show a temporary password** does the same without sending anything.
 
 ## 5. Test everything
 
-1. Log in and go to **Projects → Sync with Zoho now**. The 18 active projects should appear. 15 should have a VA, and 3 should be listed under "Projects with no VA": Shianne Catalano's two projects (she is On Deck in Zoho, not Active) and InoVA Local - Internal.
-2. On the **Projects** page, check each VA's start time and days, and fix any that are wrong. Andrew Villa (InoVA Closer) and Nika Kegbe-Davis (EcoVita) have "Open availability" in Zoho, so their projects start with **no start time**. Until you add one, they get no late alerts.
+1. Log in and go to **Projects → Sync with Zoho now**. The 18 active projects should appear. 15 should have a VA, and 3 should be listed under "Projects with no VA": Shianne Catalano's two projects (she is On Deck, not Active) and InoVA Local - Internal.
+2. On the **Projects** page, check each VA's start time and days, and fix any that are wrong. Andrew Villa (InoVA Closer) and Nika Kegbe-Davis (EcoVita) have "Open availability" on their VA record, so their projects start with **no start time**. Until you add one, they get no late alerts.
 3. On the **People** page, all 12 active VAs should appear, each with a Slack channel ID and their projects.
 4. Go to **Settings → Send weekly report now**. A report should appear in #check-in-tracker, and everyone chosen under "Who gets the report emails" (all admins until changed) should get one email from inovaagent@inovalocal.com. Right after setup it will say nobody missed a check-in, which is expected.
 5. On the **People** page, click **Set temporary password** for each VA and admin, and send them their temporary password privately. They choose their own password the first time they log in.
@@ -267,7 +269,7 @@ If something doesn't work, open the Cloudflare dashboard → **Workers & Pages �
 The app works on computers and phones. On a computer, the menu is on the left. For admins it has three groups: **Daily** (Today, Time off, Calendar), **Team** (VAs, Training, Applicants, People) and **Clients** (Clients, Projects, Coverage SOPs), with **Settings** at the bottom next to Password and Log out. On a phone, tap **Menu** (top left or bottom right), and the most-used pages are in the bottom bar (for admins: Today, Time off, Projects, SOPs and People). Most lists are made of rows: click or tap a row to open its details and buttons. Sections can be opened and closed by clicking their title.
 
 **VAs**
-- Log in with email and password. The email is the VA's email in Zoho.
+- Log in with email and password. The email is the one on the VA's record (**Team → VAs**).
 - **Keep me logged in** (ticked by default on the login page): the app stays logged in on that device for a year, and each visit extends it, so people who use the app are not asked to log in again. Untick it on a shared computer: the login then ends when the browser is closed, or after 12 hours. The login page also fills in the last email used on that device. Logging out, or an admin sending a new login invite or temporary password, ends the login.
 - See **today's projects** and the time they need to check in by.
 - **Check in** once per day. One check-in covers all of that day's projects. The app records whether it was on time.
@@ -279,17 +281,17 @@ The app works on computers and phones. On a computer, the menu is on the left. F
 - **Clients they are covering**: a backup VA chosen for an approved time off can read (not change) that client's SOP, from the day it is approved until a day after the time off ends. These show on their Coverage SOPs page.
 
 **Admins**
-- **Projects**: each VA's start time has a time zone picker next to it (PST, MST, CST, EST, or the VA's own zone from Zoho, the default). A VA with projects in different zones checks in by whichever starts first in real time.
+- **Projects**: each VA's start time has a time zone picker next to it (PST, MST, CST, EST, or the VA's own zone from their VA record, the default). A VA with projects in different zones checks in by whichever starts first in real time.
 - **Today**: a **Needs your attention** card that links to whatever is waiting across the app (VAs late or not checked in, time-off requests waiting for a decision, approved coverage without a backup, projects with no VA, projects with no Coverage SOP), or "All caught up". Then a **This week** summary (on-time rate, counts, and anyone late or missing 2+ times), then every VA's projects today, their check-in time and status, grouped into Needs attention, Checked in, Not started yet, Off today and Not checked today. It updates by itself every minute.
 - **Calendar**: a month view of who is off (time off, emergencies, requests waiting for a decision, and who covers) and company holidays. Click a name to open that request's own page, with all its details and its **next steps** (for example "Find a backup VA for Long Island Maids").
 - **History** (a tab at the top of Calendar): a month grid showing each VA's status per work day, with totals.
 - **Projects**: the active projects from Zoho Projects and who is assigned to each, with a start time and work days per assignment. Admins can add, change or remove assignments.
 - **Time off**: approve or deny requests from the Google Form. Each new request sends one email to the admins who have notifications turned on. Admins can also add a **time-off or coverage period** for any VA directly, which applies right away, and cancel it later.
-- **People**: send **login invites**; sync from Zoho; **Active VAs** (with their projects and whether the app checks them), **On Deck VAs** (for reference; they can be chosen to cover), and **Admins**. Exempt a VA, set temporary passwords, add or remove admins.
+- **People**: send **login invites**; **Active VAs** (with their projects and whether the app checks them), **On Deck VAs** (for reference; they can be chosen to cover), and **Admins**. Exempt a VA, set temporary passwords, add or remove admins.
 - **Coverage SOPs** (under "Clients"): every active project with a VA, split into **Not done yet** and **Done**, with counts at the top: done, started, not started. Each row shows the VAs, the status (Not started, Started not finished, Filled in, Uploaded), and who saved it last. Admins can open, edit or upload any SOP, and mark a project as **not needing** an SOP. On the Time off page and on each request's next steps, every covered project shows its SOP status, with a reminder to ask the VA to finish it.
 - **Holidays** (a tab at the top of Settings): dates when nobody is expected to check in.
 - **Settings**: turn your time-off emails on or off, set the grace period, choose who gets the report emails, send a report now, and see the last email error.
-- **Clients** and **VAs** (under "Clients" and "Team"): every client (with its contacts) and every VA, kept in the app instead of Zoho CRM, with notes, files and a change history. See [Clients and VAs](#clients-and-vas).
+- **Clients** and **VAs** (under "Clients" and "Team"): every client (with its contacts) and every VA, kept in the app, with notes, files and a change history. See [Clients and VAs](#clients-and-vas).
 - **Training** (under "Team"): VA trainings and their checklist. See [Training](#training).
 - **Applicants** (under "Team"): every VA applicant, moved step by step through the hiring process, with scores, an offer checklist and a button that makes their VA record. See [Hiring](#hiring).
 
@@ -300,29 +302,28 @@ The app works on computers and phones. On a computer, the menu is on the left. F
 - **Weekly report**, Mondays at 9:00 AM Eastern: VAs with 2 or more missed check-ins in the previous Monday–Sunday. Posted in #check-in-tracker and sent as one email to the report recipients.
 - **Monthly report**, the 1st at 9:00 AM Eastern: VAs with 3 or more missed check-ins in the previous month. Posted and emailed the same way.
 - **Report recipients** are chosen on the Settings page: any of the admins, plus other email addresses. Until someone saves a choice, all admins get them.
-- **Copy of clients and VAs from Zoho**, and **copy of applicants from Zoho**, while one is running: one step each minute until it is done.
-- **Zoho sync** every hour: VAs with VA Status "Active" (in Zoho CRM, or in the app's VA records after the switch, see [Clients and VAs](#clients-and-vas)) can log in as VAs, and VAs who stop being Active lose access. Active projects are copied from Zoho Projects, and new ones are assigned by name (see below). Projects that are completed or closed in Zoho stop counting.
+- **Sync** every hour (and when an admin clicks **Sync with Zoho now** on the Projects page): VAs whose VA record has VA Status "Active" and an email can log in as VAs, and VAs who stop being Active lose access (a change to a VA record also applies right away, without waiting for the sync). Active projects are copied from Zoho Projects, and new ones are assigned by name (see below). Projects that are completed or closed in Zoho Projects stop counting.
 
 ## Rules the app follows
 
 - **Check-ins come from projects.** Each assignment of a VA to a project has a start time and work days. Days default to Monday to Friday.
 - **One check-in per day:** if a VA has several projects on the same day, they check in once, by the **earliest** start time, and that check-in counts for all of them. For example, Pool Partners at 9:00 and Rise & Shine at 11:00 means one check-in due by 9:00.
-- **Coverage projects** are named "[Client] - [backup VA] - Coverage" in Zoho (for example "Pool Partners - Ana Diaz - Coverage"). The app reads the client and the backup VA from the name and gives the project to that VA, so they can log their coverage time there. A coverage project:
+- **Coverage projects** are named "[Client] - [backup VA] - Coverage" in Zoho Projects (for example "Pool Partners - Ana Diaz - Coverage"). The app reads the client and the backup VA from the name and gives the project to that VA, so they can log their coverage time there. A coverage project:
   - counts for check-ins **only on days that VA is the approved backup** for that client (on any day of the week); other days it is ignored. When the project first appears, its start time (and time zone) is copied from the client's regular VA; change it on the Projects page if needed.
   - needs **no Coverage SOP** (the client's regular project has it), and is left out of the SOP lists, reminders and counts.
   - can't be chosen when a VA asks for coverage, and doesn't raise "project has no VA" (the backup may not use this app).
   - is listed under **Coverage projects** on the Projects page, labeled "(coverage)" on My day and Today, and in Tasks & time it links to the client's Coverage SOP while the VA is covering.
 - **No projects that day, or no start times**, means no check-in is expected and no late alerts are sent. The VA can still check in.
 - **Holidays**: no check-in is expected on dates listed under Holidays.
-- **Exempt VAs are never checked.** A VA is exempt when their Zoho **VA Company Affiliation** is anything other than "InoVA Local" (for example "Closers", or empty), or when an admin clicks **Exempt this VA** on the People page. Exempt VAs get no expected check-in, no late alerts, and don't appear in reports. They can still log in, check in and request time off. An empty affiliation shows a warning on the People page.
+- **Exempt VAs are never checked.** A VA is exempt when the **VA Company Affiliation** on their VA record is anything other than "InoVA Local" (for example "Closers", or empty), or when an admin clicks **Exempt this VA** on the People page. Exempt VAs get no expected check-in, no late alerts, and don't appear in reports. They can still log in, check in and request time off. An empty affiliation shows a warning on the People page.
 - **Request types** are **Time off** and **Emergency**. Form requests start as Time off with **no coverage**. Admins can change the VA, type, dates and coverage with **Edit** on the Time off page.
-- **Coverage is chosen per project.** For each of the VA's projects (clients), an admin picks "No coverage needed", "Needs coverage, backup not chosen yet", or the backup VA. Backups are VAs whose Zoho VA Status is **Active** or **On Deck** (never the VA taking time off) and who are ticked under **Who can cover** on the Time off page (untick anyone not able or willing to cover; new VAs start ticked). A request can be approved before a backup is chosen; it then shows "needs a backup". If the chosen backup has their own time off (approved or waiting) on any of the same days, the request shows **Backup is off** in red, says so next to the backup's name and in the next steps, and the backup choices mark that VA with "⚠ also off". Approving ("Approve and request coverage") creates one ClickUp checklist per covered project (see "Connect ClickUp"). Emergencies have no coverage.
+- **Coverage is chosen per project.** For each of the VA's projects (clients), an admin picks "No coverage needed", "Needs coverage, backup not chosen yet", or the backup VA. Backups are VAs whose VA Status (on their VA record) is **Active** or **On Deck** (never the VA taking time off) and who are ticked under **Who can cover** on the Time off page (untick anyone not able or willing to cover; new VAs start ticked). A request can be approved before a backup is chosen; it then shows "needs a backup". If the chosen backup has their own time off (approved or waiting) on any of the same days, the request shows **Backup is off** in red, says so next to the backup's name and in the next steps, and the backup choices mark that VA with "⚠ also off". Approving ("Approve and request coverage") creates one ClickUp checklist per covered project (see "Connect ClickUp"). Emergencies have no coverage.
 - **Other time off within a week**: a request lists the VA's other approved or waiting time off that starts or ends within 7 days of it (for example "Also off within a week: Fri, Oct 2 (4 days before)"). It shows on the Time off page, on the request's own page, in the new-request email and in the short-notice Slack alert.
 - **Coverage history**: in each "who covers" list, every name shows how often that VA has covered that client before (for example "covered this client 2 times, last Mon, Sep 21" or "never covered this client"), and the request shows the chosen backup's history. It counts approved coverage in the app that has already started; cancelled requests and coverage from before the app don't count.
 - **Coverage status**: approved time off with coverage shows **Coverage requested** until every covered project has a backup, then **Coverage confirmed**. Time off without coverage shows **Approved**.
 - **Days off**: on any day inside an approved request or a period added by an admin, the VA is not expected to check in. A request assigned from an unknown name can cover only some of the VA's projects: on those days the VA is off only for the ticked projects, and still checks in by the earliest start among their other projects that day. If all their projects are ticked, it covers the whole day. The day shows as "Time off" or "Emergency" in History. If a period is cancelled, check-ins are expected again from that day on, and its ClickUp checklists are deleted.
-- **Start times** are in the VA's Zoho **Time Zone** (PST, MST, CST or EST, with daylight saving time applied). If Time Zone is empty, the app uses Eastern.
-- **Automatic assignment:** when a new project appears in Zoho Projects, the app reads the name after the last " - " (for example "Pool Partners - **Tracy Saeman**") and assigns the project to the active VA with that name. Small differences are allowed: "Estefani Resendiz" matches "Estefani Resendiz Lopez", and "Nika Kedgbe-Davis" matches "Nika Kegbe-Davis". The first name must match, plus at least one other part of the name. If two VAs could match, nothing is assigned. The start time is taken from the VA's Zoho **Availability**, for example "8:30am - 4:30pm" means 8:30 AM. "Open availability" gives no start time.
+- **Start times** are in the **Time Zone** on the VA's record (PST, MST, CST or EST, with daylight saving time applied). If Time Zone is empty, the app uses Eastern.
+- **Automatic assignment:** when a new project appears in Zoho Projects, the app reads the name after the last " - " (for example "Pool Partners - **Tracy Saeman**") and assigns the project to the active VA with that name. Small differences are allowed: "Estefani Resendiz" matches "Estefani Resendiz Lopez", and "Nika Kedgbe-Davis" matches "Nika Kegbe-Davis". The first name must match, plus at least one other part of the name. If two VAs could match, nothing is assigned. The start time is taken from the **Availability** on the VA's record, for example "8:30am - 4:30pm" means 8:30 AM. "Open availability" gives no start time.
 - **After a project is assigned** (automatically or by an admin), the sync leaves it alone, so an admin's changes are kept. A project that no VA matched is tried again at each sync, for example when an On Deck VA becomes Active.
 - **On time** means checking in no later than the start time plus the grace period. The grace period starts at 0 minutes and can be changed in Settings.
 - **Missed**, in reports, means late or no check-in at all. Call-outs and approved time off are not counted as missed.
@@ -330,7 +331,7 @@ The app works on computers and phones. On a computer, the menu is on the left. F
 
 ## Adding a new VA
 
-1. In Zoho (or, after the switch to the app's VA records, on the app's **VAs** page with **New VA**), set their **VA Status** to **Active**. Fill in **Email**, **Time Zone**, **Availability**, **Slack ID** and **Slack Management ID**.
+1. On **Team → VAs**, click **New VA** (or, for a hired applicant, **Make VA record** on their applicant page, then edit it). Set their **VA Status** to **Active** and fill in **Email**, **Time Zone**, **Availability**, **Slack ID**, **Slack Management ID** and **VA Company Affiliation** ("InoVA Local" for VAs who check in). They can log in as soon as it is saved.
 2. In Slack, invite the bot to their management channel: `/invite @VA App`.
 3. In the app, go to **Projects → Sync with Zoho now**. The app also syncs by itself every hour. Their projects in Zoho Projects are assigned to them if the name after " - " matches. Check the start times on the Projects page.
 4. On the **People** page, click **Set temporary password** for them.
@@ -345,7 +346,7 @@ The app works on computers and phones. On a computer, the menu is on the left. F
 
 ## Clients and VAs
 
-Admin-only pages under **Records** in the menu; VAs can't open them. They replace Zoho CRM for clients and VAs.
+Admin-only pages: **Clients → Clients** and **Team → VAs** in the menu; VAs can't open them. They replaced Zoho CRM for clients and VAs in October 2026.
 
 - **Clients**: every client, split into **Current**, **Paused** and **Offboarded**, with a search box and **New client**. A client's page shows its details in sections, its **contacts** (with the main contact marked, and **Add contact**), the **VAs and projects** the app has for it (projects in Zoho Projects named after the client, with SOP links), **Notes**, **Files** (for example the contract) and **History**.
 - **VAs**: every VA, split into **Active**, **On Deck**, **Offboarded** and **No status**. A VA's page shows their details (contact, time zone, availability, Slack IDs, pay, scores, emergency contact, referrals), their clients and projects, whether they can log in, **Notes**, **Files** (for example the resume) and **History**.
@@ -356,9 +357,9 @@ Admin-only pages under **Records** in the menu; VAs can't open them. They replac
 - **Referrals**: set **Referred by** on the referred client or VA; the other record shows it under **Clients referred** / **VAs referred**.
 - **The fields** are listed in `src/fields.js`. To add a field, add one line there.
 
-**Copy from Zoho** (button on both pages): copies every client (Zoho Accounts), contact and VA from Zoho CRM, with their notes, attachments, resumes and contracts. Zoho is only read. It runs in small steps, one each minute, and the page shows the progress. It can be run again: records that came from Zoho are updated with Zoho's values (changes made in the app to those fields are replaced), and notes and files are not copied twice. Fields that were filled in Zoho but have no place in the app are kept under **Other fields from Zoho** on the record page. Needs the Zoho key with the CRM permissions in [3. Zoho key](#3-zoho-key).
+**VA records drive the app.** VA logins, check-ins and the "who covers" lists follow the VA records here. A change to a VA (status, email, time zone, availability, Slack IDs, company affiliation) takes effect right away.
 
-**The switch** (on the Copy from Zoho page): until an admin clicks **Use the app's VA records**, VA logins, check-ins and the backup lists keep coming from Zoho CRM every hour. After the switch they come from the app's VA records, and a change to a VA (status, email, time zone, availability, Slack IDs, company affiliation) takes effect right away. **Go back to Zoho CRM** undoes the switch.
+**Where the records came from**: in October 2026 every client, contact, VA and applicant was copied once from Zoho CRM, with their notes and files. The app no longer reads Zoho CRM, and the "Copy from Zoho" pages and the switch back to Zoho CRM were removed on 2026-10-13 (going back to Zoho CRM would need a developer). Copied notes show "from Zoho", and fields that were filled in Zoho but have no place in the app are kept under **Other fields from Zoho** on the record page.
 
 ## Shared email (Connect Gmail)
 
@@ -403,7 +404,7 @@ Until step 3 is done, the Email page says "Connect Gmail is not set up yet" and 
 
 ## Hiring
 
-An admin-only page: **Team → Applicants** in the menu. It replaces Zoho CRM's Applicants module and follows the "Application Process" Google Doc.
+An admin-only page: **Team → Applicants** in the menu. It replaced Zoho CRM's Applicants module in October 2026 and follows the "Application Process" Google Doc.
 
 **The steps**, in order: New application → Screening call scheduled → Screening call done → Offer sent → Training pending → In training → Training done → Hired. An applicant can also be closed as **Declined** (with a reason) or **Ghosted**.
 
@@ -418,11 +419,11 @@ An admin-only page: **Team → Applicants** in the menu. It replaces Zoho CRM's 
 - **Make VA record** (shown once the applicant is Hired and has no VA record yet): creates an **On Deck** VA in **Team → VAs** with the applicant's name, email, phone, place, time zone and availability, copies their files, and moves the applicant to Hired. If a VA with the same email already exists, the applicant is linked to that VA instead.
 - **The fields** are listed under `applicants` in `src/fields.js`.
 
-**Copy from Zoho** (button on the Applicants page): copies applicants from Zoho CRM's Applicants module, with their notes and resumes, one small step each minute. Zoho is only read. Rejected applicants and the 2 test records are left behind. Zoho's statuses become the new steps: Video Interview Invite Sent and Ghosted by applicant become **Ghosted**; the training module statuses become **In training**; Hired/Archived becomes **Hired**. It can be run again: applicants from Zoho are updated, and scores, the offer checklist and VA links entered in the app are kept. Needs the Zoho key with the CRM permissions in [3. Zoho key](#3-zoho-key).
+**Applicants from before October 2026** were copied once from Zoho CRM (Rejected ones were left behind). Zoho's statuses became the steps above (for example Video Interview Invite Sent and Ghosted by applicant became **Ghosted**; the training module statuses became **In training**). The app no longer reads Zoho CRM; new applications come from Wufoo (below).
 
 ### New applications from Wufoo
 
-Each new entry on the Wufoo job application form can go straight into the app as a new applicant at **New application**, through a Wufoo "WebHook" (Wufoo sends the answers to the app's address the moment someone applies). Until this is set up, applications still go from Wufoo to Zoho through Zapier.
+Each new entry on the Wufoo job application form goes straight into the app as a new applicant at **New application**, through a Wufoo "WebHook" (Wufoo sends the answers to the app's address the moment someone applies). This was set up and confirmed working on 2026-10-13.
 
 What the app does with each application:
 - The answers go into the applicant's fields (name, email, phone, place, time zone, availability, experience, systems and tools, languages, bio). Wufoo questions are matched by their title, ignoring capitals and punctuation. The list of titles for each field is `WUFOO_FIELDS` at the top of `src/wufoo.js`; add a title there to send a question into a field.
@@ -454,7 +455,7 @@ What the app does with each application:
 4. **Send a test entry.** Fill in the application form yourself with made-up answers, your own email, and a small PDF as the resume. Within a few seconds the test applicant appears under **New application** on **Team → Applicants**. Open it and check the details, the resume under **Files**, and **Other fields from Wufoo**. Then look at the Wufoo box at the bottom of the Applicants page: it shows when the entry arrived and which questions did not go into a field. If an important question (for example the name or email) is listed there, add its title to `WUFOO_FIELDS` in `src/wufoo.js` (or ask for it to be added). When everything looks right, delete the test applicant (**Edit**, then **Delete applicant**). The Zap also sent the test to Zoho, so delete it there too.
 5. **Turn off the Zapier Zap.** Once a real application has arrived in the app and looks right, go to Zapier, open the Zap that sends Wufoo entries to Zoho CRM, and switch it **Off**. From then on, applications only go to the app.
 
-While both are running, each application goes to the app and to Zoho. If you press **Copy from Zoho** on the applicants copy page during that time, the copy joins the Zoho copy of an application to the one that came from Wufoo (same email, made in Zoho within a day) instead of adding it twice. The applicant keeps the hiring step it has in the app, and the extra Wufoo answers stay.
+While the Zap is still on, each application also goes to Zoho CRM. The app no longer reads Zoho CRM, so those copies are not used anywhere; turning the Zap off just stops them.
 
 If Wufoo shows an error for the WebHook, the box on Team → Applicants says why the last entry was turned away (for example "wrong Handshake Key"). Then check that the code in Wufoo and the one saved with `npx wrangler secret put WUFOO_HANDSHAKE_KEY` are the same.
 
@@ -481,7 +482,7 @@ The VA training program, moved here from the separate training tracker app. A **
 |---|---|
 | `src/index.js` | Handles each page and each button press |
 | `src/views.js` | The HTML and styling of every page |
-| `src/jobs.js` | The every-minute job: late alerts, reports, Zoho sync |
+| `src/jobs.js` | The every-minute job: late alerts, reports, the hourly sync (VA records and Zoho Projects), shared email |
 | `src/auth.js` | Passwords and login sessions |
 | `src/clickup.js` | Creates the ClickUp coverage checklist from the "VA Backup Checklist" template |
 | `src/messages.js` | The standard format for every email and Slack message |
@@ -494,14 +495,13 @@ The VA training program, moved here from the separate training tracker app. A **
 | `src/forms.js` | Receives responses from the time-off/coverage Google Form |
 | `src/wufoo.js` | Receives new job applications from the Wufoo form (WebHook); `WUFOO_FIELDS` says which question goes into which applicant field |
 | `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |
-| `src/zoho.js` | Reads active VAs from Zoho CRM (or the app's VA records after the switch) and active projects from Zoho Projects, assigns new projects by name, and finds each VA's Zoho Projects user |
+| `src/zoho.js` | The hourly sync: VA logins and the backup list from the app's VA records, active projects from Zoho Projects, assigning new projects by name, and finding each VA's Zoho Projects user |
 | `src/work.js` | Tasks, task lists and time logs in Zoho Projects (the Tasks & time page) |
 | `src/fields.js` | The fields of clients, contacts, VAs and applicants, in sections; the hiring steps and scores |
-| `src/records.js` | The Clients, VAs and Applicants pages: lists, record pages, editing, notes, files, history, the switch, hiring steps |
+| `src/records.js` | The Clients, VAs and Applicants pages: lists, record pages, editing, notes, files, history, hiring steps |
 | `src/records-views.js` | The HTML of the Clients, VAs and Applicants pages |
 | `src/training.js` | VA training: starting trainings, the checklist, ticks, notes, sign-offs and who may see each one |
 | `src/training-views.js` | The HTML of the Training pages |
-| `src/import.js` | Copies clients, contacts, VAs and applicants (with notes and files) from Zoho CRM, a few at a time |
 | `src/notify.js` | Sends Slack messages, and emails through Gmail |
 | `src/email.js` | Shared email: Connect Gmail (Google sign-in), reading each connected inbox a little each minute, saving only emails with records, Shared/Private, attachments |
 | `src/email-views.js` | The HTML of Settings → Email, the Emails section on records, and one saved email |

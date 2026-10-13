@@ -1,6 +1,6 @@
 // Slack slash command: /checkin. (Call-outs are not done in the app: VAs message their management channel.)
 // Slack sends each command here; the app checks it really came from Slack (SLACK_SIGNING_SECRET),
-// finds the VA by their Slack ID (the "Slack ID" field in Zoho), and replies privately to them.
+// finds the VA by their Slack ID (the "Slack ID" field on their VA record in the app), and replies privately to them.
 
 import { checkIn } from './actions.js';
 import { STATUS } from './views.js';
@@ -32,7 +32,7 @@ export async function handleSlackCommand(request, env) {
   const command = form.get('command') || '';
   const user = await env.DB.prepare('SELECT * FROM users WHERE slack_user_id = ? AND is_va = 1').bind(form.get('user_id')).first();
   if (!user) {
-    return reply("I couldn't find you in the InoVA check-in app. Please ask your VA Lead to check that your Slack ID is filled in on Zoho.");
+    return reply("I couldn't find you in the InoVA Local app. Please ask your VA Lead to check that your Slack ID is filled in on your VA record in the app.");
   }
 
   if (command === '/checkin') {

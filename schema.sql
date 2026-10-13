@@ -1,7 +1,7 @@
--- Database tables for the InoVA Local check-in tracker.
+-- Database tables for the InoVA Local VA app.
 
 -- Everyone who can log in. A person can be an admin, a VA, or both.
--- VA details (time zone, availability, Slack channel) are copied from Zoho CRM.
+-- VA details (time zone, availability, Slack IDs, affiliation) are copied from the app's VA records (records table).
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL UNIQUE,
@@ -14,13 +14,13 @@ CREATE TABLE IF NOT EXISTS users (
   locked_until TEXT,
   invited_at TEXT,       -- when a login invite was last sent
   notify_time_off INTEGER NOT NULL DEFAULT 1,  -- admins only: email me about new time-off requests
-  zoho_id TEXT,
-  time_zone TEXT,        -- PST, MST, CST or EST (from Zoho)
-  availability TEXT,     -- for example "9am - 5pm" (from Zoho)
-  start_override TEXT,   -- "HH:MM" set by an admin; used instead of the Zoho start time
-  slack_channel_id TEXT, -- VA's management channel (Zoho "Slack Management ID")
-  slack_user_id TEXT,    -- VA's own Slack user ID (Zoho "Slack ID"), used to tag them
-  affiliation TEXT,      -- Zoho "VA Company Affiliation"; only "InoVA Local" VAs are checked
+  zoho_id TEXT,          -- the VA's key: their old Zoho CRM id, or "app-<record id>" for VAs added in the app
+  time_zone TEXT,        -- PST, MST, CST or EST (from the VA record)
+  availability TEXT,     -- for example "9am - 5pm" (from the VA record)
+  start_override TEXT,   -- UNUSED (an old per-VA start time; start times are now per project assignment)
+  slack_channel_id TEXT, -- VA's management channel ("Slack Management ID" on the VA record)
+  slack_user_id TEXT,    -- VA's own Slack user ID ("Slack ID" on the VA record), used to tag them
+  affiliation TEXT,      -- "VA Company Affiliation" on the VA record; only "InoVA Local" VAs are checked
   exempt INTEGER NOT NULL DEFAULT 0,  -- 1 = an admin exempted this VA from check-ins
   zoho_projects_user_id TEXT,  -- the VA's user ID in Zoho Projects (for time logs)
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -88,10 +88,10 @@ CREATE TABLE IF NOT EXISTS time_off_requests (
   details TEXT,                            -- the form's answers: clients, shift times, template
   form_response_id TEXT,                   -- the Google Form response id
   project_ids TEXT,                        -- empty = whole day; otherwise only these projects (comma-separated ids)
-  backup_zoho_id TEXT,                     -- old, single-backup requests only; now in coverage_projects
-  backup_name TEXT,
-  clickup_list_url TEXT,
-  clickup_error TEXT,
+  backup_zoho_id TEXT,                     -- UNUSED since 2026-09-30 (old single-backup requests); now in coverage_projects
+  backup_name TEXT,                        -- UNUSED (see coverage_projects)
+  clickup_list_url TEXT,                   -- UNUSED (see coverage_projects)
+  clickup_error TEXT,                      -- UNUSED (see coverage_projects)
   decided_by INTEGER REFERENCES users(id),
   decided_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -125,7 +125,8 @@ CREATE TABLE IF NOT EXISTS form_unmatched (
   received_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- VAs who can cover for someone: Zoho VA Status "Active" or "On Deck". Refreshed at every Zoho sync.
+-- VAs who can cover for someone: VA Status "Active" or "On Deck" on their VA record. Refreshed whenever a VA record
+-- changes and at every hourly sync. zoho_id is the VA's key (old Zoho CRM id, or "app-<record id>").
 CREATE TABLE IF NOT EXISTS backup_candidates (
   zoho_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -141,7 +142,7 @@ CREATE TABLE IF NOT EXISTS holidays (
   name TEXT NOT NULL
 );
 
--- Small app-wide settings, for example the grace period, and backup_hidden: a JSON list of the Zoho ids
+-- Small app-wide settings, for example the grace period, and backup_hidden: a JSON list of the keys (zoho_id)
 -- of VAs left out of the "who covers" lists.
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -187,8 +188,8 @@ CREATE TABLE IF NOT EXISTS timers (
   auto_stopped INTEGER NOT NULL DEFAULT 0
 );
 
--- Clients, client contacts, VAs and applicants (Hiring) kept in the app (replacing Zoho CRM), with notes, files
--- and change history.
+-- Clients, client contacts, VAs and applicants (Hiring) kept in the app (they replaced Zoho CRM in 2026), with notes,
+-- files and change history.
 
 CREATE TABLE IF NOT EXISTS records (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -199,7 +200,7 @@ CREATE TABLE IF NOT EXISTS records (
   email TEXT,                    -- lowercase main email
   search TEXT,                   -- lowercase name, emails, phone and place, for searching
   data TEXT NOT NULL DEFAULT '{}',  -- the field values (see src/fields.js), as JSON
-  zoho_id TEXT UNIQUE,           -- the record's id in Zoho CRM, when it was copied from there
+  zoho_id TEXT UNIQUE,           -- the record's id in Zoho CRM, when it was copied from there in 2026 (history only)
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   created_by INTEGER REFERENCES users(id),
   updated_at TEXT,

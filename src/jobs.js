@@ -1,9 +1,8 @@
-// The job that runs every minute: late alerts, reports and the Zoho sync.
+// The job that runs every minute: late alerts, reports, the hourly sync (VA records and Zoho Projects) and email.
 
 import { REPORT_ZONE, zoneFor, partsIn, zonedTimeToUtc, parseHHMM, weekdayIndex, addDays, formatHM, formatDate } from './time.js';
 import { postToSlack, sendEmail, slackSafe } from './notify.js';
-import { syncFromZoho } from './zoho.js';
-import { runImportStep, importState } from './import.js';
+import { syncVAsAndProjects } from './zoho.js';
 import { syncEmail } from './email.js';
 import { esc } from './util.js';
 import * as messages from './messages.js';
@@ -16,7 +15,7 @@ export async function getGraceMinutes(env) {
 }
 
 // A VA is exempt (never expected to check in) when an admin marked them exempt in the app,
-// or when their Zoho "VA Company Affiliation" is anything other than "InoVA Local" (including empty).
+// or when the "VA Company Affiliation" on their VA record is anything other than "InoVA Local" (including empty).
 export function isExempt(user) {
   return Boolean(user.exempt) || (user.affiliation || '').trim() !== 'InoVA Local';
 }
@@ -291,21 +290,13 @@ async function safely(label, fn) {
 
 export async function runEveryMinute(env, now = new Date()) {
   const vaCount = await env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE is_va = 1').first();
-  if (now.getUTCMinutes() === 0 || vaCount.n === 0) await safely('Zoho sync', () => syncFromZoho(env));
-  // The next step of a copy from Zoho (clients, contacts and VAs, or applicants), while one is running.
-  await safely('Zoho import', () => runImportStep(env, 'records'));
-  await safely('Zoho applicants import', () => runImportStep(env, 'applicants'));
+  if (now.getUTCMinutes() === 0 || vaCount.n === 0) await safely('Hourly sync', () => syncVAsAndProjects(env));
   await safely('Shift check', () => checkShifts(env, now));
   await safely('Reports', () => maybeSendReports(env, now));
   await safely('Timers', () => stopLongTimers(env, now));
-  // Shared email (Connect Gmail): a small step per connected inbox. Skipped on the hour (the Zoho sync) and while
-  // a copy from Zoho runs, so one run never asks other services for too much.
-  if (now.getUTCMinutes() !== 0) {
-    await safely('Email sync', async () => {
-      const copying = (await importState(env, 'records'))?.status === 'running' || (await importState(env, 'applicants'))?.status === 'running';
-      if (!copying) await syncEmail(env, now);
-    });
-  }
+  // Shared email (Connect Gmail): a small step per connected inbox. Skipped on the hour (the Zoho Projects sync),
+  // so one run never asks other services for too much.
+  if (now.getUTCMinutes() !== 0) await safely('Email sync', () => syncEmail(env, now));
 }
 
 // A timer stops by itself after 8 hours. It then waits on the VA's Tasks & time page to be saved with notes.

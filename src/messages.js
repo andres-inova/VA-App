@@ -6,7 +6,7 @@
 //   3. Intro          one or two plain sentences saying what happened or what to do
 //   4. Figures        (optional) a row of numbers, e.g. on-time rate
 //   5. Details        (optional) a short list or table
-//   6. Button         one action, e.g. "Open the check-in app"
+//   6. Button         one action, e.g. "Open the app"
 //   7. Footer         a small note that explains terms or who to ask
 //
 // Emails get a plain-text version too, for email apps that don't show HTML.
@@ -29,7 +29,7 @@ export function email({ title, subtitle, greeting, intro, figures = [], details 
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#efeae2;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#111b21">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#efeae2;padding:24px 12px"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden">
-  <tr><td style="background:${BRAND};padding:16px 24px;color:#ffffff;font-weight:800;font-size:16px">InoVA Check-in</td></tr>
+  <tr><td style="background:${BRAND};padding:16px 24px;color:#ffffff;font-weight:800;font-size:16px">InoVA Local</td></tr>
   <tr><td style="padding:24px">
     <div style="font-size:22px;font-weight:800;margin:0 0 4px">${esc(title)}</div>
     ${subtitle ? `<div style="color:#667781;font-size:14px;margin-bottom:16px">${esc(subtitle)}</div>` : ''}

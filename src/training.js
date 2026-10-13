@@ -12,6 +12,8 @@
 // Hiring link: an admin can start an Onboarding Training from an applicant's page (Hiring). The
 // training remembers the applicant (trainings.applicant_id); starting it moves the applicant to
 // "In training", and marking it complete moves them to "Training done" (see applicantEvent in records.js).
+// An Onboarding Training started on the Training page is linked the same way when an open applicant has
+// the trainee's email (see "Linking trainings and applicants by email" below).
 //
 // Self-paced modules: before Day 1 of an Onboarding Training, the trainee goes through short online
 // modules (iSpring links, table training_modules, edited by admins on the checklist page). The links
@@ -22,6 +24,7 @@ import { redirect, page, isDate } from './util.js';
 import { partsIn, addDays, weekdayOf, REPORT_ZONE } from './time.js';
 import { sendInvite } from './invites.js';
 import { applicantEvent } from './records.js';
+import { CLOSED } from './fields.js';
 import * as tv from './training-views.js';
 
 export const ONBOARDING = 'Onboarding Training';
@@ -319,10 +322,16 @@ export async function adminTrainingRoutes(env, user, path, method, field, messag
       }
       return redirect(`/training/${dup.id}?msg=training-exists`);
     }
+    // Started on this page: an Onboarding Training is still linked to the open applicant with the trainee's email.
+    let linked = applicant;
+    if (!applicant && kind === ONBOARDING) {
+      const person = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(trainee.id).first();
+      linked = await openApplicantFor(env, person?.email);
+    }
     const res = await env.DB.prepare('INSERT INTO trainings (kind, trainee_id, trainer_id, start_date, created_by, applicant_id) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(kind, trainee.id, trainer.id, start, user.id, applicant?.id || null).run();
-    if (applicant) await applicantEvent(env, user, applicant.id, 'Training started', 'In training', BEFORE_TRAINING);
-    return redirect(`/training/${res.meta.last_row_id}?msg=training-started`);
+      .bind(kind, trainee.id, trainer.id, start, user.id, linked?.id || null).run();
+    if (linked) await applicantEvent(env, user, linked.id, 'Training started', 'In training', BEFORE_TRAINING);
+    return redirect(`/training/${res.meta.last_row_id}?msg=${linked && !applicant ? 'training-started-applicant' : 'training-started'}`);
   }
 
   // Checklist editor.
@@ -413,6 +422,41 @@ async function traineeFromForm(env, field) {
     return null;
   }
   return personFor(env, name, email, key);
+}
+
+// ---- Linking trainings and applicants by email ----
+// "Start training" on an applicant's page links the two directly. An Onboarding Training started on the
+// Training page is linked too when an open applicant (not Hired, Declined or Ghosted) has the trainee's
+// email; with several, the newest one. Applicants already linked to a running training are skipped.
+
+const NOT_OPEN = ['Hired', ...CLOSED];
+
+// The open applicant with this email (any case), or null.
+async function openApplicantFor(env, email) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!EMAIL.test(e)) return null;
+  return env.DB.prepare(
+    `SELECT id, name, status FROM records WHERE module = 'applicants' AND LOWER(TRIM(email)) = ?
+       AND COALESCE(status, '') NOT IN (SELECT value FROM json_each(?))
+       AND id NOT IN (SELECT applicant_id FROM trainings WHERE applicant_id IS NOT NULL AND status IN ('active', 'paused'))
+     ORDER BY REPLACE(created_at, 'T', ' ') DESC, id DESC LIMIT 1`
+  ).bind(e, JSON.stringify(NOT_OPEN)).first();
+}
+
+// After an applicant is added or their email is changed in the app: link a running Onboarding Training
+// (not linked yet) of the person with that email, as "Start training" on their page would.
+// Returns true when a training was linked.
+export async function linkApplicantToTraining(env, user, applicantId) {
+  const r = await env.DB.prepare("SELECT email FROM records WHERE id = ? AND module = 'applicants'").bind(applicantId).first();
+  if ((await openApplicantFor(env, r?.email))?.id !== applicantId) return false;
+  const t = await env.DB.prepare(
+    `SELECT t.id FROM trainings t JOIN users u ON u.id = t.trainee_id
+     WHERE t.kind = ? AND t.status IN ('active', 'paused') AND t.applicant_id IS NULL AND LOWER(u.email) = ? ORDER BY t.id DESC LIMIT 1`
+  ).bind(ONBOARDING, r.email.trim().toLowerCase()).first();
+  if (!t) return false;
+  await env.DB.prepare('UPDATE trainings SET applicant_id = ? WHERE id = ?').bind(applicantId, t.id).run();
+  await applicantEvent(env, user, applicantId, 'Linked to their training', 'In training', BEFORE_TRAINING);
+  return true;
 }
 
 // The login (users row) with this email, or a new one (not a VA login) with this name. Null without a valid email.

@@ -9,7 +9,7 @@ import { FILE_TYPES, MAX_FILE } from './sops.js';
 import { vaSource, applyVaRecords } from './zoho.js';
 import { importState, startImport } from './import.js';
 import { wufooState } from './wufoo.js';
-import { applicantTrainings } from './training.js';
+import { applicantTrainings, linkApplicantToTraining } from './training.js';
 import { recordEmails, forgetRecordEmails } from './email.js';
 import { partsIn, REPORT_ZONE } from './time.js';
 import * as rv from './records-views.js';
@@ -346,7 +346,9 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     ).bind(key, name, statusOf(key, data), parent, (data.Email || '').toLowerCase() || null, searchOf(key, data, name), JSON.stringify(data), now, user.id, now, user.id).first();
     await env.DB.prepare('INSERT INTO record_history (record_id, user_id, summary, at) VALUES (?, ?, ?, ?)').bind(row.id, user.id, 'Created', now).run();
     await vaChanged(env, key);
-    return redirect(`/admin/${key}/${row.id}?msg=record-created`);
+    // An applicant whose email matches someone already in an Onboarding Training gets linked to it.
+    const linked = key === 'applicants' && data.Email && await linkApplicantToTraining(env, user, row.id);
+    return redirect(`/admin/${key}/${row.id}?msg=${linked ? 'record-created-training-linked' : 'record-created'}`);
   }
 
   m = path.match(/^\/admin\/(clients|vas|contacts|applicants)\/(\d+)(?:\/(edit|delete|notes|files|step|checklist|hire)(?:\/(\d+)(?:\/(save|delete))?)?)?$/);
@@ -418,7 +420,9 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
       ]);
       await vaChanged(env, key);
     }
-    return redirect(`${here}?msg=${changes.length ? 'saved' : 'no-changes'}`);
+    // An applicant's email set or changed: link them to the Onboarding Training of the person with that email.
+    const linked = key === 'applicants' && changes.some((c) => c.f === 'Email') && data.Email && await linkApplicantToTraining(env, user, record.id);
+    return redirect(`${here}?msg=${linked ? 'saved-training-linked' : changes.length ? 'saved' : 'no-changes'}`);
   }
 
   if (action === 'delete' && !subId && method === 'POST') {

@@ -81,41 +81,57 @@ async function vaEmailProblem(env, data, recordId) {
 
 // ---- Saving ----
 
+// One field's value as typed in on a form (the Edit page, or one field changed on the record page): the value to
+// save, or null when it is empty.
+function readValue(x, field, fieldAll, old, allowed) {
+  const raw = field(x.key);
+  switch (x.type) {
+    case 'bool': return raw === '1';
+    case 'int': return raw === '' || Number.isNaN(Number(raw)) ? null : Math.round(Number(raw));
+    case 'num': return raw === '' || Number.isNaN(Number(raw)) ? null : Number(raw);
+    case 'money': return raw === '' || Number.isNaN(Number(raw.replace(/[$,]/g, ''))) ? null : Number(raw.replace(/[$,]/g, ''));
+    case 'date': return isDate(raw) ? raw : null;
+    case 'pick': case 'owner':
+      // A choice from the list, or the value it already had (for example an old value from Zoho).
+      return raw && ((x.options || allowed.owners || []).includes(raw) || raw === old[x.key]) ? raw : null;
+    case 'multi': return fieldAll(x.key).filter((o) => (x.options || []).includes(o) || (old[x.key] || []).includes(o));
+    case 'tags': return [...new Set(raw.split(',').map((t) => t.trim()).filter(Boolean))].slice(0, 20);
+    case 'lookup': { const n = Number(raw); return allowed[x.key]?.has(n) ? n : null; }
+    case 'lookups': return [...new Set(fieldAll(x.key).map(Number))].filter((n) => allowed[x.key]?.has(n));
+    default: return raw.slice(0, x.type === 'textarea' ? 20000 : 500) || null;
+  }
+}
+
+const isBlank = (v) => v === null || v === undefined || v === false || (Array.isArray(v) && !v.length);
+
+// What is wrong with one field's value (a bad email, a number out of range), or null.
+function valueProblem(x, v) {
+  if (isBlank(v)) return null;
+  if (x.type === 'email' && !EMAIL.test(v)) return `"${v}" doesn't look like an email address. Please check the ${x.label.toLowerCase()}.`;
+  if ((x.min !== undefined && v < x.min) || (x.max !== undefined && v > x.max)) return `${x.label.replace(/ \(.*\)/, '')} must be a number from ${x.min} to ${x.max}.`;
+  return null;
+}
+
+// A record needs a name.
+function nameProblem(key, data) {
+  const missing = key === 'contacts' ? !data.First_Name && !data.Last_Name : key === 'applicants' ? !data.Name : !data[MODULES[key].nameKey];
+  if (!missing) return null;
+  return key === 'contacts' ? 'Please type a first or last name.' : key === 'applicants' ? "Please type the applicant's first name." : `Please type the ${MODULES[key].one}'s name.`;
+}
+
 // The field values typed in on the edit form. Returns { data, error }.
 function readForm(key, field, fieldAll, old, allowed) {
   const data = {};
   for (const x of formFields(key)) {
-    const raw = field(x.key);
-    let v = null;
-    switch (x.type) {
-      case 'bool': v = raw === '1'; break;
-      case 'int': v = raw === '' || Number.isNaN(Number(raw)) ? null : Math.round(Number(raw)); break;
-      case 'num': v = raw === '' || Number.isNaN(Number(raw)) ? null : Number(raw); break;
-      case 'money': v = raw === '' || Number.isNaN(Number(raw.replace(/[$,]/g, ''))) ? null : Number(raw.replace(/[$,]/g, '')); break;
-      case 'date': v = isDate(raw) ? raw : null; break;
-      case 'pick': case 'owner':
-        // A choice from the list, or the value it already had (for example an old value from Zoho).
-        v = raw && ((x.options || allowed.owners || []).includes(raw) || raw === old[x.key]) ? raw : null; break;
-      case 'multi': v = fieldAll(x.key).filter((o) => (x.options || []).includes(o) || (old[x.key] || []).includes(o)); break;
-      case 'tags': v = [...new Set(raw.split(',').map((t) => t.trim()).filter(Boolean))].slice(0, 20); break;
-      case 'lookup': { const n = Number(raw); v = allowed[x.key]?.has(n) ? n : null; break; }
-      case 'lookups': v = [...new Set(fieldAll(x.key).map(Number))].filter((n) => allowed[x.key]?.has(n)); break;
-      default: v = raw.slice(0, x.type === 'textarea' ? 20000 : 500) || null;
-    }
-    if (v === null || v === false || (Array.isArray(v) && !v.length)) continue;
-    data[x.key] = v;
+    const v = readValue(x, field, fieldAll, old, allowed);
+    if (!isBlank(v)) data[x.key] = v;
   }
-  for (const x of formFields(key).filter((y) => y.type === 'email')) {
-    if (data[x.key] && !EMAIL.test(data[x.key])) return { data, error: `"${data[x.key]}" doesn't look like an email address. Please check the ${x.label.toLowerCase()}.` };
+  for (const x of formFields(key)) {
+    const problem = valueProblem(x, data[x.key]);
+    if (problem) return { data, error: problem };
   }
-  for (const x of formFields(key).filter((y) => y.min !== undefined || y.max !== undefined)) {
-    const v = data[x.key];
-    if (v !== undefined && ((x.min !== undefined && v < x.min) || (x.max !== undefined && v > x.max))) {
-      return { data, error: `${x.label.replace(/ \(.*\)/, '')} must be a number from ${x.min} to ${x.max}.` };
-    }
-  }
-  const nameMissing = key === 'contacts' ? !data.First_Name && !data.Last_Name : key === 'applicants' ? !data.Name : !data[MODULES[key].nameKey];
-  if (nameMissing) return { data, error: key === 'contacts' ? 'Please type a first or last name.' : key === 'applicants' ? "Please type the applicant's first name." : `Please type the ${MODULES[key].one}'s name.` };
+  const missing = nameProblem(key, data);
+  if (missing) return { data, error: missing };
   // Values the form doesn't show stay as they were (for example "Other fields from Zoho" or "from Wufoo", or the VA
   // record made from an applicant).
   for (const [k, v] of Object.entries(old)) if (k.startsWith('_')) data[k] = v;
@@ -123,9 +139,9 @@ function readForm(key, field, fieldAll, old, allowed) {
 }
 
 // Which records each lookup field may point to (so a form can't link to anything else).
-async function lookupChoices(env, key, record) {
+async function lookupChoices(env, key, record, only = null) {
   const choices = {};
-  for (const x of formFields(key).filter((y) => y.type === 'lookup' || y.type === 'lookups')) {
+  for (const x of formFields(key).filter((y) => (y.type === 'lookup' || y.type === 'lookups') && (!only || y.key === only))) {
     let rows;
     if (x.key === 'Contact') {
       rows = record ? (await env.DB.prepare("SELECT id, name FROM records WHERE module = 'contacts' AND parent_id = ? ORDER BY name").bind(record.id).all()).results : [];
@@ -151,6 +167,67 @@ function changesBetween(key, before, after) {
   }
   return changes;
 }
+
+// Saves a changed record (from the Edit page, or one field changed on the record page): the new values, a line in
+// its history, and what follows from the change (VA logins, project links, an applicant's Onboarding Training).
+// Returns { changes, linked (the applicant was linked to a training), noEmail (an Active VA with no email) }.
+async function saveRecord(env, user, key, record, data, parent) {
+  const changes = changesBetween(key, record.data, data);
+  if (key === 'contacts' && parent !== record.parent_id) changes.push({ f: '_client', from: record.parent_id, to: parent });
+  if (changes.length) {
+    const now = new Date().toISOString();
+    const name = nameOf(key, data);
+    await env.DB.batch([
+      env.DB.prepare('UPDATE records SET name = ?, status = ?, parent_id = ?, email = ?, search = ?, data = ?, updated_at = ?, updated_by = ? WHERE id = ?')
+        .bind(name, statusOf(key, data), parent, (data.Email || '').toLowerCase() || null, searchOf(key, data, name), JSON.stringify(data), now, user.id, record.id),
+      env.DB.prepare('INSERT INTO record_history (record_id, user_id, summary, changes, at) VALUES (?, ?, ?, ?, ?)')
+        .bind(record.id, user.id, 'Edited', JSON.stringify(changes), now),
+    ]);
+    await vaChanged(env, key);
+  }
+  // An applicant's email set or changed: link them to the Onboarding Training of the person with that email.
+  const linked = Boolean(key === 'applicants' && changes.some((c) => c.f === 'Email') && data.Email && await linkApplicantToTraining(env, user, record.id));
+  const noEmail = Boolean(key === 'vas' && changes.length && data.VA_Status === 'Active' && !data.Email);
+  return { changes, linked, noEmail };
+}
+
+// One field changed on the record page (click a value to change it). Same checks and the same save as the Edit
+// page; the other fields keep the values they have now. Answers with JSON: { ok, html (the new value as shown on
+// the page), note } or { error }.
+async function saveOneField(env, user, key, record, field, fieldAll) {
+  const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  const fkey = field('_f');
+  let data = record.data;
+  let parent = record.parent_id;
+  let x = null;
+  if (key === 'contacts' && fkey === '_client') {
+    // A contact's client.
+    const id = Number(field('parent_id')) || null;
+    parent = id && await env.DB.prepare("SELECT id FROM records WHERE id = ? AND module = 'clients'").bind(id).first() ? id : null;
+  } else {
+    x = formFields(key).find((y) => y.key === fkey);
+    if (!x) return json({ error: "This field can't be changed here. Use Edit." }, 400);
+    const choices = x.type === 'lookup' || x.type === 'lookups' ? await lookupChoices(env, key, record, x.key) : {};
+    const allowed = { owners: x.type === 'owner' ? await adminNames(env) : [], ...Object.fromEntries(Object.entries(choices).map(([k, rows]) => [k, new Set(rows.map((r) => r.id))])) };
+    const v = readValue(x, field, fieldAll, record.data, allowed);
+    const problem = valueProblem(x, v);
+    if (problem) return json({ error: problem }, 400);
+    data = { ...record.data };
+    if (isBlank(v)) delete data[x.key]; else data[x.key] = v;
+    const error = nameProblem(key, data) || (key === 'vas' ? await vaEmailProblem(env, data, record.id) : null);
+    if (error) return json({ error }, 400);
+  }
+  const { changes, linked, noEmail } = await saveRecord(env, user, key, record, data, parent);
+  const names = x && !['lookup', 'lookups'].includes(x.type) ? new Map() : await recordNames(env);
+  const html = x ? rv.fieldValueHtml(x, data[x.key], names) : rv.clientValueHtml(parent, names);
+  const note = linked ? INLINE_NOTES.linked : noEmail ? INLINE_NOTES.noEmail : null;
+  return json({ ok: true, changed: changes.length > 0, html, note });
+}
+
+const INLINE_NOTES = {
+  linked: ['good', 'Saved. This applicant is in an Onboarding Training (same email), so the two are now linked.'],
+  noEmail: ['bad', "Saved. This VA is Active but has no email, so they can't log in. Add their email."],
+};
 
 // After a VA record changes, VA logins and the backup lists follow right away. After a client record is added or
 // renamed, projects with no client yet that have its name are linked to it.
@@ -295,6 +372,12 @@ async function showRecord(env, user, key, record, message, tempPassword = null) 
     env.DB.prepare('SELECT h.*, u.name AS user_name FROM record_history h LEFT JOIN users u ON u.id = h.user_id WHERE h.record_id = ? ORDER BY h.at DESC, h.id DESC LIMIT 100').bind(record.id).all(),
   ]);
   const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null, va: null, training: null, mail: null };
+  // The choices for changing a value right on the page (the same lists as on the Edit page).
+  extra.edit = {
+    choices: await lookupChoices(env, key, record),
+    owners: await adminNames(env),
+    clients: key === 'contacts' ? (await env.DB.prepare("SELECT id, name FROM records WHERE module = 'clients' ORDER BY name COLLATE NOCASE").all()).results : [],
+  };
   if (key === 'applicants' && record.data._va) extra.va = await getRecord(env, 'vas', Number(record.data._va));
   if (key === 'applicants') {
     // The trainings started from this applicant's page, and who can be their trainer.
@@ -405,7 +488,7 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     return vaLoginAction(env, user, Number(m[1]), m[2], field);
   }
 
-  m = path.match(/^\/admin\/(clients|vas|contacts|applicants)\/(\d+)(?:\/(edit|delete|notes|files|step|checklist|hire)(?:\/(\d+)(?:\/(save|delete))?)?)?$/);
+  m = path.match(/^\/admin\/(clients|vas|contacts|applicants)\/(\d+)(?:\/(edit|field|delete|notes|files|step|checklist|hire)(?:\/(\d+)(?:\/(save|delete))?)?)?$/);
   if (!m) return redirect(path.startsWith('/admin/applicants') ? '/admin/applicants' : '/admin/clients');
   const [, key, idText, action, subId, subAction] = m;
   const record = await getRecord(env, key, Number(idText));
@@ -431,23 +514,12 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     const parentId = Number(field('parent_id')) || null;
     const parent = key === 'contacts' ? (clients.some((c) => c.id === parentId) ? parentId : null) : record.parent_id;
     if (error) return page(rv.editPage({ user, key, record: { ...record, data, parent_id: parent }, choices, owners, clients, error }), 400);
-    const changes = changesBetween(key, record.data, data);
-    if (key === 'contacts' && parent !== record.parent_id) changes.push({ f: '_client', from: record.parent_id, to: parent });
-    if (changes.length) {
-      const name = nameOf(key, data);
-      await env.DB.batch([
-        env.DB.prepare('UPDATE records SET name = ?, status = ?, parent_id = ?, email = ?, search = ?, data = ?, updated_at = ?, updated_by = ? WHERE id = ?')
-          .bind(name, statusOf(key, data), parent, (data.Email || '').toLowerCase() || null, searchOf(key, data, name), JSON.stringify(data), now, user.id, record.id),
-        env.DB.prepare('INSERT INTO record_history (record_id, user_id, summary, changes, at) VALUES (?, ?, ?, ?, ?)')
-          .bind(record.id, user.id, 'Edited', JSON.stringify(changes), now),
-      ]);
-      await vaChanged(env, key);
-    }
-    // An applicant's email set or changed: link them to the Onboarding Training of the person with that email.
-    const linked = key === 'applicants' && changes.some((c) => c.f === 'Email') && data.Email && await linkApplicantToTraining(env, user, record.id);
-    const noEmail = key === 'vas' && changes.length && data.VA_Status === 'Active' && !data.Email;
+    const { changes, linked, noEmail } = await saveRecord(env, user, key, record, data, parent);
     return redirect(`${here}?msg=${linked ? 'saved-training-linked' : noEmail ? 'saved-no-email' : changes.length ? 'saved' : 'no-changes'}`);
   }
+
+  // One field changed on the record page.
+  if (action === 'field' && method === 'POST') return saveOneField(env, user, key, record, field, fieldAll);
 
   if (action === 'delete' && !subId && method === 'POST') {
     const ids = [record.id];

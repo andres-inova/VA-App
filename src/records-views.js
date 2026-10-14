@@ -85,6 +85,146 @@ function valueHtml(x, v, names) {
   }
 }
 
+// For the record page's "change one field" answer (see saveOneField in records.js).
+export const fieldValueHtml = (x, v, names) => valueHtml(x, v, names);
+export const clientValueHtml = (id, names) => (id && names.has(Number(id)) ? linkTo('clients', id, names.get(Number(id))) : '');
+
+// A field on the record page that an admin can change right there: click the value (or its pencil) to get the same
+// input as on the Edit page, inside a <template> until then. Empty fields are hidden until "Show empty fields".
+const editRow = (x, html, editor, wide = x.type === 'textarea') => `<div class="fe${wide ? ' wide' : ''}${html ? '' : ' fe-empty'}" data-fe="${esc(x.key)}"><dt>${esc(x.label)}</dt><dd><span class="fe-val">${html || '<span class="fe-none">—</span>'}</span><button type="button" class="fe-pen" aria-label="Change ${esc(x.label)}">${icon('edit')}</button></dd><template>${editor}</template></div>`;
+
+// The script for changing one field on the record page: open the editor, save it (POST .../field, answered with the
+// new value), then fetch the page again to bring the rest of it (name, Login box, hiring step, scores, history, values
+// someone else changed) up to date.
+const FIELD_SCRIPT = `(function () {
+  var here = location.pathname.replace(/\\/+$/, '');
+  try { if (localStorage.getItem('showEmptyFields') === '1') document.body.classList.add('show-empty'); } catch (e) {}
+  function rowOf(f) { return document.querySelector('[data-fe="' + CSS.escape(f) + '"]'); }
+  function firstInput(form) { return form.querySelector('input:not([type=hidden]),select,textarea'); }
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('.fe-toggle')) {
+      var on = !document.body.classList.contains('show-empty');
+      document.body.classList.toggle('show-empty', on);
+      try { localStorage.setItem('showEmptyFields', on ? '1' : ''); } catch (x) {}
+      return;
+    }
+    var row = e.target.closest('[data-fe]');
+    if (!row || row.classList.contains('fe-editing')) return;
+    if (!e.target.closest('.fe-pen')) {
+      // Links in a value (an email, a phone number, another record) still open; selecting text doesn't start editing.
+      if (!e.target.closest('dd') || e.target.closest('a') || String(window.getSelection ? window.getSelection() : '')) return;
+    }
+    open(row);
+  });
+  function open(row) {
+    document.querySelectorAll('.fe-editing').forEach(function (r) { if (!r.dataset.saving) close(r, false); });
+    var form = document.createElement('form');
+    form.className = 'fe-form'; form.noValidate = true;
+    form.innerHTML = row.querySelector('template').innerHTML
+      + '<div class="toast bad fe-error" role="alert" hidden></div>'
+      + '<div class="actions"><button class="sm fe-save">Save</button><button type="button" class="sm plain fe-cancel">Cancel</button></div>';
+    // One pick list or one tick box saves as soon as it is changed.
+    var fields = form.querySelectorAll('input:not([type=hidden]),select,textarea');
+    var auto = fields.length === 1 && (fields[0].tagName === 'SELECT' || fields[0].type === 'checkbox');
+    if (auto) form.classList.add('fe-auto');
+    row.querySelector('dd').hidden = true; row.classList.add('fe-editing'); row.appendChild(form);
+    var input = firstInput(form);
+    if (input) {
+      input.focus();
+      if (/^(text|email|number|search|tel|url)$/.test(input.type) && input.select) input.select();
+    }
+    form.addEventListener('submit', function (e) { e.preventDefault(); e.stopPropagation(); save(row, form); });
+    form.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); close(row, true); }
+      else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.tagName === 'TEXTAREA') { e.preventDefault(); save(row, form); }
+    });
+    form.querySelector('.fe-cancel').addEventListener('click', function () { close(row, true); });
+    if (auto) {
+      form.addEventListener('change', function () { save(row, form); });
+      form.addEventListener('focusout', function () {
+        setTimeout(function () {
+          if (row.classList.contains('fe-editing') && !row.dataset.saving && !form.dataset.error && !form.contains(document.activeElement)) close(row, false);
+        }, 200);
+      });
+    }
+  }
+  function close(row, focus) {
+    var form = row.querySelector('.fe-form');
+    if (form) form.remove();
+    row.querySelector('dd').hidden = false; row.classList.remove('fe-editing');
+    if (focus) row.querySelector('.fe-pen').focus();
+  }
+  function save(row, form) {
+    if (row.dataset.saving) return;
+    var body = new URLSearchParams(new FormData(form));
+    body.append('_f', row.dataset.fe);
+    var button = form.querySelector('.fe-save');
+    row.dataset.saving = '1'; button.classList.add('busy');
+    fetch(here + '/field', { method: 'POST', body: body, credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(function (r) {
+        return /json/.test(r.headers.get('Content-Type') || '') ? r.json() : { error: 'Not saved. Please reload the page (you may need to log in again).' };
+      })
+      .catch(function () { return { error: 'Not saved: the app could not be reached. Please try again.' }; })
+      .then(function (res) {
+        delete row.dataset.saving; button.classList.remove('busy');
+        if (res.error) {
+          var box = form.querySelector('.fe-error');
+          box.textContent = res.error; box.hidden = false; form.dataset.error = '1';
+          var input = firstInput(form);
+          if (input) input.focus();
+          return;
+        }
+        row.querySelector('.fe-val').innerHTML = res.html || '<span class="fe-none">—</span>';
+        row.classList.toggle('fe-empty', !res.html);
+        close(row, true);
+        flash(row.dataset.fe);
+        if (res.note) note(res.note);
+        refresh(row.dataset.fe);
+      });
+  }
+  function flash(f) {
+    var row = rowOf(f);
+    if (!row) return;
+    row.querySelectorAll('.fe-saved').forEach(function (s) { s.remove(); });
+    var s = document.createElement('span');
+    s.className = 'chip good fe-saved'; s.setAttribute('role', 'status'); s.textContent = 'Saved';
+    row.querySelector('dt').appendChild(s);
+    setTimeout(function () { s.remove(); }, 2500);
+  }
+  function note(n) {
+    var t = document.createElement('div');
+    t.className = 'toast ' + n[0]; t.setAttribute('role', 'status'); t.textContent = n[1];
+    var head = document.getElementById('rec-head');
+    head.parentNode.insertBefore(t, head);
+    setTimeout(function () { t.classList.add('hide'); }, 8000);
+  }
+  // The parts of the page that can change after a save. Parts with an open editor, or where someone is typing,
+  // stay as they are.
+  function refresh(f) {
+    fetch(here, { credentials: 'same-origin' }).then(function (r) { return r.ok && !r.redirected ? r.text() : null; }).then(function (html) {
+      if (!html) return;
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var ids = ['rec-head', 'login', 'step', 'training', 'history', 'rec-hidden', 'rec-nothing'];
+      if (ids.some(function (id) { return !document.getElementById(id) !== !doc.getElementById(id); })) {
+        location.replace(here + '?msg=saved');
+        return;
+      }
+      doc.querySelectorAll('#rec-fields > [id]').forEach(function (el) { if (el.id !== 'offer') ids.push(el.id); });
+      var active = document.activeElement;
+      var typing = active && /INPUT|TEXTAREA|SELECT/.test(active.tagName);
+      var pen = active && active.classList.contains('fe-pen') ? active.closest('[data-fe]').dataset.fe : null;
+      ids.forEach(function (id) {
+        var now = document.getElementById(id), fresh = doc.getElementById(id);
+        if (!now || !fresh || now.querySelector('.fe-editing') || (typing && now.contains(active))) return;
+        if (now.tagName === 'DETAILS') fresh.open = now.open;
+        now.replaceWith(fresh);
+      });
+      if (pen && rowOf(pen)) rowOf(pen).querySelector('.fe-pen').focus();
+      flash(f);
+    }).catch(function () {});
+  }
+})();`;
+
 const fileLink = (key, recordId, f) => `/admin/${key}/${esc(recordId)}/files/${esc(f.id)}`;
 
 function historyHtml(key, history, names) {
@@ -314,7 +454,7 @@ function loginBox(record, login) {
   });
 }
 
-export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, mail, message, tempPassword = null }) {
+export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, mail, edit, message, tempPassword = null }) {
   const d = record.data;
   const mod = MODULES[key];
   const here = `/admin/${key}/${record.id}`;
@@ -323,7 +463,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     : [`/admin/${key}`, `All ${mod.label.toLowerCase()}`];
   const status = record.status === 'n/a' ? 'No status' : record.status;
   const contactLine = [d.Title && esc(d.Title), d.Email && mailLink(d.Email), d.Phone && phoneLink(d.Phone), d.Location && esc(d.Location)].filter(Boolean);
-  const head = `<div class="card">
+  const head = `<div class="card" id="rec-head">
     <div class="rec-head">${avatar(record.name, 'lg')}<div class="grow"><h2>${esc(record.name)}</h2>
       <div class="chips">${key === 'contacts' ? (parent ? chip(`Contact at ${parent.name}`, 'info') : chip('No client', 'warn')) : ''}${chip(status, tone(record.status))}</div></div></div>
     ${contactLine.length ? `<p class="meta">${contactLine.join(' · ')}</p>` : ''}
@@ -367,26 +507,39 @@ export function recordPage({ user, key, record, names, notes, files, history, co
 
   let hidden = 0;
   const filesBy = (fieldKey) => files.filter((f) => f.field === fieldKey);
-  const sections = mod.sections.map((s) => {
+  const { choices = {}, owners = [], clients = [] } = edit || {};
+  const sections = mod.sections.map((s, n) => {
     if (key === 'applicants' && s.title === 'Offer checklist') return offerChecklist(record);
+    let filled = 0;
     const rows = s.fields.map((x) => {
-      let html;
-      if (x.type === 'file') html = filesBy(x.key).map((f) => `<a href="${fileLink(key, record.id, f)}" target="_blank" rel="noopener">${icon('doc')} ${esc(f.file_name)}</a>`).join('<br>');
-      else html = valueHtml(x, d[x.key], names);
-      if (!html) { hidden++; return ''; }
-      return `<div class="${x.type === 'textarea' ? 'wide' : ''}"><dt>${esc(x.label)}</dt><dd>${html}</dd></div>`;
+      // Files are added in the Files section, so they are not changed here.
+      if (x.type === 'file') {
+        const html = filesBy(x.key).map((f) => `<a href="${fileLink(key, record.id, f)}" target="_blank" rel="noopener">${icon('doc')} ${esc(f.file_name)}</a>`).join('<br>');
+        if (html) filled++;
+        return html ? `<div><dt>${esc(x.label)}</dt><dd>${html}</dd></div>` : '';
+      }
+      const html = valueHtml(x, d[x.key], names);
+      if (html) filled++; else hidden++;
+      return editRow(x, html, input(x, d[x.key], choices, owners));
     });
+    // A contact's client, changed like a field.
+    if (key === 'contacts' && n === 0) {
+      const html = clientValueHtml(record.parent_id, names);
+      if (html) filled++; else hidden++;
+      rows.unshift(editRow({ key: '_client', label: 'Client' }, html, `<div><label for="f-parent">Client</label><select id="f-parent" name="parent_id"><option value="">No client</option>${clients.map((c) => `<option value="${c.id}" ${c.id === Number(record.parent_id) ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>`, false));
+    }
     const reverse = s.fields.find((x) => x.reverse);
-    if (reverse && referredHere.length) rows.push(`<div><dt>${esc(reverse.reverse)}</dt><dd>${referredHere.map((r) => linkTo(key, r.id, r.name)).join(', ')}</dd></div>`);
-    const shown = rows.filter(Boolean);
+    if (reverse && referredHere.length) { filled++; rows.push(`<div><dt>${esc(reverse.reverse)}</dt><dd>${referredHere.map((r) => linkTo(key, r.id, r.name)).join(', ')}</dd></div>`); }
+    const list = `<dl class="fields">${rows.join('')}</dl>`;
     if (s.score) {
       // Score sections always show, with a link to fill them in.
-      const editLink = `<a class="btn sm plain" href="${here}/edit#edit-${esc(encodeURIComponent(s.title))}">${icon('edit')} ${shown.length ? 'Change the scores' : 'Fill in the scores'}</a>`;
-      return section({ title: s.title, count: shown.length || undefined, key: `sec-${s.title}`,
-        body: `${scoreSummary(s.score, d) || '<p class="meta">Not scored yet.</p>'}${shown.length ? `<dl class="fields">${shown.join('')}</dl>` : ''}<div class="actions">${editLink}</div>` });
+      const editLink = `<a class="btn sm plain" href="${here}/edit#edit-${esc(encodeURIComponent(s.title))}">${icon('edit')} ${filled ? 'Change the scores' : 'Fill in the scores'}</a>`;
+      return section({ title: s.title, count: filled || undefined, key: `sec-${s.title}`,
+        body: `${scoreSummary(s.score, d) || '<p class="meta">Not scored yet.</p>'}${list}<div class="actions">${editLink}</div>` });
     }
-    return shown.length ? section({ title: s.title, count: shown.length, key: `sec-${s.title}`, body: `<dl class="fields">${shown.join('')}</dl>` }) : '';
+    return section({ title: s.title, count: filled, key: `sec-${s.title}`, tone: filled ? '' : 'sec-empty', body: list });
   }).join('');
+  const nothing = !/class="section (?!sec-empty)/.test(sections);
   const extra = d._extra ? section({
     title: d._wufoo ? 'Other fields from Wufoo' : 'Other fields from Zoho', count: Object.keys(d._extra).length, open: false, key: 'extra',
     hint: d._wufoo ? 'Answers on the Wufoo form that have no place in the app. Kept here so nothing is lost.'
@@ -398,13 +551,16 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     title: record.name, user, active: activeFor(key), message,
     body: `<div class="chips proj-tabs"><a class="chip muted" href="${esc(back[0])}">‹ ${esc(back[1])}</a></div>
     ${loginResult(tempPassword)}${head}${related}
-    ${sections || `<div class="card">${empty('No details yet. Click Edit to add them.')}</div>`}
-    ${hidden ? `<p class="meta">${hidden} empty field${hidden === 1 ? ' is' : 's are'} not shown. Click Edit to fill ${hidden === 1 ? 'it' : 'them'} in.</p>` : ''}
+    <div id="rec-fields">${sections}</div>
+    ${nothing ? `<div class="card" id="rec-nothing">${empty('No details yet. Click <b>Show empty fields</b> to fill them in here, or click Edit.')}</div>` : ''}
+    <p class="meta" id="rec-hidden">Click a value to change it.${hidden ? ` ${hidden} empty field${hidden === 1 ? ' is' : 's are'} hidden.
+      <button type="button" class="sm plain fe-toggle"><span class="when-hidden">Show empty fields</span><span class="when-shown">Hide empty fields</span></button>` : ''}</p>
     ${extra}
     ${mail ? emailsSection({ user, record, ...mail }) : ''}
     ${section({ title: 'Notes', count: notes.length, key: 'notes', body: notesHtml(key, record, notes, user) })}
     ${section({ title: 'Files', count: files.length, key: 'files', body: filesHtml(key, record, files) })}
-    ${section({ title: 'History', count: history.length, open: false, key: 'history', hint: 'Who changed what, newest first.', body: historyHtml(key, history, names) })}`,
+    ${section({ title: 'History', count: history.length, open: false, key: 'history', hint: 'Who changed what, newest first.', body: historyHtml(key, history, names) })}
+    <script>${FIELD_SCRIPT}</script>`,
   });
 }
 

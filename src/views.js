@@ -361,6 +361,16 @@ a.item.pick{display:block;color:inherit;text-decoration:none;border-radius:12px}
 .fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px 24px;padding:4px 8px 8px;margin:0}
 .fields>div{min-width:0}.fields dt{font-size:13px;color:var(--muted);font-weight:700}.fields dd{margin:2px 0 0;overflow-wrap:anywhere}
 .fields .wide{grid-column:1/-1}.fields .wide dd{white-space:pre-line}.fields a{display:inline-flex;align-items:center;gap:4px}
+.fe dd{cursor:pointer;border-radius:8px;margin:2px -6px 0;padding:2px 6px;min-height:28px}.fe dd:hover{background:var(--surface-2)}.fe-none{color:var(--muted)}
+.fe-pen{background:transparent;color:var(--muted);padding:2px 6px;margin:0 0 0 2px;border-radius:8px;vertical-align:middle;opacity:0;white-space:normal}
+.fe-pen svg{width:16px;height:16px}.fe:hover .fe-pen,.fe-pen:focus-visible{opacity:1}.fe-pen:focus-visible{outline:2px solid var(--accent)}
+@media (hover:none){.fe-pen{opacity:.6;padding:6px 8px}}
+.fe dt .fe-saved{margin-left:6px;font-size:12px;padding:1px 8px}
+.fields .fe-editing{grid-column:1/-1}.fe-form{margin-top:4px}.fe-form .actions{margin-top:8px}.fe-auto .fe-save{display:none}
+.fe-form label[for],.fe-form legend{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.fe-form .check{margin-top:4px!important}.fe-form .picks{margin:0}.fe-form .toast{display:block;margin:8px 0 0;padding:8px 12px}.fe-form .fe-error[hidden]{display:none}
+body:not(.show-empty) .fe-empty,body:not(.show-empty) .sec-empty{display:none}.show-empty #rec-nothing{display:none}
+.show-empty .fe-toggle .when-hidden,body:not(.show-empty) .fe-toggle .when-shown{display:none}.fe-toggle{margin:0 0 0 6px}
 .rec-head{display:flex;gap:14px;align-items:center}.rec-actions .btn{max-width:100%;overflow-wrap:anywhere}.rec-head h2{margin:0;font-size:22px}.rec-head .chips{margin:4px 0 0}
 .record-form .section,#offer,#step,#notes,#files{scroll-margin-top:80px}.steps .chip{font-weight:600}.step-count{display:none}@media (max-width:600px){.steps{display:none}.step-count{display:block}
   #applicants-list .item-head{flex-wrap:wrap}#applicants-list .item-head>.grow{flex:1 1 calc(100% - 100px)}

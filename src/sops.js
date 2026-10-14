@@ -127,10 +127,10 @@ export const MAX_FILE = 15 * 1024 * 1024;
 export async function coveringSops(env, user) {
   if (!user.zoho_id) return [];
   const { results } = await env.DB.prepare(
-    `SELECT cp.project_id AS id, cp.client, u.name AS va_name, r.start_date, r.end_date, s.content IS NOT NULL AS has_content,
+    `SELECT cp.project_id AS id, cp.client, p.client_record_id, u.name AS va_name, r.start_date, r.end_date, s.content IS NOT NULL AS has_content,
        s.completed_at, s.file_key, s.file_name, s.not_needed
      FROM coverage_projects cp JOIN time_off_requests r ON r.id = cp.request_id JOIN users u ON u.id = r.user_id
-     LEFT JOIN sops s ON s.project_id = cp.project_id
+     LEFT JOIN sops s ON s.project_id = cp.project_id LEFT JOIN projects p ON p.id = cp.project_id
      WHERE cp.backup_zoho_id = ? AND cp.project_id != '' AND r.status = 'approved' AND r.kind != 'emergency'
        AND r.end_date >= date('now', '-1 day')
      ORDER BY r.start_date`

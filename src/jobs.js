@@ -4,7 +4,7 @@ import { REPORT_ZONE, zoneFor, partsIn, zonedTimeToUtc, parseHHMM, weekdayIndex,
 import { postToSlack, sendEmail, slackSafe } from './notify.js';
 import { syncVAsAndProjects } from './zoho.js';
 import { syncEmail } from './email.js';
-import { esc } from './util.js';
+import { esc, sameClient } from './util.js';
 import * as messages from './messages.js';
 
 const ALERT_WINDOW_MINUTES = 120; // Never send a late alert more than 2 hours after the start time.
@@ -29,22 +29,24 @@ export async function dayInfo(env, user, now = new Date()) {
   const today = String(weekdayIndex(local.weekday));
 
   const { results: assignments } = await env.DB.prepare(
-    `SELECT a.project_id, a.start_time, a.time_zone, a.days, p.client, p.is_coverage FROM assignments a JOIN projects p ON p.id = a.project_id
+    `SELECT a.project_id, a.start_time, a.time_zone, a.days, p.client, p.client_record_id, p.is_coverage FROM assignments a JOIN projects p ON p.id = a.project_id
      WHERE a.user_id = ? AND p.active = 1 ORDER BY p.client`
   ).bind(user.id).all();
   // Coverage projects count only on days this VA is the backup for that client on approved time off
   // (whatever their work days are); other days they are ignored.
-  const covering = new Set();
+  // The client of each coverage row is the client of the covered project (its client record), or else its name.
+  let covering = [];
   if (user.zoho_id && assignments.some((a) => a.is_coverage)) {
     const { results } = await env.DB.prepare(
-      `SELECT DISTINCT lower(cp.client) AS client FROM coverage_projects cp JOIN time_off_requests r ON r.id = cp.request_id
+      `SELECT DISTINCT cp.client, p.client_record_id FROM coverage_projects cp JOIN time_off_requests r ON r.id = cp.request_id
+       LEFT JOIN projects p ON p.id = cp.project_id
        WHERE cp.backup_zoho_id = ? AND cp.project_id != '' AND r.status = 'approved' AND r.kind != 'emergency' AND ? BETWEEN r.start_date AND r.end_date`
     ).bind(user.zoho_id, local.date).all();
-    for (const r of results) covering.add(r.client);
+    covering = results;
   }
   // Each start time is in the assignment's own time zone, or the VA's when none is set.
   const allToday = assignments
-    .filter((a) => (a.is_coverage ? covering.has(a.client.toLowerCase()) : a.days.split(',').includes(today)))
+    .filter((a) => (a.is_coverage ? covering.some((c) => sameClient(c, a)) : a.days.split(',').includes(today)))
     .map((a) => {
       const start = parseHHMM(a.start_time);
       const label = zoneFor(a.time_zone) ? a.time_zone : zoneLabel;

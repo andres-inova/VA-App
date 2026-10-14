@@ -3,7 +3,7 @@
 import { esc } from './util.js';
 import { formatDate, REPORT_ZONE } from './time.js';
 import { MODULES, allFields, plainValue, STEPS, CLOSED, OFFER_ITEMS, RESUME_INVITE, resumeScore, callScore } from './fields.js';
-import { layout, icon, avatar, chip, section, empty, zohoTime, mailLink, phoneLink } from './views.js';
+import { layout, icon, avatar, chip, section, empty, zohoTime, mailLink, phoneLink, loginResult, loginText, lastLoginText, loginButtons, checkedInfo } from './views.js';
 import { applicantTrainingRows } from './training-views.js';
 import { emailsSection } from './email-views.js';
 
@@ -44,7 +44,7 @@ export function clientsPage({ user, records, names, projects, message }) {
     statuses: MODULES.clients.statuses, searchHint: 'Search clients, emails or places',
     rowOf: (r) => {
       const d = r.data;
-      const vas = (projects.get(r.name.trim().toLowerCase()) || []).filter((p) => !p.is_coverage).map((p) => p.vas).filter(Boolean);
+      const vas = (projects.get(r.id) || []).filter((p) => !p.is_coverage).map((p) => p.vas).filter(Boolean);
       const sub = [names.get(d.Contact), d.Package_Hours && `${d.Package_Hours} hours`, [d.Shift, d.Timezone].filter(Boolean).join(' '), vas.length && `VA: ${vas.join(', ')}`]
         .filter(Boolean).map(esc).join(' · ');
       return recordRow('clients', r, sub, chip(r.status, tone(r.status)));
@@ -281,7 +281,40 @@ function offerChecklist(record) {
   });
 }
 
-export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, mail, message }) {
+// The Login box on a VA's page: their login (users row linked to this record), whether they can log in and are
+// checked, and the same login buttons as on the People page.
+function loginBox(record, login) {
+  const u = login?.user;
+  const active = record.status === 'Active';
+  const email = record.data.Email;
+  const warn = (text) => `<div class="toast bad" style="display:block">${text}</div>`;
+  let body;
+  if (!u) {
+    body = active && !email ? warn(`Active, but has no email, so ${esc(record.name)} can't log in. Add their email with <a href="/admin/vas/${record.id}/edit">Edit</a>.`)
+      : active && login?.conflict ? warn(`${esc(email)} is already the login of ${esc(login.conflict.name)}${login.conflict.is_admin ? ' (an admin)' : ''}, so this VA has no login. Give this VA their own email with <a href="/admin/vas/${record.id}/edit">Edit</a>.`)
+      : active ? '<p class="meta">Their login is being made. Reload the page in a moment.</p>'
+      : `<p class="meta">No login. Only Active VAs can log in; set VA Status to Active with <a href="/admin/vas/${record.id}/edit">Edit</a> to give ${esc(record.name)} one.</p>`;
+  } else {
+    const base = `/admin/vas/${record.id}/login`;
+    const c = checkedInfo(u, base);
+    const can = u.is_va || u.is_admin;
+    const access = u.is_va ? `Logs in with <b>${esc(u.email)}</b> and checks in.${u.is_admin ? ' Also an admin.' : ''}`
+      : u.is_admin ? `Logs in with <b>${esc(u.email)}</b> as an admin. Not Active, so no check-ins.`
+      : active && !email ? `Active, but has no email, so ${esc(record.name)} can't log in. Add their email with <a href="/admin/vas/${record.id}/edit">Edit</a>.`
+      : `Not Active, so ${esc(record.name)} can't log in. Their login (${esc(u.email)}) and history are kept.`;
+    body = `${active && !email ? warn(access) : `<p class="meta">${access}</p>`}
+      <div class="chips">${chip(loginText(u), u.has_password ? 'good' : 'muted')}${u.is_va ? c.chip : ''}</div>
+      <p class="meta">${esc(lastLoginText(u))} · ${u.invited_at ? `Invite sent ${esc(formatDate(u.invited_at.slice(0, 10), true))}` : 'No invite sent yet'}${u.is_va ? ` · ${esc(c.why)}` : ''}</p>
+      ${can ? `<div class="actions">${u.is_va ? c.button : ''}${loginButtons(u, base)}</div>` : ''}`;
+  }
+  return section({
+    title: 'Login', key: 'login', tone: active && (!u || !u.is_va) ? 'attention' : '',
+    hint: 'Their email on this record is the email they log in with. Changing it keeps the same login and history.',
+    body: `<div style="padding:0 8px 8px">${body}</div>`,
+  });
+}
+
+export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, mail, message, tempPassword = null }) {
   const d = record.data;
   const mod = MODULES[key];
   const here = `/admin/${key}/${record.id}`;
@@ -311,20 +344,18 @@ export function recordPage({ user, key, record, names, notes, files, history, co
         + `<div class="actions" style="margin:6px 8px"><a class="btn sm plain" href="/admin/contacts/new?client=${record.id}">${icon('plus')} Add contact</a></div>`,
     });
     related += section({
-      title: 'VAs and projects', count: projects.length, key: 'projects', hint: 'Active projects in Zoho Projects named after this client.',
+      title: 'VAs and projects', count: projects.length, key: 'projects', hint: 'Active projects in Zoho Projects linked to this client (choose the client of a project on the Projects page).',
       body: projects.length ? projects.map((p) => `<div class="item flat"><div class="item-head">${avatar(p.vas || '?')}
         <div class="grow"><div class="title">${esc(p.vas || 'No VA')}</div><div class="sub">${esc(p.name)}</div></div>
         ${p.is_coverage ? chip('Coverage', 'info') : `<a class="btn sm plain" href="/sops/${esc(encodeURIComponent(p.id))}">${icon('doc')} SOP</a>`}</div></div>`).join('')
-        : empty("No active project has this client's name."),
+        : empty('No active project is linked to this client. Link one on the <a href="/admin/projects">Projects page</a>.'),
     });
   }
   if (key === 'vas') {
-    const u = login?.user;
-    const access = u?.is_va ? `Can log in to this app as ${esc(u.email)}.${u.has_password ? '' : ' Has not set a password yet.'}`
-        : record.status === 'Active' ? 'Active, but has no email, so cannot log in.' : 'Not Active, so cannot log in to this app.';
+    related += loginBox(record, login);
     related += section({
       title: 'Clients and projects', count: login?.projects.length || 0, key: 'projects',
-      hint: `${access}${u ? ' <a href="/admin/people">People page</a>' : ''}`,
+      hint: login?.user && !login.user.is_va && login.projects.length ? "Not Active: these projects are kept for their history, but they don't check in for them and the Projects page doesn't list them." : '',
       body: login?.projects.length ? login.projects.map((p) => `<div class="item flat"><div class="item-head">${avatar(p.client)}
         <div class="grow"><div class="title">${esc(p.client)}</div><div class="sub">${esc(p.name)}</div></div>
         ${p.is_coverage ? chip('Coverage', 'info') : `<a class="btn sm plain" href="/sops/${esc(encodeURIComponent(p.id))}">${icon('doc')} SOP</a>`}</div></div>`).join('')
@@ -366,7 +397,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
   return layout({
     title: record.name, user, active: activeFor(key), message,
     body: `<div class="chips proj-tabs"><a class="chip muted" href="${esc(back[0])}">‹ ${esc(back[1])}</a></div>
-    ${head}${related}
+    ${loginResult(tempPassword)}${head}${related}
     ${sections || `<div class="card">${empty('No details yet. Click Edit to add them.')}</div>`}
     ${hidden ? `<p class="meta">${hidden} empty field${hidden === 1 ? ' is' : 's are'} not shown. Click Edit to fill ${hidden === 1 ? 'it' : 'them'} in.</p>` : ''}
     ${extra}

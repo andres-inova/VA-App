@@ -1,7 +1,8 @@
 -- Database tables for the InoVA Local VA app.
 
 -- Everyone who can log in. A person can be an admin, a VA, or both.
--- VA details (time zone, availability, Slack IDs, affiliation) are copied from the app's VA records (records table).
+-- A VA's login is linked to their VA record (record_id); name, email, time zone, availability, Slack IDs and
+-- affiliation are copied from it whenever it changes (see applyVaRecords in src/zoho.js).
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL UNIQUE,
@@ -23,8 +24,11 @@ CREATE TABLE IF NOT EXISTS users (
   affiliation TEXT,      -- "VA Company Affiliation" on the VA record; only "InoVA Local" VAs are checked
   exempt INTEGER NOT NULL DEFAULT 0,  -- 1 = an admin exempted this VA from check-ins
   zoho_projects_user_id TEXT,  -- the VA's user ID in Zoho Projects (for time logs)
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  record_id INTEGER REFERENCES records(id),  -- the VA record this login belongs to (empty for admins and trainees)
+  last_login_at TEXT     -- when the person last logged in with their password
 );
+CREATE UNIQUE INDEX IF NOT EXISTS users_record ON users (record_id);
 
 -- Login sessions. Only a scrambled (hashed) copy of each session key is stored.
 CREATE TABLE IF NOT EXISTS sessions (
@@ -59,8 +63,11 @@ CREATE TABLE IF NOT EXISTS projects (
   va_name TEXT,                     -- the part after the last " - ", for example "Tracy Saeman"
   active INTEGER NOT NULL DEFAULT 1,
   assignment_locked INTEGER NOT NULL DEFAULT 0,  -- 1 once assigned (automatically or by an admin), so syncs stop auto-assigning it
-  is_coverage INTEGER NOT NULL DEFAULT 0  -- 1 for "[client] - [backup VA] - Coverage": no SOP; check-ins only on days that VA covers the client
+  is_coverage INTEGER NOT NULL DEFAULT 0,  -- 1 for "[client] - [backup VA] - Coverage": no SOP; check-ins only on days that VA covers the client
+  client_record_id INTEGER REFERENCES records(id),  -- the client record; filled in by name while empty, or chosen by an admin
+  client_set INTEGER NOT NULL DEFAULT 0  -- 1 = an admin chose the client (or "No client") on the Projects page; syncs leave it alone
 );
+CREATE INDEX IF NOT EXISTS projects_client ON projects (client_record_id);
 
 -- Which VA works on which project, and when. One check-in per day covers all of a VA's projects that day,
 -- due at the earliest start time.
@@ -154,13 +161,6 @@ CREATE TABLE IF NOT EXISTS sent_log (
   key TEXT PRIMARY KEY,
   sent_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
--- The starting admins. They set their passwords on first use (see README).
-INSERT OR IGNORE INTO users (email, name, is_admin) VALUES
-  ('andres@inovalocal.com', 'Andres', 1),
-  ('pratap@inovalocal.com', 'Pratap', 1),
-  ('kelli@inovalocal.com', 'Kelli', 1),
-  ('stephany@inovalocal.com', 'Stephany Baldwin', 1);
 
 -- Coverage SOPs: one per project. A VA fills in the template in the app, or uploads their own file.
 CREATE TABLE IF NOT EXISTS sops (
@@ -467,3 +467,11 @@ INSERT OR IGNORE INTO training_items (id, day_id, position, location, name, trai
   (24, 5, 7, 'Training Syllabus', 'Full syllabus review & sign-off',
    'Review the full checklist together, confirm every item was covered (including anything carried over from earlier days), and sign off.',
    'Review the full checklist together, flag anything that wasn''t clearly covered, and sign off.');
+
+-- The starting admins. They set their passwords on first use (see README). At the end of the file, because
+-- users.record_id refers to the records table, which must exist first.
+INSERT OR IGNORE INTO users (email, name, is_admin) VALUES
+  ('andres@inovalocal.com', 'Andres', 1),
+  ('pratap@inovalocal.com', 'Pratap', 1),
+  ('kelli@inovalocal.com', 'Kelli', 1),
+  ('stephany@inovalocal.com', 'Stephany Baldwin', 1);

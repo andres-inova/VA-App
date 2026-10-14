@@ -55,6 +55,9 @@ const MESSAGES = {
   'sop-file-big': ['bad', 'That file is too big. The limit is 15 MB.'],
   'sop-file-missing': ['bad', 'The file could not be found. Please upload it again.'],
   'record-created': ['good', 'Added.'],
+  'record-created-no-email': ['bad', "Added. This VA is Active but has no email, so they can't log in. Add their email with Edit."],
+  'saved-no-email': ['bad', "Saved. This VA is Active but has no email, so they can't log in. Add their email with Edit."],
+  'client-saved': ['good', "Client saved for this project. The hourly sync won't change it."],
   'record-created-training-linked': ['good', 'Added. This applicant is already in an Onboarding Training (same email), so the two are now linked.'],
   'saved-training-linked': ['good', 'Saved. This applicant is in an Onboarding Training (same email), so the two are now linked.'],
   'record-deleted': ['good', 'Deleted.'],
@@ -361,7 +364,7 @@ a.item.pick{display:block;color:inherit;text-decoration:none;border-radius:12px}
 .rec-head{display:flex;gap:14px;align-items:center}.rec-actions .btn{max-width:100%;overflow-wrap:anywhere}.rec-head h2{margin:0;font-size:22px}.rec-head .chips{margin:4px 0 0}
 .record-form .section,#offer,#step,#notes,#files{scroll-margin-top:80px}.steps .chip{font-weight:600}.step-count{display:none}@media (max-width:600px){.steps{display:none}.step-count{display:block}
   #applicants-list .item-head{flex-wrap:wrap}#applicants-list .item-head>.grow{flex:1 1 calc(100% - 100px)}
-  #applicants-list .side-chips{order:3;flex:1 1 100%;justify-content:flex-start;padding-left:52px}#applicants-list .side-chips:empty{display:none}}.side-chips{margin:0;justify-content:flex-end}.score-line{margin:4px 8px 10px}
+  #applicants-list .side-chips{order:3;flex:1 1 100%;justify-content:flex-start;padding-left:52px}#applicants-list .side-chips:empty{display:none}.side-chips.stack{flex-direction:column;align-items:flex-end}}.side-chips{margin:0;justify-content:flex-end}.score-line{margin:4px 8px 10px}
 .inline-opts{margin:0}.inline-opts>summary.btn{color:var(--text);font-size:14px;padding:6px 14px}.inline-opts[open]{flex:1 1 100%}
 .inline-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.inline-form select{width:auto;flex:1 1 200px}.inline-form button{margin:0}
 .form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:0 18px;padding:0 8px 10px}.form-grid>*{min-width:0}.form-grid .wide{grid-column:1/-1}
@@ -1132,42 +1135,61 @@ export function timeOffPage({ user, pending, current, recent, vas, unmatched, va
   });
 }
 
+// ---- Logins (People page, and the Login box on a VA's record) ----
+
+// The box shown once after a login invite or a temporary password (the password is never put in the address).
+export function loginResult(tempPassword) {
+  if (tempPassword && 'emailed' in tempPassword) {
+    const where = [tempPassword.emailed && `email (${esc(tempPassword.email)})`, tempPassword.slacked && 'Slack'].filter(Boolean).join(' and ');
+    return `<div class="toast ${where ? 'good' : 'bad'}" style="display:block">
+      ${where ? `${icon('send')} Login invite sent to <strong>${esc(tempPassword.name)}</strong> by ${where}.` : `The invite for <strong>${esc(tempPassword.name)}</strong> could not be sent (see Settings, "Last email problem").`}<br>
+      <span class="small">If they can't find it, their temporary password is <code style="font-size:15px">${esc(tempPassword.password)}</code>. It is not shown again.</span></div>`;
+  }
+  if (tempPassword) {
+    return `<div class="toast info" style="display:block">Temporary password for <strong>${esc(tempPassword.name)}</strong>: <code style="font-size:16px">${esc(tempPassword.password)}</code><br>
+       <span class="small">Share it with them privately. They choose their own password when they log in. It is not shown again.</span></div>`;
+  }
+  return '';
+}
+
+// "Has logged in", "Invited Oct 13", "Not invited yet" or "Temporary password". p.has_password or p.password_hash.
+export const loginText = (p) => (!(p.password_hash || p.has_password) ? 'Not invited yet'
+  : !p.must_change_password ? 'Has logged in'
+  : p.invited_at ? `Invited ${formatDate(p.invited_at.slice(0, 10))}` : 'Temporary password');
+
+// "Last login: Oct 13, 2026", from the last time they logged in with their password (recorded since 2026-10-13).
+export const lastLoginText = (p) => (p.last_login_at ? `Last login: ${formatDate(p.last_login_at.slice(0, 10), true)}` : 'Last login: not recorded yet');
+
+// The login buttons: send an invite, or just show a temporary password. base: "/admin/people/<id>" or
+// "/admin/vas/<record id>/login".
+export const loginButtons = (p, base) => `<form method="post" action="${base}/invite" data-confirm="${esc(`Send ${p.name} a login invite${p.slack_user_id ? ' by email and Slack' : ' by email'}? It includes a new temporary password, so any current password stops working.`)}"><button class="sm">${icon('send')} ${(p.password_hash || p.has_password) && !p.must_change_password ? 'Send new login invite' : 'Send login invite'}</button></form>
+    <form method="post" action="${base}/temp-password" data-confirm="${esc(`Show a new temporary password for ${p.name} here, without sending it? Their current password stops working.`)}"><button class="sm plain">${icon('key')} Just show a temporary password</button></form>`;
+
+// Whether the app checks this VA, why, and a button to exempt them or remove the exemption (form at base + "/exempt").
+export function checkedInfo(p, base) {
+  const affiliation = (p.affiliation || '').trim();
+  const exempt = isExempt(p);
+  const why = p.exempt ? 'Exempted by an admin'
+    : !affiliation ? 'VA Company Affiliation is empty on their VA record'
+    : affiliation !== 'InoVA Local' ? `VA Company Affiliation: ${affiliation}` : 'VA Company Affiliation: InoVA Local';
+  const byAffiliation = affiliation !== 'InoVA Local';
+  // VAs exempt because of their affiliation are changed on their VA record; the button only exempts (or un-exempts)
+  // InoVA Local VAs.
+  const button = byAffiliation && !p.exempt ? '<span class="small">To check this VA, change the VA Company Affiliation on their VA record (Team → VAs).</span>' : `
+    <form method="post" action="${base}/exempt" data-confirm="${esc(p.exempt ? `Start checking ${p.name} again?` : `Stop checking ${p.name}? They won't get late alerts or appear in reports.`)}">
+      <input type="hidden" name="exempt" value="${p.exempt ? 0 : 1}">
+      <button class="sm plain">${p.exempt ? 'Remove exemption' : 'Exempt this VA'}</button>
+    </form>`;
+  return { chip: exempt ? chip('Exempt', !p.exempt && !affiliation ? 'warn' : 'muted') : chip('Checked', 'good'), why, button };
+}
+
 export function peoplePage({ user, people, onDeck = [], message, tempPassword }) {
   const vas = people.filter((p) => p.is_va);
   const admins = people.filter((p) => p.is_admin);
-  let tempBox = '';
-  if (tempPassword && 'emailed' in tempPassword) {
-    const where = [tempPassword.emailed && `email (${esc(tempPassword.email)})`, tempPassword.slacked && 'Slack'].filter(Boolean).join(' and ');
-    tempBox = `<div class="toast ${where ? 'good' : 'bad'}" style="display:block">
-      ${where ? `${icon('send')} Login invite sent to <strong>${esc(tempPassword.name)}</strong> by ${where}.` : `The invite for <strong>${esc(tempPassword.name)}</strong> could not be sent (see Settings, "Last email problem").`}<br>
-      <span class="small">If they can't find it, their temporary password is <code style="font-size:15px">${esc(tempPassword.password)}</code>. It is not shown again.</span></div>`;
-  } else if (tempPassword) {
-    tempBox = `<div class="toast info" style="display:block">Temporary password for <strong>${esc(tempPassword.name)}</strong>: <code style="font-size:16px">${esc(tempPassword.password)}</code><br>
-       <span class="small">Share it with them privately. They choose their own password when they log in. It is not shown again.</span></div>`;
-  }
-  const loginText = (p) => (!p.password_hash ? 'Not invited yet'
-    : !p.must_change_password ? 'Has logged in'
-    : p.invited_at ? `Invited ${formatDate(p.invited_at.slice(0, 10))}` : 'Temporary password');
-  const resetBtn = (p) => `<form method="post" action="/admin/people/${p.id}/invite" data-confirm="${esc(`Send ${p.name} a login invite${p.slack_user_id ? ' by email and Slack' : ' by email'}? It includes a new temporary password, so any current password stops working.`)}"><button class="sm">${icon('send')} ${p.password_hash && !p.must_change_password ? 'Send new login invite' : 'Send login invite'}</button></form>
-    <form method="post" action="/admin/people/${p.id}/temp-password" data-confirm="${esc(`Show a new temporary password for ${p.name} here, without sending it? Their current password stops working.`)}"><button class="sm plain">${icon('key')} Just show a temporary password</button></form>`;
-
-  // Whether the app checks this VA, why, and a button to exempt them or remove the exemption.
-  const checked = (p) => {
-    const affiliation = (p.affiliation || '').trim();
-    const exempt = isExempt(p);
-    const why = p.exempt ? 'Exempted by an admin'
-      : !affiliation ? 'VA Company Affiliation is empty on their VA record'
-      : affiliation !== 'InoVA Local' ? `VA Company Affiliation: ${affiliation}` : 'VA Company Affiliation: InoVA Local';
-    const byAffiliation = affiliation !== 'InoVA Local';
-    // VAs exempt because of their affiliation are changed on their VA record; the button only exempts (or un-exempts)
-    // InoVA Local VAs.
-    const button = byAffiliation && !p.exempt ? '<span class="small">To check this VA, change the VA Company Affiliation on their VA record (Team → VAs).</span>' : `
-      <form method="post" action="/admin/people/${p.id}/exempt" data-confirm="${esc(p.exempt ? `Start checking ${p.name} again?` : `Stop checking ${p.name}? They won't get late alerts or appear in reports.`)}">
-        <input type="hidden" name="exempt" value="${p.exempt ? 0 : 1}">
-        <button class="sm plain">${p.exempt ? 'Remove exemption' : 'Exempt this VA'}</button>
-      </form>`;
-    return { chip: exempt ? chip('Exempt', !p.exempt && !affiliation ? 'warn' : 'muted') : chip('Checked', 'good'), why, button };
-  };
+  const tempBox = loginResult(tempPassword);
+  const resetBtn = (p) => loginButtons(p, `/admin/people/${p.id}`);
+  const checked = (p) => checkedInfo(p, `/admin/people/${p.id}`);
+  const recordLink = (id) => (id ? `<a class="btn sm plain" href="/admin/vas/${esc(id)}">${icon('va')} Open VA record</a>` : '');
 
   const vaRow = (p) => {
     const c = checked(p);
@@ -1177,18 +1199,20 @@ export function peoplePage({ user, people, onDeck = [], message, tempPassword })
     ].filter(Boolean);
     return item({
       name: p.name, title: esc(p.name), sub: esc(p.project_list || 'No projects'), side: c.chip,
-      body: `<p class="meta">${esc(p.email)}</p>
+      body: `<p class="meta">${esc(p.email)} · ${esc(lastLoginText(p))}</p>
         <div class="chips">${chip(p.time_zone || 'No time zone', zoneFor(p.time_zone) ? 'muted' : 'warn')}${chip(p.availability || 'No availability', 'muted')}${chip(loginText(p), p.password_hash ? 'good' : 'muted')}</div>
         <p class="meta">${esc(c.why)}${p.slack_channel_id ? ` · Slack channel <code>${esc(p.slack_channel_id)}</code>` : ''}</p>
         ${warnings.map((w) => `<p class="meta" style="color:var(--warn)">${esc(w)}</p>`).join('')}
-        <div class="actions">${c.button}${resetBtn(p)}</div>`,
+        ${p.record_id ? '' : '<p class="meta" style="color:var(--warn)">Not linked to a VA record</p>'}
+        <div class="actions">${recordLink(p.record_id)}${c.button}${resetBtn(p)}</div>`,
     });
   };
 
   const onDeckRow = (p) => item({
     name: p.name, title: esc(p.name), sub: esc(p.email || 'No email on their VA record'), side: chip('On Deck', 'info'),
     body: `<div class="chips">${chip(p.time_zone || 'No time zone', 'muted')}${chip(p.availability || 'No availability', 'muted')}</div>
-      <p class="meta">On Deck VAs don't check in. They can be chosen to cover when someone takes time off. To make them Active, change their VA Status on Team → VAs.</p>`,
+      <p class="meta">On Deck VAs don't check in. They can be chosen to cover when someone takes time off. To make them Active, change their VA Status on their VA record.</p>
+      ${p.record_id ? `<div class="actions">${recordLink(p.record_id)}</div>` : ''}`,
   });
 
   const adminRow = (p) => item({
@@ -1200,7 +1224,7 @@ export function peoplePage({ user, people, onDeck = [], message, tempPassword })
     title: 'People', user, active: '/admin/people', message,
     body: `${tempBox}
     <div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
-      <p class="lead" style="margin:0;flex:1;min-width:240px">VAs come from the VA records on Team → VAs: Active VAs with an email can log in, and On Deck VAs can cover. To change a VA's details, edit their VA record; the change shows here right away.</p>
+      <p class="lead" style="margin:0;flex:1;min-width:240px">Everyone who can log in. VAs come from the VA records on Team → VAs: Active VAs with an email can log in, and On Deck VAs can cover. Open a VA's record to change their details or manage their login; admins are managed here.</p>
       <a class="btn" style="margin:0" href="/admin/vas">${icon('va')} Open VA records</a>
     </div>
     <label class="search" for="find-person">${icon('people')}<input id="find-person" type="search" placeholder="Search people" autocomplete="off" data-filter="#people .item" data-empty="#people-none"></label>
@@ -1315,7 +1339,7 @@ function dayBoxes(days) {
     `<label><input type="checkbox" name="days" value="${d}" ${on.has(String(d)) ? 'checked' : ''}><span>${DAY_NAMES[d].slice(0, 2)}</span></label>`).join('')}</span>`;
 }
 
-export function projectsPage({ user, projects, assignments, vas, message }) {
+export function projectsPage({ user, projects, assignments, vas, clients = [], message }) {
   const byProject = new Map(projects.map((p) => [p.id, []]));
   for (const a of assignments) byProject.get(a.project_id)?.push(a);
   // Coverage projects get their own section, with or without a VA (the backup may not use this app).
@@ -1323,6 +1347,22 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
   const assigned = projects.filter((p) => byProject.get(p.id).length && !p.is_coverage);
   const coverage = projects.filter((p) => p.is_coverage);
   const coverageIds = new Set(projects.filter((p) => p.is_coverage).map((p) => p.id));
+  // Projects with no client that no admin has looked at yet ("No client" chosen on purpose doesn't count).
+  const noClient = projects.filter((p) => !p.client_record_id && !p.client_set);
+
+  // The client record of a project: matched by name while empty, or chosen here (then the sync leaves it alone).
+  const clientForm = (p, prefix = 'cl') => {
+    const note = p.client_set ? (p.client_record_id ? 'Chosen by an admin. The hourly sync won\'t change it.' : 'Set to "No client" by an admin. The hourly sync won\'t change it.')
+      : p.client_record_id ? `Matched by name ("${p.client}"). Choose another client if this is wrong.`
+      : `No client record is named "${p.client}". Choose the client, or "No client".`;
+    return `<form method="post" action="/admin/projects/${esc(p.id)}/client" class="inline-form" style="padding:6px 0 10px">
+       <label for="${prefix}-${esc(p.id)}" style="margin:0">Client</label>
+      <select id="${prefix}-${esc(p.id)}" name="client_id"><option value="">No client</option>${clients.map((c) =>
+        `<option value="${c.id}" ${c.id === p.client_record_id ? 'selected' : ''}>${esc(c.name)}${c.status && c.status !== 'Current' ? ` (${esc(c.status)})` : ''}</option>`).join('')}</select>
+      <button class="sm plain">Save client</button>
+      <span class="small" style="width:100%">${esc(note)}</span></form>`;
+  };
+  const clientChip = (p) => (p.client_record_id ? '' : chip('No client', p.client_set ? 'muted' : 'warn'));
 
   // The time zone for a start time. "" means the VA's own zone (from their VA record).
   const zoneSelect = (selected, vaZone) => `<select name="time_zone" aria-label="Time zone">
@@ -1362,21 +1402,26 @@ export function projectsPage({ user, projects, assignments, vas, message }) {
     const missingTime = list.some((a) => !parseHHMM(a.start_time));
     const who = list.map((a) => `${esc(a.va_name)}${parseHHMM(a.start_time) ? ` · ${esc(formatHM(parseHHMM(a.start_time)))} ${esc(zoneOf(a))}` : ''}`).join(', ');
     return item({
-      name: p.client, title: `${esc(p.client)}${p.is_coverage ? ` ${chip('Coverage', 'info')}` : ''}`, sub: esc(who || 'No VA assigned'),
-      side: !list.length ? chip('No VA', 'warn') : missingTime ? chip('Needs a start time', 'warn') : chip(`${list.length} VA${list.length > 1 ? 's' : ''}`, 'good'),
+      name: p.client_name || p.client, title: `${esc(p.client_name || p.client)}${p.is_coverage ? ` ${chip('Coverage', 'info')}` : ''}`, sub: esc(who || 'No VA assigned'),
+      side: `<span class="chips side-chips stack">${clientChip(p)}${!list.length ? chip('No VA', 'warn') : missingTime ? chip('Needs a start time', 'warn') : chip(`${list.length} VA${list.length > 1 ? 's' : ''}`, 'good')}</span>`,
       open,
-      body: `<p class="meta">${esc(p.name)}</p>${list.map(assignmentRow).join('')}${addForm(p)}`,
+      body: `<p class="meta">${esc(p.name)}</p>${clientForm(p)}${list.map(assignmentRow).join('')}${addForm(p)}`,
     });
   };
 
   return layout({
     title: 'Projects', user, active: '/admin/projects', message,
     body: `<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
-      <p class="lead" style="margin:0;flex:1;min-width:240px">Projects come from Zoho Projects every hour and go to the VA named after the " - " in the project name. A VA with several projects checks in once a day, by the earliest start.</p>
+      <p class="lead" style="margin:0;flex:1;min-width:240px">Projects come from Zoho Projects every hour and go to the VA named after the " - " in the project name. Each project belongs to the client record with the name before the " - ", or the client chosen here. A VA with several projects checks in once a day, by the earliest start.</p>
       <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/projects"><button style="margin:0">${icon('sync')} Sync with Zoho now</button></form>
     </div>
     <label class="search" for="find-project">${icon('projects')}<input id="find-project" type="search" placeholder="Search projects or VAs" autocomplete="off" data-filter="#projects-list .item" data-empty="#projects-none"></label>
     <div id="projects-list">
+    ${noClient.length ? section({
+      title: 'Projects with no client', count: noClient.length, open: true, tone: 'attention', key: 'no-client',
+      hint: 'No client record matched the name of these projects, so they don\'t show on a client\'s page. Choose the client of each one (or "No client" if it has none).',
+      body: noClient.map((p) => item({ name: p.client, title: esc(p.client), sub: esc(p.name), side: chip('No client', 'warn'), body: clientForm(p, 'nc') })).join(''),
+    }) : ''}
     ${unassigned.length ? section({
       title: 'Projects with no VA', count: unassigned.length, open: true, tone: 'attention',
       hint: 'No active VA matched the name in these projects. Open one to add a VA if someone should check in for it.',

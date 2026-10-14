@@ -11,7 +11,7 @@ import { checkIn } from './actions.js';
 import { sendInvite, newTemporaryPassword } from './invites.js';
 import { createCoverageChecklist, deleteChecklist, clickupReady } from './clickup.js';
 import { formatTimeIn, formatDate, addDays, partsIn, weekdayIndex, weekdayOf, REPORT_ZONE } from './time.js';
-import { redirect, page, isDate, isTime } from './util.js';
+import { redirect, page, isDate, isTime, sameClient } from './util.js';
 import { isNearby, nearbyText } from './timeoff.js';
 import * as work from './work.js';
 import { sopRoutes, adminSopRoutes, vaSops, allSops, coveringSops } from './sops.js';
@@ -223,7 +223,7 @@ async function workRoutes(env, user, path, method, field, message, url) {
   const now = new Date();
   const day = await dayInfo(env, user, now);
   const { results: projects } = await env.DB.prepare(
-    `SELECT p.id, p.client, p.name, p.is_coverage FROM assignments a JOIN projects p ON p.id = a.project_id
+    `SELECT p.id, p.client, p.client_record_id, p.name, p.is_coverage FROM assignments a JOIN projects p ON p.id = a.project_id
      WHERE a.user_id = ? AND p.active = 1 ORDER BY p.is_coverage, p.client`
   ).bind(user.id).all();
   const projectId = field('project') || url.searchParams.get('project') || user.timer?.project_id || projects[0]?.id || '';
@@ -254,7 +254,7 @@ async function workRoutes(env, user, path, method, field, message, url) {
     }
     // In a coverage project, a link to the client's Coverage SOP while this VA is covering them.
     const coverageSop = project?.is_coverage
-      ? (await coveringSops(env, user)).find((c) => c.client.toLowerCase() === project.client.toLowerCase() && (c.has_content || c.file_key)) || null
+      ? (await coveringSops(env, user)).find((c) => sameClient(c, project) && (c.has_content || c.file_key)) || null
       : null;
     return page(views.workPage({ user, day, projects, project, coverageSop, lists, logs, week, thisWeek, today, message, zohoError, logsError }));
   }
@@ -390,7 +390,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
                 WHERE r.status = 'approved' AND r.kind != 'emergency' AND r.end_date >= date('now', '-1 day')
                   AND COALESCE(cp.backup_zoho_id, '') = '') AS no_backup,
               (SELECT COUNT(*) FROM projects p WHERE p.active = 1 AND p.is_coverage = 0
-                AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.project_id = p.id)) AS no_va`
+                AND NOT EXISTS (SELECT 1 FROM assignments a JOIN users u ON u.id = a.user_id WHERE a.project_id = p.id AND u.is_va = 1)) AS no_va`
     ).first();
     const todo = {
       pending: user.pending_requests,
@@ -658,13 +658,31 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
   // ---- Projects and assignments ----
 
   if (path === '/admin/projects' && method === 'GET') {
-    const { results: projects } = await env.DB.prepare('SELECT * FROM projects WHERE active = 1 ORDER BY client, name').all();
+    const { results: projects } = await env.DB.prepare(
+      `SELECT p.*, r.name AS client_name, r.status AS client_status FROM projects p
+       LEFT JOIN records r ON r.id = p.client_record_id AND r.module = 'clients' WHERE p.active = 1 ORDER BY p.client, p.name`
+    ).all();
+    // Only VAs who can check in now. Assignments of VAs who are no longer Active are kept (with their history),
+    // but not shown, so their projects show as having no VA.
     const { results: assignments } = await env.DB.prepare(
       `SELECT a.*, u.name AS va_name, u.time_zone AS va_zone FROM assignments a JOIN users u ON u.id = a.user_id
-       JOIN projects p ON p.id = a.project_id WHERE p.active = 1 ORDER BY u.name`
+       JOIN projects p ON p.id = a.project_id WHERE p.active = 1 AND u.is_va = 1 ORDER BY u.name`
     ).all();
     const { results: vas } = await env.DB.prepare('SELECT id, name, time_zone FROM users WHERE is_va = 1 ORDER BY name').all();
-    return page(views.projectsPage({ user, projects, assignments, vas, message }));
+    const { results: clients } = await env.DB.prepare("SELECT id, name, status FROM records WHERE module = 'clients' ORDER BY name COLLATE NOCASE").all();
+    return page(views.projectsPage({ user, projects, assignments, vas, clients, message }));
+  }
+
+  // An admin chooses the client of a project ("No client" allowed). The hourly sync never changes this choice.
+  if ((m = path.match(/^\/admin\/projects\/(\d+)\/client$/)) && method === 'POST') {
+    const project = await env.DB.prepare('SELECT id FROM projects WHERE id = ?').bind(m[1]).first();
+    const client = field('client_id')
+      ? await env.DB.prepare("SELECT id FROM records WHERE id = ? AND module = 'clients'").bind(Number(field('client_id'))).first() : null;
+    if (project && (client || !field('client_id'))) {
+      await env.DB.prepare('UPDATE projects SET client_record_id = ?, client_set = 1 WHERE id = ?').bind(client?.id || null, project.id).run();
+      return redirect(`/admin/projects?msg=client-saved`);
+    }
+    return redirect('/admin/projects');
   }
 
   if ((m = path.match(/^\/admin\/projects\/(\d+)\/assign$/)) && method === 'POST') {
@@ -987,9 +1005,13 @@ function cleanDays(values) {
   return [...new Set(values.filter((v) => /^[0-6]$/.test(v)))].sort().join(',');
 }
 
-// On Deck VAs, from the VA records (they don't log in or check in, but can cover for others).
+// On Deck VAs, from the VA records (they don't log in or check in, but can cover for others), with their record id.
 async function onDeckVAs(env) {
-  const { results } = await env.DB.prepare("SELECT * FROM backup_candidates WHERE status = 'On Deck' ORDER BY name").all();
+  const { results } = await env.DB.prepare(
+    `SELECT b.*, r.id AS record_id FROM backup_candidates b
+     LEFT JOIN records r ON r.module = 'vas' AND COALESCE(r.zoho_id, 'app-' || r.id) = b.zoho_id
+     WHERE b.status = 'On Deck' ORDER BY b.name`
+  ).all();
   return results;
 }
 

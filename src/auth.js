@@ -77,7 +77,8 @@ export async function checkLogin(env, email, password) {
     return { error: 'inactive' };
   }
 
-  await env.DB.prepare('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?').bind(user.id).run();
+  await env.DB.prepare('UPDATE users SET failed_logins = 0, locked_until = NULL, last_login_at = ? WHERE id = ?')
+    .bind(new Date().toISOString(), user.id).run();
   return { user };
 }
 

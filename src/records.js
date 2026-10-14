@@ -6,7 +6,8 @@
 import { redirect, page, isDate } from './util.js';
 import { MODULES, allFields, formFields, nameOf, statusOf, searchOf, STEPS, CLOSED, OFFER_ITEMS } from './fields.js';
 import { FILE_TYPES, MAX_FILE } from './sops.js';
-import { applyVaRecords } from './zoho.js';
+import { applyVaRecords, linkProjectClients } from './zoho.js';
+import { sendInvite, newTemporaryPassword } from './invites.js';
 import { wufooState } from './wufoo.js';
 import { applicantTrainings, linkApplicantToTraining } from './training.js';
 import { recordEmails, forgetRecordEmails } from './email.js';
@@ -28,36 +29,54 @@ async function recordNames(env) {
   return new Map(results.map((r) => [r.id, r.name]));
 }
 
-// The id VA records are known by elsewhere in the app (users.zoho_id, backups): their Zoho id, or "app-<id>".
-export const vaKey = (r) => r.zoho_id || `app-${r.id}`;
-
-// Active projects and their VAs, by client name (lowercase).
+// Active projects and their current VAs, by client record id (projects.client_record_id, see the Projects page).
 async function projectsByClient(env) {
   const { results } = await env.DB.prepare(
-    `SELECT p.id, p.name, p.client, p.is_coverage, GROUP_CONCAT(u.name, ', ') AS vas FROM projects p
-     LEFT JOIN assignments a ON a.project_id = p.id LEFT JOIN users u ON u.id = a.user_id
-     WHERE p.active = 1 GROUP BY p.id ORDER BY p.is_coverage, p.name`
+    `SELECT p.id, p.name, p.client, p.client_record_id, p.is_coverage, GROUP_CONCAT(u.name, ', ') AS vas FROM projects p
+     LEFT JOIN assignments a ON a.project_id = p.id LEFT JOIN users u ON u.id = a.user_id AND u.is_va = 1
+     WHERE p.active = 1 AND p.client_record_id IS NOT NULL GROUP BY p.id ORDER BY p.is_coverage, p.name`
   ).all();
   const map = new Map();
   for (const p of results) {
-    const k = p.client.trim().toLowerCase();
-    if (!map.has(k)) map.set(k, []);
-    map.get(k).push(p);
+    if (!map.has(p.client_record_id)) map.set(p.client_record_id, []);
+    map.get(p.client_record_id).push(p);
   }
   return map;
 }
 
-// Each VA's login (users row, matched by Zoho id or email) and active projects.
+// Each VA's login (the users row linked to the VA record by users.record_id) and active projects.
+// conflict: another login that already has the record's email (so this VA can't get a login with it).
 async function vaLogins(env) {
-  const { results: users } = await env.DB.prepare('SELECT id, name, email, zoho_id, is_va, invited_at, password_hash IS NOT NULL AS has_password FROM users').all();
+  const { results: users } = await env.DB.prepare(
+    `SELECT id, name, email, zoho_id, record_id, is_va, is_admin, invited_at, last_login_at, exempt, affiliation, slack_user_id,
+       must_change_password, password_hash IS NOT NULL AS has_password FROM users`
+  ).all();
   const { results: projects } = await env.DB.prepare(
     `SELECT a.user_id, p.id, p.name, p.client, p.is_coverage FROM assignments a JOIN projects p ON p.id = a.project_id
      WHERE p.active = 1 ORDER BY p.is_coverage, p.client`
   ).all();
   return (r) => {
-    const u = users.find((x) => x.zoho_id && x.zoho_id === vaKey(r)) || users.find((x) => r.email && x.email === r.email);
-    return { user: u || null, projects: u ? projects.filter((p) => p.user_id === u.id) : [] };
+    const u = users.find((x) => x.record_id === r.id);
+    const email = (r.email || '').toLowerCase();
+    const conflict = !u && email ? users.find((x) => x.email.toLowerCase() === email) || null : null;
+    return { user: u || null, conflict, projects: u ? projects.filter((p) => p.user_id === u.id) : [] };
   };
+}
+
+// A VA's email is how they log in, so it must not be the email of another VA record or of someone else's login
+// (an admin, or another VA). Returns an error message, or null.
+async function vaEmailProblem(env, data, recordId) {
+  const email = (data.Email || '').trim().toLowerCase();
+  if (!email) return null;
+  const other = await env.DB.prepare("SELECT id, name FROM records WHERE module = 'vas' AND lower(trim(email)) = ? AND id != ?").bind(email, recordId || 0).first();
+  if (other) return `Another VA record (${other.name}) already has the email ${email}. Each VA needs their own email, because they log in with it.`;
+  const own = recordId ? await env.DB.prepare('SELECT id FROM users WHERE record_id = ?').bind(recordId).first() : null;
+  const login = await env.DB.prepare('SELECT id, name, is_admin, record_id FROM users WHERE lower(email) = ?').bind(email).first();
+  if (!login || login.id === own?.id) return null;
+  if (login.is_admin) return `${email} is the login of ${login.name} (an admin). Please use a different email for this VA, because they log in with it.`;
+  // A login with no VA record (for example someone in training) becomes this VA's login, unless the VA has one already.
+  if (login.record_id || own) return `${email} is already the login of ${login.name}. Please use a different email for this VA, because they log in with it.`;
+  return null;
 }
 
 // ---- Saving ----
@@ -133,9 +152,11 @@ function changesBetween(key, before, after) {
   return changes;
 }
 
-// After a VA record changes, VA logins and the backup lists follow right away.
+// After a VA record changes, VA logins and the backup lists follow right away. After a client record is added or
+// renamed, projects with no client yet that have its name are linked to it.
 async function vaChanged(env, key) {
   if (key === 'vas') await applyVaRecords(env);
+  if (key === 'clients') await linkProjectClients(env);
 }
 
 async function deleteRecords(env, ids) {
@@ -148,8 +169,11 @@ async function deleteRecords(env, ids) {
   await env.DB.batch(['record_files', 'record_notes', 'record_history'].map((t) =>
     env.DB.prepare(`DELETE FROM ${t} WHERE record_id IN (SELECT value FROM json_each(?))`).bind(list))
     .concat(
-      // Trainings started from a deleted applicant stay, without the link.
+      // Trainings started from a deleted applicant stay, without the link. So do the login of a deleted VA (it loses
+      // VA access) and the projects of a deleted client (they show as "No client" on the Projects page).
       env.DB.prepare('UPDATE trainings SET applicant_id = NULL WHERE applicant_id IN (SELECT value FROM json_each(?))').bind(list),
+      env.DB.prepare('UPDATE users SET record_id = NULL WHERE record_id IN (SELECT value FROM json_each(?))').bind(list),
+      env.DB.prepare('UPDATE projects SET client_record_id = NULL WHERE client_record_id IN (SELECT value FROM json_each(?))').bind(list),
       env.DB.prepare('DELETE FROM records WHERE id IN (SELECT value FROM json_each(?))').bind(list),
     ));
 }
@@ -261,6 +285,66 @@ async function applicantAction(env, user, record, action, field, here, now) {
   return redirect(here);
 }
 
+// A record's page. tempPassword: the result of a login invite or temporary password sent from a VA's Login box
+// (shown once, never put in the address).
+async function showRecord(env, user, key, record, message, tempPassword = null) {
+  const names = await recordNames(env);
+  const [{ results: notes }, { results: files }, { results: history }] = await Promise.all([
+    env.DB.prepare('SELECT n.*, u.name AS user_name FROM record_notes n LEFT JOIN users u ON u.id = n.user_id WHERE n.record_id = ? ORDER BY n.created_at DESC').bind(record.id).all(),
+    env.DB.prepare('SELECT f.*, u.name AS user_name FROM record_files f LEFT JOIN users u ON u.id = f.uploaded_by WHERE f.record_id = ? ORDER BY f.uploaded_at DESC').bind(record.id).all(),
+    env.DB.prepare('SELECT h.*, u.name AS user_name FROM record_history h LEFT JOIN users u ON u.id = h.user_id WHERE h.record_id = ? ORDER BY h.at DESC, h.id DESC LIMIT 100').bind(record.id).all(),
+  ]);
+  const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null, va: null, training: null, mail: null };
+  if (key === 'applicants' && record.data._va) extra.va = await getRecord(env, 'vas', Number(record.data._va));
+  if (key === 'applicants') {
+    // The trainings started from this applicant's page, and who can be their trainer.
+    extra.training = await applicantTrainings(env, record.id);
+    extra.training.trainers = (await env.DB.prepare('SELECT id, name, email, is_va FROM users WHERE is_va = 1 OR is_admin = 1 ORDER BY name').all()).results;
+    extra.training.today = partsIn(REPORT_ZONE).date;
+  }
+  if (key === 'clients') {
+    extra.contacts = (await env.DB.prepare("SELECT * FROM records WHERE module = 'contacts' AND parent_id = ? ORDER BY status, name").bind(record.id).all()).results
+      .map((r) => ({ ...r, data: JSON.parse(r.data) }));
+    extra.projects = (await projectsByClient(env)).get(record.id) || [];
+  }
+  // Saved emails (see email.js). A client's page also shows its contacts' emails.
+  if (key !== 'applicants') extra.mail = await recordEmails(env, user, [record.id, ...extra.contacts.map((c) => c.id)]);
+  if (key === 'contacts' && record.parent_id) extra.parent = await getRecord(env, 'clients', record.parent_id);
+  if (key === 'vas') extra.login = (await vaLogins(env))(record);
+  // "Clients referred" / "VAs referred": records that list this one under "Referred by".
+  const refField = allFields(key).find((x) => x.type === 'lookups');
+  if (refField) {
+    const { results } = await env.DB.prepare(
+      `SELECT r.id, r.name FROM records r, json_each(r.data, '$.${refField.key}') j WHERE r.module = ? AND j.value = ? ORDER BY r.name`
+    ).bind(key, record.id).all();
+    extra.referredHere = results;
+  }
+  return page(rv.recordPage({ user, key, record, names, notes, files, history, ...extra, message, tempPassword }));
+}
+
+// The Login box on a VA's page: the same login buttons as on the People page, for the login linked to this record.
+async function vaLoginAction(env, user, recordId, what, field) {
+  const record = await getRecord(env, 'vas', recordId);
+  if (!record) return redirect('/admin/vas');
+  const here = `/admin/vas/${record.id}`;
+  const person = await env.DB.prepare('SELECT * FROM users WHERE record_id = ?').bind(record.id).first();
+  if (!person) return redirect(`${here}#login`);
+  if (what === 'exempt') {
+    if (person.is_va) await env.DB.prepare('UPDATE users SET exempt = ? WHERE id = ?').bind(field('exempt') === '1' ? 1 : 0, person.id).run();
+    return redirect(`${here}?msg=saved#login`);
+  }
+  // Only people who can log in (Active VAs and admins) get an invite or a temporary password.
+  if (!person.is_va && !person.is_admin) return redirect(`${here}#login`);
+  if (what === 'invite') {
+    const sent = await sendInvite(env, person);
+    if (person.id === user.id) return redirect('/login');
+    return showRecord(env, user, 'vas', record, null, { name: person.name, password: sent.password, emailed: sent.emailed, slacked: sent.slacked, email: person.email });
+  }
+  const password = await newTemporaryPassword(env, person);
+  if (person.id === user.id) return redirect('/login');
+  return showRecord(env, user, 'vas', record, null, { name: person.name, password });
+}
+
 // ---- Pages and actions ----
 
 export async function recordRoutes(env, user, path, method, field, fieldAll, form, message, url) {
@@ -298,7 +382,9 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     if (method === 'GET') return page(rv.editPage({ user, key, record: blank, choices, owners, clients, message }));
     if (method !== 'POST') return redirect(`/admin/${key}/new`);
     const allowed = { owners, ...Object.fromEntries(Object.entries(choices).map(([k, rows]) => [k, new Set(rows.map((r) => r.id))])) };
-    const { data, error } = readForm(key, field, fieldAll, {}, allowed);
+    const read = readForm(key, field, fieldAll, {}, allowed);
+    const { data } = read;
+    const error = read.error || (key === 'vas' ? await vaEmailProblem(env, data, null) : null);
     const parent = key === 'contacts' && clients.some((c) => c.id === parentId) ? parentId : null;
     if (error) return page(rv.editPage({ user, key, record: { ...blank, data, parent_id: parent }, choices, owners, clients, error }), 400);
     const name = nameOf(key, data);
@@ -311,7 +397,12 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     await vaChanged(env, key);
     // An applicant whose email matches someone already in an Onboarding Training gets linked to it.
     const linked = key === 'applicants' && data.Email && await linkApplicantToTraining(env, user, row.id);
-    return redirect(`/admin/${key}/${row.id}?msg=${linked ? 'record-created-training-linked' : 'record-created'}`);
+    const noEmail = key === 'vas' && data.VA_Status === 'Active' && !data.Email;
+    return redirect(`/admin/${key}/${row.id}?msg=${linked ? 'record-created-training-linked' : noEmail ? 'record-created-no-email' : 'record-created'}`);
+  }
+
+  if ((m = path.match(/^\/admin\/vas\/(\d+)\/login\/(invite|temp-password|exempt)$/)) && method === 'POST') {
+    return vaLoginAction(env, user, Number(m[1]), m[2], field);
   }
 
   m = path.match(/^\/admin\/(clients|vas|contacts|applicants)\/(\d+)(?:\/(edit|delete|notes|files|step|checklist|hire)(?:\/(\d+)(?:\/(save|delete))?)?)?$/);
@@ -326,40 +417,7 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     return applicantAction(env, user, record, action, field, here, now);
   }
 
-  if (!action && method === 'GET') {
-    const names = await recordNames(env);
-    const [{ results: notes }, { results: files }, { results: history }] = await Promise.all([
-      env.DB.prepare('SELECT n.*, u.name AS user_name FROM record_notes n LEFT JOIN users u ON u.id = n.user_id WHERE n.record_id = ? ORDER BY n.created_at DESC').bind(record.id).all(),
-      env.DB.prepare('SELECT f.*, u.name AS user_name FROM record_files f LEFT JOIN users u ON u.id = f.uploaded_by WHERE f.record_id = ? ORDER BY f.uploaded_at DESC').bind(record.id).all(),
-      env.DB.prepare('SELECT h.*, u.name AS user_name FROM record_history h LEFT JOIN users u ON u.id = h.user_id WHERE h.record_id = ? ORDER BY h.at DESC, h.id DESC LIMIT 100').bind(record.id).all(),
-    ]);
-    const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null, va: null, training: null, mail: null };
-    if (key === 'applicants' && record.data._va) extra.va = await getRecord(env, 'vas', Number(record.data._va));
-    if (key === 'applicants') {
-      // The trainings started from this applicant's page, and who can be their trainer.
-      extra.training = await applicantTrainings(env, record.id);
-      extra.training.trainers = (await env.DB.prepare('SELECT id, name, email, is_va FROM users WHERE is_va = 1 OR is_admin = 1 ORDER BY name').all()).results;
-      extra.training.today = partsIn(REPORT_ZONE).date;
-    }
-    if (key === 'clients') {
-      extra.contacts = (await env.DB.prepare("SELECT * FROM records WHERE module = 'contacts' AND parent_id = ? ORDER BY status, name").bind(record.id).all()).results
-        .map((r) => ({ ...r, data: JSON.parse(r.data) }));
-      extra.projects = (await projectsByClient(env)).get(record.name.trim().toLowerCase()) || [];
-    }
-    // Saved emails (see email.js). A client's page also shows its contacts' emails.
-    if (key !== 'applicants') extra.mail = await recordEmails(env, user, [record.id, ...extra.contacts.map((c) => c.id)]);
-    if (key === 'contacts' && record.parent_id) extra.parent = await getRecord(env, 'clients', record.parent_id);
-    if (key === 'vas') extra.login = (await vaLogins(env))(record);
-    // "Clients referred" / "VAs referred": records that list this one under "Referred by".
-    const refField = allFields(key).find((x) => x.type === 'lookups');
-    if (refField) {
-      const { results } = await env.DB.prepare(
-        `SELECT r.id, r.name FROM records r, json_each(r.data, '$.${refField.key}') j WHERE r.module = ? AND j.value = ? ORDER BY r.name`
-      ).bind(key, record.id).all();
-      extra.referredHere = results;
-    }
-    return page(rv.recordPage({ user, key, record, names, notes, files, history, ...extra, message }));
-  }
+  if (!action && method === 'GET') return showRecord(env, user, key, record, message);
 
   if (action === 'edit') {
     const clients = key === 'contacts' ? (await env.DB.prepare("SELECT id, name FROM records WHERE module = 'clients' ORDER BY name COLLATE NOCASE").all()).results : [];
@@ -367,7 +425,9 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     const owners = await adminNames(env);
     if (method === 'GET') return page(rv.editPage({ user, key, record, choices, owners, clients, message }));
     const allowed = { owners, ...Object.fromEntries(Object.entries(choices).map(([k, rows]) => [k, new Set(rows.map((r) => r.id))])) };
-    const { data, error } = readForm(key, field, fieldAll, record.data, allowed);
+    const read = readForm(key, field, fieldAll, record.data, allowed);
+    const { data } = read;
+    const error = read.error || (key === 'vas' ? await vaEmailProblem(env, data, record.id) : null);
     const parentId = Number(field('parent_id')) || null;
     const parent = key === 'contacts' ? (clients.some((c) => c.id === parentId) ? parentId : null) : record.parent_id;
     if (error) return page(rv.editPage({ user, key, record: { ...record, data, parent_id: parent }, choices, owners, clients, error }), 400);
@@ -385,7 +445,8 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     }
     // An applicant's email set or changed: link them to the Onboarding Training of the person with that email.
     const linked = key === 'applicants' && changes.some((c) => c.f === 'Email') && data.Email && await linkApplicantToTraining(env, user, record.id);
-    return redirect(`${here}?msg=${linked ? 'saved-training-linked' : changes.length ? 'saved' : 'no-changes'}`);
+    const noEmail = key === 'vas' && changes.length && data.VA_Status === 'Active' && !data.Email;
+    return redirect(`${here}?msg=${linked ? 'saved-training-linked' : noEmail ? 'saved-no-email' : changes.length ? 'saved' : 'no-changes'}`);
   }
 
   if (action === 'delete' && !subId && method === 'POST') {

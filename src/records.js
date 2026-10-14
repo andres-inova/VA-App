@@ -135,6 +135,8 @@ function readForm(key, field, fieldAll, old, allowed) {
   // Values the form doesn't show stay as they were (for example "Other fields from Zoho" or "from Wufoo", or the VA
   // record made from an applicant).
   for (const [k, v] of Object.entries(old)) if (k.startsWith('_')) data[k] = v;
+  // Hidden fields (Settings > Fields) are not on the form and keep their values.
+  for (const x of MODULES[key].hiddenFields) if (old[x.key] !== undefined) data[x.key] = old[x.key];
   return { data };
 }
 

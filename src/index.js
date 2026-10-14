@@ -16,6 +16,8 @@ import { isNearby, nearbyText } from './timeoff.js';
 import * as work from './work.js';
 import { sopRoutes, adminSopRoutes, vaSops, allSops, coveringSops } from './sops.js';
 import { recordRoutes } from './records.js';
+import { loadFieldLayouts } from './fields.js';
+import { fieldRoutes } from './field-editor.js';
 import { emailRoutes } from './email.js';
 import { trainingRoutes, adminTrainingRoutes, myTrainings, lateTrainings, ONBOARDING } from './training.js';
 import * as views from './views.js';
@@ -50,7 +52,7 @@ async function handle(request, env) {
   // Responses from the Google Form come from Google, not from the app's pages. They are checked with a secret instead.
   if (path === '/api/form/time-off' && method === 'POST') return handleFormWebhook(request, env);
   // New job applications from the Wufoo form (a WebHook set up in Wufoo). Checked with the Handshake Key.
-  if (path === '/api/wufoo/application' && method === 'POST') return handleWufooWebhook(request, env);
+  if (path === '/api/wufoo/application' && method === 'POST') { await loadFieldLayouts(env); return handleWufooWebhook(request, env); }
   // The Slack /checkin command comes from Slack and are checked with Slack's signature instead.
   if (path === '/api/slack/command' && method === 'POST') return handleSlackCommand(request, env);
 
@@ -129,11 +131,14 @@ async function handle(request, env) {
   // Clients, contacts, VAs and applicants kept in the app (needs the form itself, for file uploads).
   if (/^\/admin\/(clients|contacts|vas|applicants|records)(\/|$)/.test(path)) {
     if (!user.is_admin) return redirect(homeOf(user));
+    await loadFieldLayouts(env);
     return recordRoutes(env, user, path, method, field, fieldAll, form, message, url);
   }
 
   if (path === '/admin' || path.startsWith('/admin/')) {
     if (!user.is_admin) return redirect(homeOf(user));
+    // Settings > Fields: the admin field editor.
+    if (path === '/admin/settings/fields' || path.startsWith('/admin/settings/fields/')) return fieldRoutes(env, user, path, method, field, message, url);
     if (path === '/admin/training' || path.startsWith('/admin/training/')) return adminTrainingRoutes(env, user, path, method, field, message, url);
     // Shared email: Settings > Email (Connect Gmail), saved emails and their attachments.
     if (/^\/admin\/emails?(\/|$)/.test(path)) return emailRoutes(env, user, path, method, field, message, url);

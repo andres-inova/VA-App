@@ -69,6 +69,9 @@ export function vasPage({ user, records, message }) {
 // ---- One record ----
 
 // A field value as HTML for the record page ('' when empty).
+// A choice that is no longer on the field's list (removed on Settings > Fields, or an old value from Zoho).
+const old = (x, v) => ((x.options || []).includes(v) ? '' : ' <span class="small">(old choice)</span>');
+
 function valueHtml(x, v, names) {
   if (isEmpty(v) && x.type !== 'bool') return '';
   switch (x.type) {
@@ -78,7 +81,9 @@ function valueHtml(x, v, names) {
     case 'url': return `<a href="${esc(/^https?:\/\//i.test(v) ? v : `https://${v}`)}" target="_blank" rel="noopener">${esc(v)}</a>`;
     case 'date': return /^\d{4}-\d{2}-\d{2}$/.test(v) ? esc(formatDate(v, true)) : esc(v);
     case 'money': return esc(plainValue(x, v));
-    case 'multi': case 'tags': return `<span class="chips" style="margin:0">${v.map((t) => chip(t, 'muted')).join('')}</span>`;
+    case 'pick': return esc(v) + old(x, v);
+    case 'multi': return `<span class="chips" style="margin:0">${v.map((t) => chip(`${t}${(x.options || []).includes(t) ? '' : ' (old choice)'}`, 'muted')).join('')}</span>`;
+    case 'tags': return `<span class="chips" style="margin:0">${v.map((t) => chip(t, 'muted')).join('')}</span>`;
     case 'lookup': return names.has(Number(v)) ? linkTo(x.to, v, names.get(Number(v))) : '';
     case 'lookups': return v.filter((id) => names.has(Number(id))).map((id) => linkTo(x.to, id, names.get(Number(id)))).join(', ');
     default: return esc(v);
@@ -409,14 +414,15 @@ function trainingCard(record, training) {
 }
 
 // The offer checklist, ticked on the applicant's page.
-function offerChecklist(record) {
+function offerChecklist(record, s) {
   const d = record.data;
   const done = OFFER_ITEMS.filter(([k]) => d[k]).length;
+  const labels = new Map(s.fields.map((x) => [x.key, x.label]));
   return section({
-    title: 'Offer checklist', count: `${done} of ${OFFER_ITEMS.length}`, key: 'offer', open: record.status === 'Offer sent',
+    title: s.title, count: `${done} of ${OFFER_ITEMS.length}`, key: 'offer', open: record.status === 'Offer sent',
     hint: `From <a href="${OFFER_GUIDE}" target="_blank" rel="noopener">Sending Offer Letter and Running Background Check</a>.`,
     body: `<form method="post" action="/admin/applicants/${record.id}/checklist">
-      ${OFFER_ITEMS.map(([k, label]) => `<label class="check"><input type="checkbox" name="${k}" value="1" ${d[k] ? 'checked' : ''}> ${esc(label)}</label>`).join('')}
+      ${OFFER_ITEMS.map(([k, label]) => `<label class="check"><input type="checkbox" name="${k}" value="1" ${d[k] ? 'checked' : ''}> ${esc(labels.get(k) || label)}</label>`).join('')}
       <div class="actions" style="margin-top:12px"><button class="sm">${icon('check')} Save checklist</button></div></form>`,
   });
 }
@@ -509,7 +515,9 @@ export function recordPage({ user, key, record, names, notes, files, history, co
   const filesBy = (fieldKey) => files.filter((f) => f.field === fieldKey);
   const { choices = {}, owners = [], clients = [] } = edit || {};
   const sections = mod.sections.map((s, n) => {
-    if (key === 'applicants' && s.title === 'Offer checklist') return offerChecklist(record);
+    if (key === 'applicants' && s.offer) return offerChecklist(record, s);
+    // An empty section (all its fields moved or hidden on Settings > Fields) is left out.
+    if (!s.fields.length && !s.score && !(key === 'contacts' && n === 0)) return '';
     let filled = 0;
     const rows = s.fields.map((x) => {
       // Files are added in the Files section, so they are not changed here.
@@ -573,7 +581,7 @@ function input(x, v, choices, owners) {
   const lbl = `<label for="${id}">${esc(x.label)}${x.required ? ' *' : ''}</label>`;
   const opts = (list, current) => {
     const all = current && !list.includes(current) ? [...list, current] : list;
-    return `<option value="">—</option>${all.map((o) => `<option value="${esc(o)}" ${o === current ? 'selected' : ''}>${esc(o)}</option>`).join('')}`;
+    return `<option value="">—</option>${all.map((o) => `<option value="${esc(o)}" ${o === current ? 'selected' : ''}>${esc(o)}${list.includes(o) ? '' : ' (old choice)'}</option>`).join('')}`;
   };
   switch (x.type) {
     case 'textarea': return `<div class="wide">${lbl}<textarea id="${id}" name="${name}">${esc(v || '')}</textarea>${hint}</div>`;
@@ -592,7 +600,7 @@ function input(x, v, choices, owners) {
     case 'multi': {
       const all = [...x.options, ...(v || []).filter((o) => !x.options.includes(o))];
       return `<fieldset class="wide picks"><legend>${esc(x.label)}</legend>${all.map((o) =>
-        `<label class="check"><input type="checkbox" name="${name}" value="${esc(o)}" ${(v || []).includes(o) ? 'checked' : ''}> ${esc(o)}</label>`).join('')}${hint}</fieldset>`;
+        `<label class="check"><input type="checkbox" name="${name}" value="${esc(o)}" ${(v || []).includes(o) ? 'checked' : ''}> ${esc(o)}${x.options.includes(o) ? '' : ' (old choice)'}</label>`).join('')}${hint}</fieldset>`;
     }
     case 'lookup': {
       const rows = choices[x.key] || [];

@@ -248,6 +248,23 @@ CREATE TABLE IF NOT EXISTS record_history (
 );
 CREATE INDEX IF NOT EXISTS record_history_record ON record_history (record_id, at);
 
+-- Settings > Fields: admins' changes to the record fields (laid over src/fields.js) and a log of them.
+CREATE TABLE IF NOT EXISTS field_layouts (
+  module TEXT PRIMARY KEY,       -- clients, contacts, vas or applicants
+  data TEXT NOT NULL,            -- JSON: sections and their field order, labels, help text, choices, custom and hidden fields
+  updated_at TEXT,
+  updated_by INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS field_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  module TEXT NOT NULL,
+  user_id INTEGER REFERENCES users(id),
+  summary TEXT NOT NULL,
+  at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS field_log_module ON field_log (module, at);
+
 -- Shared client/VA email (replaces Zoho CRM's email): each admin connects their Gmail once. The app keeps
 -- only emails to or from the addresses of clients, client contacts and VAs (see src/email.js).
 

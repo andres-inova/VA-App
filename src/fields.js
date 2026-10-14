@@ -55,7 +55,9 @@ export const OFFER_ITEMS = [['Offer_W9', 'W-9 form received'], ['Offer_State_ID'
   ['Offer_Agreement', 'Subcontractor Agreement signed (SignNow)'], ['Offer_Onboarding_Form', 'Onboarding form filled in (Tally)'],
   ['Offer_Background_Check', 'Background check passed (Checkr)'], ['Offer_Slack', 'Joined Slack']];
 
-export const MODULES = {
+// The built-in fields. Admins can change them on Settings > Fields; those changes are kept in the field_layouts
+// table and laid over these (see MODULES below).
+const BASE = {
   clients: {
     label: 'Clients', one: 'client',
     nameKey: 'Account_Name', statusKey: 'Status', statuses: ['Current', 'Paused', 'Offboarded'],
@@ -261,15 +263,116 @@ export const MODULES = {
         ...CALL_AREAS.map(([k, label], i) => f(k, `${label} (1-5)${i < CALL_REQUIRED ? '' : ', optional'}`, 'int', { min: 1, max: 5, hint: CALL_HINTS[k] })),
         f('pre_Additional_Comments', 'Notes from the call', 'textarea'),
       ] },
-      { title: 'Offer checklist', fields: OFFER_ITEMS.map(([k, label]) => f(k, label, 'bool')) },
+      { title: 'Offer checklist', offer: true, fields: OFFER_ITEMS.map(([k, label]) => f(k, label, 'bool')) },
     ],
   },
 };
 
-export const allFields = (key) => MODULES[key].sections.flatMap((s) => s.fields);
+// ---- Admin changes to the fields (Settings > Fields) ----
+//
+// Each module's changes are one JSON row in field_layouts:
+//   { sections: [{ id, title, keys: [field keys in order] }], over: { key: { label, hint, options } },
+//     custom: { key: { label, type, hint, options } }, hidden: [keys], used: [every custom key ever made], next }
+// Built-in sections have their built-in title as id. Custom fields are kept in record.data under their own key
+// (cf_...), which never changes, so renaming a label never moves data. Built-in fields or sections that the row
+// doesn't mention (for example ones added to BASE later) stay where BASE puts them.
 
-// The fields typed in on the edit form (files are added on the record page instead).
-export const formFields = (key) => allFields(key).filter((x) => x.type !== 'file');
+// Fields the app's code reads by key: admins can only change their label and help text (not hide, delete,
+// change choices or move them to another section). Lookups, owners and files are protected too.
+const PROTECTED = {
+  clients: ['Account_Name', 'Status', 'Contact', 'Email', 'Phone', 'Location', 'Package_Hours', 'Shift', 'Timezone', 'Owner', 'Referred_by', 'Contract'],
+  contacts: ['First_Name', 'Last_Name', 'Title', 'Email', 'Secondary_Email', 'Phone', 'Location', 'Offboarded', 'Owner'],
+  vas: ['Name', 'VA_Status', 'Email', 'Phone', 'Location', 'Time_Zone', 'Availability', 'VA_Company_Affiliation', 'Slack_ID', 'Slack_Management_ID', 'Owner', 'Referred_By', 'Resume'],
+  applicants: ['Name', 'Last_Name', 'Applicant_Status', 'Declined_Reason', 'Email', 'Phone', 'Location', 'Time_zone', 'Availability', 'Resume',
+    ...RESUME_PARTS.map(([k]) => k), ...CALL_AREAS.map(([k]) => k), ...OFFER_ITEMS.map(([k]) => k)],
+};
+const PROTECTED_TYPES = ['lookup', 'lookups', 'owner', 'file'];
+
+// The field types an admin can add, with their names on the Fields page.
+export const CUSTOM_TYPES = [['text', 'Text'], ['textarea', 'Long text'], ['num', 'Number'], ['date', 'Date'], ['pick', 'Pick list (one choice)'],
+  ['multi', 'Checkbox group (several choices)'], ['bool', 'Yes/no checkbox'], ['email', 'Email'], ['phone', 'Phone'], ['url', 'Link (web address)']];
+
+const baseField = (key, k) => BASE[key].sections.flatMap((s) => s.fields).find((x) => x.key === k) || null;
+
+export function isProtected(key, k) {
+  const b = baseField(key, k);
+  return Boolean(b && (PROTECTED[key].includes(k) || PROTECTED_TYPES.includes(b.type)));
+}
+
+// A module's full layout: every field is in exactly one section or in `hidden`.
+export function normalLayout(key, L = {}) {
+  const base = BASE[key];
+  const custom = L.custom || {};
+  const live = new Set([...base.sections.flatMap((s) => s.fields.map((x) => x.key)), ...Object.keys(custom)]);
+  const hidden = [...new Set(L.hidden || [])].filter((k) => live.has(k) && !isProtected(key, k));
+  const placed = new Set(hidden);
+  const sections = [];
+  for (const s of L.sections || []) {
+    if (!s || !s.id || sections.some((t) => t.id === s.id)) continue;
+    const keys = (s.keys || []).filter((k) => live.has(k) && !placed.has(k));
+    keys.forEach((k) => placed.add(k));
+    sections.push({ id: String(s.id), title: String(s.title || s.id), keys });
+  }
+  for (const s of base.sections) {
+    let t = sections.find((x) => x.id === s.title);
+    if (!t) { t = { id: s.title, title: s.title, keys: [] }; sections.push(t); }
+    for (const x of s.fields) if (!placed.has(x.key)) { t.keys.push(x.key); placed.add(x.key); }
+  }
+  for (const k of Object.keys(custom)) if (!placed.has(k)) { sections[0].keys.push(k); placed.add(k); }
+  return { sections, over: L.over || {}, custom, hidden, used: L.used || [], next: L.next || 1 };
+}
+
+// One field as the app uses it: the built-in one (or the custom one) with the admin's label, help text and choices.
+export function fieldOf(key, N, k) {
+  const b = baseField(key, k);
+  const c = N.custom[k];
+  if (!b && !c) return null;
+  const x = b ? { ...b } : { key: k, label: c.label, type: c.type, custom: true, ...(c.hint ? { hint: c.hint } : {}), ...(c.type === 'pick' || c.type === 'multi' ? { options: [...(c.options || [])] } : {}) };
+  const o = N.over[k] || {};
+  if (o.label) x.label = o.label;
+  if (o.hint !== undefined) { if (o.hint) x.hint = o.hint; else delete x.hint; }
+  if (o.options && (x.type === 'pick' || x.type === 'multi') && !isProtected(key, k)) x.options = [...o.options];
+  if (isProtected(key, k)) x.locked = true;
+  return x;
+}
+
+// The modules as the app uses them (BASE with the admin's changes). Rebuilt by loadFieldLayouts.
+export const MODULES = {};
+function build(rows) {
+  for (const key of Object.keys(BASE)) {
+    let L = {};
+    try { L = JSON.parse(rows.find((r) => r.module === key)?.data || '{}'); } catch { L = {}; }
+    const N = normalLayout(key, L);
+    const baseSec = (id) => BASE[key].sections.find((s) => s.title === id) || {};
+    MODULES[key] = {
+      ...BASE[key],
+      layout: N,
+      sections: N.sections.map((s) => {
+        const { fields: _f, title: _t, ...rest } = baseSec(s.id);
+        return { ...rest, id: s.id, title: s.title, fields: s.keys.map((k) => fieldOf(key, N, k)) };
+      }),
+      hiddenFields: N.hidden.map((k) => fieldOf(key, N, k)),
+    };
+  }
+}
+build([]);
+
+// Reads the admins' field changes (one small read) and rebuilds MODULES when they changed. Called at the start of
+// each request that shows or saves records. If the table isn't there yet, the built-in fields are used.
+let loaded = '[]';
+export async function loadFieldLayouts(env) {
+  let rows = [];
+  try { rows = (await env.DB.prepare('SELECT module, data FROM field_layouts').all()).results; } catch { rows = []; }
+  const text = JSON.stringify(rows);
+  if (text !== loaded) { loaded = text; build(rows); }
+}
+
+// Every field, also hidden ones (for the history, field types and Wufoo).
+export const allFields = (key) => [...MODULES[key].sections.flatMap((s) => s.fields), ...MODULES[key].hiddenFields];
+
+// The fields typed in on the edit form (files are added on the record page instead). Hidden fields are not on it
+// (they keep their values).
+export const formFields = (key) => MODULES[key].sections.flatMap((s) => s.fields).filter((x) => x.type !== 'file');
 
 // A record's name and status from its field values.
 export function nameOf(key, data) {
@@ -286,8 +389,11 @@ export function statusOf(key, data) {
 }
 
 // The text searched on the list pages.
+// Custom text, email and phone fields (added on Settings > Fields) are searched too.
 export const searchOf = (key, data, name) =>
-  [name, data.Email, data.Secondary_Email, data.Phone, data.Location, data.Title].filter(Boolean).join(' ').toLowerCase();
+  [name, data.Email, data.Secondary_Email, data.Phone, data.Location, data.Title,
+    ...Object.entries(MODULES[key].layout.custom).filter(([, c]) => ['text', 'email', 'phone'].includes(c.type)).map(([k]) => data[k])]
+    .filter((v) => typeof v === 'string' && v).join(' ').toLowerCase();
 
 // Plain-text version of a value, for the change history.
 export function plainValue(field, v, names = new Map()) {

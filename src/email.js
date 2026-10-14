@@ -12,7 +12,7 @@
 // stopped. The Google key (refresh token) is kept encrypted with the EMAIL_TOKEN_KEY secret and is never shown.
 
 import { redirect, page } from './util.js';
-import { allFields } from './fields.js';
+import { allFields, loadFieldLayouts } from './fields.js';
 import * as ev from './email-views.js';
 
 // Google's addresses. Tests point these at a fake Google server with --var.
@@ -243,6 +243,7 @@ const cleanAddress = (v) => (addressesIn(v)[0] || '');
 // Every record address (client emails, contact emails, VA emails) and the records that have it.
 // Addresses of admins and of connected inboxes never count (they are on almost every email).
 export async function recordAddresses(env) {
+  await loadFieldLayouts(env);
   const keys = Object.fromEntries(RECORD_MODULES.map((m) => [m, allFields(m).filter((x) => x.type === 'email').map((x) => x.key)]));
   const [{ results }, { results: own }] = await Promise.all([
     env.DB.prepare("SELECT id, module, data FROM records WHERE module IN ('clients', 'contacts', 'vas')").all(),

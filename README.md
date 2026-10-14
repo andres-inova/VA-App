@@ -357,7 +357,7 @@ Admin-only pages: **Clients → Clients** and **Team → VAs** in the menu; VAs 
 - **Files**: PDF, Word, Excel, text or pictures, up to 15 MB, kept in the app's file storage.
 - **History**: every change, with who made it, when, and the old and new value.
 - **Referrals**: set **Referred by** on the referred client or VA; the other record shows it under **Clients referred** / **VAs referred**.
-- **The fields** are listed in `src/fields.js`. To add a field, add one line there.
+- **The fields** can be changed on **Settings → Fields** (see **Fields** below). The built-in fields are listed in `src/fields.js`.
 
 **VA records drive the app.** VA logins, check-ins and the "who covers" lists follow the VA records here. A change to a VA (status, email, time zone, availability, Slack IDs, company affiliation) takes effect right away.
 
@@ -368,6 +368,20 @@ Admin-only pages: **Clients → Clients** and **Team → VAs** in the menu; VAs 
 **Projects and clients.** Each project in Zoho Projects belongs to a client record. When a project first appears (and at each hourly sync while it has none), the app links it to the client whose name is the part before " - " in the project name (capitals don't matter; only when exactly one client has that name). On the **Projects** page, each project has a **Client** box: choose the right client, or **No client**, and click **Save client**. The hourly sync never changes a client chosen there. Projects that matched no client are listed at the top of the Projects page under **Projects with no client** until an admin chooses one. Renaming a client keeps its projects. A new client record picks up waiting projects with its name right away.
 
 **Where the records came from**: in October 2026 every client, contact, VA and applicant was copied once from Zoho CRM, with their notes and files. The app no longer reads Zoho CRM, and the "Copy from Zoho" pages and the switch back to Zoho CRM were removed on 2026-10-13 (going back to Zoho CRM would need a developer). Copied notes show "from Zoho", and fields that were filled in Zoho but have no place in the app are kept under **Other fields from Zoho** on the record page.
+
+## Fields
+
+Admins change the fields of clients, contacts, VAs and applicants on **Settings → Fields** (like "Modules and Fields" in Zoho CRM). Pick **Clients**, **Contacts**, **VAs** or **Applicants** at the top. Each section lists its fields; click **Change** under a field for its options. Changes show right away on every record page, the Edit page and when you change a value right on a record page.
+
+- **Add a field**: type its name, choose the type (text, long text, number, date, pick list, checkbox group, yes/no checkbox, email, phone or link), the section, and help text if you want. For a pick list or checkbox group, type the choices, one per line. The app keeps each field's values under a fixed inside name, so renaming the field later never loses data. New text, email and phone fields are also searched on the list pages (each record after its next save). A Wufoo question with exactly the same title as a new applicant field (text, long text, email, phone, link or yes/no) fills it in.
+- **Rename a field or change its help text**: works for every field, also the built-in ones.
+- **Move a field** up or down (the arrows), or to another section (**Move to section**).
+- **Hide a field**: it no longer shows on records or the Edit page, but its values are kept. Hidden fields are listed under **Hidden fields**, with **Show again**.
+- **Sections**: add a section at the bottom, rename or move any section. A section you added can be deleted when it has no fields; built-in sections can't be deleted.
+- **Choices** of a pick list or checkbox group: add, rename, move or remove. Each choice shows how many records have it. **Renaming** a choice changes it on every record that has it (with a "Choice renamed" line in their History). **Removing** a choice keeps it on the records that have it, shown as "(old choice)"; the Fields page lists those old choices with their count.
+- **Delete a field**: only fields added here. The question says how many records have a value; the values are deleted with the field. Built-in fields can be hidden instead.
+- **Fields used by the app** have a lock and "Used by the app": only their name and help text can be changed (not hidden, moved to another section, deleted or given other choices), because the app reads them. These are the names, Email and phone, status fields (client Status, VA status, Hiring step, Why declined), time zones, Availability, Slack IDs, VA company affiliation, Main contact, Client owner, Referred by, the score parts, the offer checklist, Resume and Contract, and a few others that the list pages show.
+- **Recent changes** at the bottom shows the last 20 changes to that kind of record, with who made them and when.
 
 ## Shared email (Connect Gmail)
 
@@ -506,7 +520,8 @@ The VA training program, moved here from the separate training tracker app. A **
 | `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |
 | `src/zoho.js` | The hourly sync: VA logins (linked to their VA records) and the backup list from the app's VA records, active projects from Zoho Projects, linking projects to client records, assigning new projects by name, and finding each VA's Zoho Projects user |
 | `src/work.js` | Tasks, task lists and time logs in Zoho Projects (the Tasks & time page) |
-| `src/fields.js` | The fields of clients, contacts, VAs and applicants, in sections; the hiring steps and scores |
+| `src/fields.js` | The built-in fields of clients, contacts, VAs and applicants, in sections, with the admins' changes from Settings → Fields laid over them; the hiring steps and scores |
+| `src/field-editor.js` | Settings → Fields: the page where admins add, rename, move, hide and delete fields and change pick-list choices |
 | `src/records.js` | The Clients, VAs and Applicants pages: lists, record pages, editing, notes, files, history, hiring steps, and the Login box on a VA's page |
 | `src/records-views.js` | The HTML of the Clients, VAs and Applicants pages |
 | `src/training.js` | VA training: starting trainings, the checklist, ticks, notes, sign-offs and who may see each one |

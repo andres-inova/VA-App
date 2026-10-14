@@ -90,6 +90,8 @@ export function entryToData(body) {
   const files = [];
   const unmatched = [];
   const fieldTypes = new Map(allFields('applicants').map((x) => [x.key, x.type]));
+  // Fields added on Settings > Fields get the answer of a question with the same title (simple types only).
+  const byLabel = new Map(allFields('applicants').filter((x) => x.custom && ['text', 'textarea', 'email', 'phone', 'url', 'bool'].includes(x.type)).map((x) => [norm(x.label), x.key]));
   const structure = parseJson(body.get('FieldStructure'));
   const fields = Array.isArray(structure?.Fields) ? structure.Fields : null;
 
@@ -124,7 +126,7 @@ export function entryToData(body) {
       if (!/^Field\d+$/.test(id)) continue; // EntryId, DateCreated and other Wufoo bookkeeping
       const title = clean(f.Title, 300);
       const subs = Array.isArray(f.SubFields) ? f.SubFields : [];
-      let key = BY_TITLE.get(norm(title)) || null;
+      let key = BY_TITLE.get(norm(title)) || byLabel.get(norm(title)) || null;
       if (!key && BY_TYPE[f.Type]) key = BY_TYPE[f.Type];
 
       if (f.Type === 'file') {

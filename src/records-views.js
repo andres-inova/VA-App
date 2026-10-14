@@ -6,6 +6,7 @@ import { MODULES, allFields, plainValue, STEPS, CLOSED, OFFER_ITEMS, RESUME_INVI
 import { layout, icon, avatar, chip, section, empty, zohoTime, mailLink, phoneLink, loginResult, loginText, lastLoginText, loginButtons, checkedInfo } from './views.js';
 import { applicantTrainingRows } from './training-views.js';
 import { emailsSection } from './email-views.js';
+import { tagChips, tagIndex, recordTagsRow, tagPicker, PICKER_SCRIPT, listTools, bulkBar, LIST_SCRIPT } from './tags-views.js';
 
 const TONE = { Current: 'good', Active: 'good', Paused: 'warn', 'On Deck': 'info', Offboarded: 'muted', 'n/a': 'muted', Hired: 'good', Declined: 'muted', Ghosted: 'muted' };
 const tone = (status) => TONE[status] || (STEPS.includes(status) ? 'info' : 'muted');
@@ -21,7 +22,15 @@ const linkTo = (key, id, name) => `<a href="/admin/${key}/${esc(id)}">${esc(name
 const recordRow = (key, r, sub, side = '') => `<a class="item flat pick" href="/admin/${key}/${esc(r.id)}"><div class="item-head">${avatar(r.name)}
   <div class="grow"><div class="title">${esc(r.name)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${side}${icon('chevron', 'chev')}</div></a>`;
 
-function listPage({ user, key, title, active, lead, records, statuses, rowOf, searchHint, message }) {
+// A row on the VAs, Hiring and Clients pages: a tick box (for the bulk bar), then the record's link, with its tags.
+// data-tags is read by the tag filter (LIST_SCRIPT in tags-views.js).
+const selRow = (key, r, sub, side, byId) => {
+  const tags = (r.tagIds || []).map((id) => byId.get(id)).filter(Boolean).sort((a, b) => a.i - b.i);
+  return `<div class="item flat sel-item" data-tags="${esc((r.tagIds || []).join(','))}"><label class="sel"><input type="checkbox" class="sel-box" value="${esc(r.id)}" aria-label="Select ${esc(r.name)}"></label>
+  <a class="item-head" href="/admin/${key}/${esc(r.id)}">${avatar(r.name)}<div class="grow"><div class="title">${esc(r.name)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}${tags.length ? `<div class="chips row-tags">${tagChips(tags)}</div>` : ''}</div>${side}${icon('chevron', 'chev')}</a></div>`;
+};
+
+function listPage({ user, key, title, active, lead, records, statuses, rowOf, searchHint, tags, message }) {
   const by = (s) => records.filter((r) => r.status === s);
   const others = records.filter((r) => !statuses.includes(r.status));
   const list = (label, rows, open) => (rows.length ? section({ title: label, count: rows.length, open, key: `${key}-${label}`, body: rows.map(rowOf).join('') }) : '');
@@ -32,14 +41,16 @@ function listPage({ user, key, title, active, lead, records, statuses, rowOf, se
     <div class="actions" style="margin:0 0 14px"><a class="btn sm" href="/admin/${key}/new">${icon('plus')} New ${MODULES[key].one}</a></div>
     ${records.length ? `<div class="summary-chips">${statuses.filter((s) => by(s).length).map((s) => chip(`${by(s).length} ${s === 'n/a' ? 'no status' : s.toLowerCase()}`, tone(s))).join('')}</div>
     <label class="search" for="find-${key}">${icon('building')}<input id="find-${key}" type="search" placeholder="${esc(searchHint)}" autocomplete="off" data-filter="#${key}-list .item" data-empty="#${key}-none"></label>
-    <div id="${key}-list">${statuses.map((s) => list(s === 'n/a' ? 'No status' : s, by(s), !closed.includes(s))).join('')}${list('Other', others, false)}</div>
-    <div class="empty no-results" id="${key}-none">Nothing matches.</div>` : ''}`,
+    ${listTools(key, tags)}
+    <div id="${key}-list" data-list data-search="find-${key}">${statuses.map((s) => list(s === 'n/a' ? 'No status' : s, by(s), !closed.includes(s))).join('')}${list('Other', others, false)}</div>
+    <div class="empty no-results" id="${key}-none">Nothing matches.</div>${bulkBar(key, tags)}<script>${LIST_SCRIPT}</script>` : ''}`,
   });
 }
 
-export function clientsPage({ user, records, names, projects, message }) {
+export function clientsPage({ user, records, names, projects, tags, message }) {
+  const byId = tagIndex(tags);
   return listPage({
-    user, key: 'clients', title: 'Clients', active: '/admin/clients', message, records,
+    user, key: 'clients', title: 'Clients', active: '/admin/clients', message, records, tags,
     lead: 'Every client, with contacts, notes and files. Click a client to see or change it.',
     statuses: MODULES.clients.statuses, searchHint: 'Search clients, emails or places',
     rowOf: (r) => {
@@ -47,21 +58,22 @@ export function clientsPage({ user, records, names, projects, message }) {
       const vas = (projects.get(r.id) || []).filter((p) => !p.is_coverage).map((p) => p.vas).filter(Boolean);
       const sub = [names.get(d.Contact), d.Package_Hours && `${d.Package_Hours} hours`, [d.Shift, d.Timezone].filter(Boolean).join(' '), vas.length && `VA: ${vas.join(', ')}`]
         .filter(Boolean).map(esc).join(' · ');
-      return recordRow('clients', r, sub, chip(r.status, tone(r.status)));
+      return selRow('clients', r, sub, chip(r.status, tone(r.status)), byId);
     },
   });
 }
 
-export function vasPage({ user, records, message }) {
+export function vasPage({ user, records, tags, message }) {
+  const byId = tagIndex(tags);
   return listPage({
-    user, key: 'vas', title: 'VAs', active: '/admin/vas', message, records,
+    user, key: 'vas', title: 'VAs', active: '/admin/vas', message, records, tags,
     lead: 'Every VA, with contact details, pay notes, scores, notes and files. Active VAs can log in and check in. Click a VA to see or change them; changes count right away.',
     statuses: MODULES.vas.statuses, searchHint: 'Search VAs, emails or places',
     rowOf: (r) => {
       const d = r.data;
       const clients = [...new Set(r.projects.filter((p) => !p.is_coverage).map((p) => p.client))];
       const sub = [clients.length && clients.join(', '), d.Time_Zone, d.Availability].filter(Boolean).map(esc).join(' · ');
-      return recordRow('vas', r, sub, chip(r.status === 'n/a' ? 'No status' : r.status, tone(r.status)));
+      return selRow('vas', r, sub, chip(r.status === 'n/a' ? 'No status' : r.status, tone(r.status)), byId);
     },
   });
 }
@@ -460,7 +472,7 @@ function loginBox(record, login) {
   });
 }
 
-export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, mail, edit, message, tempPassword = null }) {
+export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, mail, edit, tags, message, tempPassword = null }) {
   const d = record.data;
   const mod = MODULES[key];
   const here = `/admin/${key}/${record.id}`;
@@ -473,6 +485,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     <div class="rec-head">${avatar(record.name, 'lg')}<div class="grow"><h2>${esc(record.name)}</h2>
       <div class="chips">${key === 'contacts' ? (parent ? chip(`Contact at ${parent.name}`, 'info') : chip('No client', 'warn')) : ''}${chip(status, tone(record.status))}</div></div></div>
     ${contactLine.length ? `<p class="meta">${contactLine.join(' · ')}</p>` : ''}
+    ${tags ? recordTagsRow(key, record.id, tags.on) : ''}
     <div class="actions rec-actions">
       <a class="btn sm" href="${here}/edit">${icon('edit')} Edit</a>
       ${key === 'clients' ? `<a class="btn sm plain" href="/admin/contacts/new?client=${record.id}">${icon('plus')} Add contact</a>` : ''}
@@ -568,7 +581,8 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     ${section({ title: 'Notes', count: notes.length, key: 'notes', body: notesHtml(key, record, notes, user) })}
     ${section({ title: 'Files', count: files.length, key: 'files', body: filesHtml(key, record, files) })}
     ${section({ title: 'History', count: history.length, open: false, key: 'history', hint: 'Who changed what, newest first.', body: historyHtml(key, history, names) })}
-    <script>${FIELD_SCRIPT}</script>`,
+    ${tags ? tagPicker(key, tags.all, tags.ids) : ''}
+    <script>${FIELD_SCRIPT}</script>${tags ? `<script>${PICKER_SCRIPT}</script>` : ''}`,
   });
 }
 
@@ -682,13 +696,14 @@ function wufooBox(w) {
     count: w.keySet ? undefined : 'not set up', body: `<div style="padding:0 8px 8px">${lines.join('')}</div>` });
 }
 
-export function applicantsPage({ user, records, wufoo, message }) {
+export function applicantsPage({ user, records, wufoo, tags, message }) {
+  const byId = tagIndex(tags);
   const by = (s) => records.filter((r) => r.status === s);
   const others = records.filter((r) => !STEPS.includes(r.status) && !CLOSED.includes(r.status));
   const row = (r) => {
     const d = r.data;
     const sub = [d.Email, [d.Location, d.Time_zone].filter(Boolean).join(', '), `Applied ${appliedOn(r.created_at)}`].filter(Boolean).map(esc).join(' · ');
-    return recordRow('applicants', r, sub, `<span class="chips side-chips">${scoreChips(d, r.status)}</span>`);
+    return selRow('applicants', r, sub, `<span class="chips side-chips">${scoreChips(d, r.status)}</span>`, byId);
   };
   const list = (label, rows, open) => (rows.length ? section({ title: label, count: rows.length, open, key: `applicants-${label}`, body: rows.map(row).join('') }) : '');
   const open = records.filter((r) => STEPS.includes(r.status) && r.status !== 'Hired').length;
@@ -698,8 +713,9 @@ export function applicantsPage({ user, records, wufoo, message }) {
     <div class="actions" style="margin:0 0 14px"><a class="btn sm" href="/admin/applicants/new">${icon('plus')} New applicant</a></div>
     ${records.length ? `<div class="summary-chips">${chip(`${open} in progress`, 'info')}${chip(`${by('Hired').length} hired`, 'good')}${CLOSED.map((s) => chip(`${by(s).length} ${s.toLowerCase()}`, 'muted')).join('')}</div>
     <label class="search" for="find-applicants">${icon('applicant')}<input id="find-applicants" type="search" placeholder="Search applicants, emails or places" autocomplete="off" data-filter="#applicants-list .item" data-empty="#applicants-none"></label>
-    <div id="applicants-list">${STEPS.map((s) => list(s, by(s), s !== 'Hired')).join('')}${CLOSED.map((s) => list(s, by(s), false)).join('')}${list('Other', others, false)}</div>
-    <div class="empty no-results" id="applicants-none">Nothing matches.</div>` : ''}
+    ${listTools('applicants', tags)}
+    <div id="applicants-list" data-list data-search="find-applicants">${STEPS.map((s) => list(s, by(s), s !== 'Hired')).join('')}${CLOSED.map((s) => list(s, by(s), false)).join('')}${list('Other', others, false)}</div>
+    <div class="empty no-results" id="applicants-none">Nothing matches.</div>${bulkBar('applicants', tags)}<script>${LIST_SCRIPT}</script>` : ''}
     ${wufooBox(wufoo)}`,
   });
 }

@@ -18,6 +18,7 @@ import { sopRoutes, adminSopRoutes, vaSops, allSops, coveringSops } from './sops
 import { recordRoutes } from './records.js';
 import { loadFieldLayouts } from './fields.js';
 import { fieldRoutes } from './field-editor.js';
+import { tagRoutes } from './tags.js';
 import { emailRoutes } from './email.js';
 import { trainingRoutes, adminTrainingRoutes, myTrainings, lateTrainings, ONBOARDING } from './training.js';
 import * as views from './views.js';
@@ -139,6 +140,8 @@ async function handle(request, env) {
     if (!user.is_admin) return redirect(homeOf(user));
     // Settings > Fields: the admin field editor.
     if (path === '/admin/settings/fields' || path.startsWith('/admin/settings/fields/')) return fieldRoutes(env, user, path, method, field, message, url);
+    // Settings > Tags, and adding or removing a tag on many records at once (list pages).
+    if (path === '/admin/settings/tags' || path === '/admin/tags/bulk') return tagRoutes(env, user, path, method, field, fieldAll, message);
     if (path === '/admin/training' || path.startsWith('/admin/training/')) return adminTrainingRoutes(env, user, path, method, field, message, url);
     // Shared email: Settings > Email (Connect Gmail), saved emails and their attachments.
     if (/^\/admin\/emails?(\/|$)/.test(path)) return emailRoutes(env, user, path, method, field, message, url);

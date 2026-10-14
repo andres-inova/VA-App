@@ -62,6 +62,11 @@ const MESSAGES = {
   'saved-training-linked': ['good', 'Saved. This applicant is in an Onboarding Training (same email), so the two are now linked.'],
   'record-deleted': ['good', 'Deleted.'],
   'no-changes': ['info', 'Nothing was changed.'],
+  'tags-added': ['good', 'Tag added to the ticked records.'],
+  'tags-removed': ['good', 'Tag removed from the ticked records.'],
+  'tags-none-selected': ['bad', 'Please tick at least one record first.'],
+  'tag-missing': ['bad', 'That tag is not there any more.'],
+  'tag-not-allowed': ['bad', "That tag can't be used on this kind of record. Change that on Settings > Tags."],
   'note-added': ['good', 'Note added.'],
   'note-saved': ['good', 'Note saved.'],
   'note-deleted': ['good', 'Note deleted.'],
@@ -153,6 +158,7 @@ const ICON_PATHS = {
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
   building: '<path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M16 9h2a2 2 0 0 1 2 2v10M2 21h20M8 7h4M8 11h4M8 15h4"/>',
   va: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="M8 4.5a6 6 0 0 1 8 0"/>',
+  tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   note: '<path d="M4 4h16v12l-4 4H4z"/><path d="M16 20v-4h4M8 9h8M8 13h5"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>',
   lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
@@ -180,7 +186,7 @@ export const chip = (label, tone = 'muted') => `<span class="chip ${tone}">${esc
 const pageTabs = (tabs, on) => `<div class="chips proj-tabs">${tabs.map(([href, label]) =>
   `<a class="chip ${href === on ? 'on' : 'muted'}" href="${href}">${esc(label)}</a>`).join('')}</div>`;
 const CALENDAR_TABS = [['/admin/calendar', 'Time off calendar'], ['/admin/history', 'Check-in history']];
-const SETTINGS_TABS = [['/admin/settings', 'Settings'], ['/admin/email', 'Email'], ['/admin/holidays', 'Holidays'], ['/admin/settings/fields', 'Fields']];
+const SETTINGS_TABS = [['/admin/settings', 'Settings'], ['/admin/email', 'Email'], ['/admin/holidays', 'Holidays'], ['/admin/settings/fields', 'Fields'], ['/admin/settings/tags', 'Tags']];
 export const settingsTabs = (on) => pageTabs(SETTINGS_TABS, on);
 
 const pill = (status) => {
@@ -372,6 +378,27 @@ a.item.pick{display:block;color:inherit;text-decoration:none;border-radius:12px}
 .fe-form .check{margin-top:4px!important}.fe-form .picks{margin:0}.fe-form .toast{display:block;margin:8px 0 0;padding:8px 12px}.fe-form .fe-error[hidden]{display:none}
 body:not(.show-empty) .fe-empty,body:not(.show-empty) .sec-empty{display:none}.show-empty #rec-nothing{display:none}
 .show-empty .fe-toggle .when-hidden,body:not(.show-empty) .fe-toggle .when-shown{display:none}.fe-toggle{margin:0 0 0 6px}
+.chip.tg-grey{background:var(--muted-bg);color:var(--text)}.chip.tg-blue{background:var(--info-bg);color:var(--info)}.chip.tg-green{background:var(--good-bg);color:var(--good)}
+.chip.tg-yellow{background:#fef7c3;color:#854a0e}.chip.tg-orange{background:#ffead5;color:#b93815}.chip.tg-red{background:var(--bad-bg);color:var(--bad)}
+.chip.tg-purple{background:#ebe9fe;color:#5925dc}.chip.tg-pink{background:#fce7f6;color:#c11574}
+@media (prefers-color-scheme:dark){.chip.tg-yellow{background:#3b3207;color:#fde272}.chip.tg-orange{background:#3d1d0b;color:#feb273}.chip.tg-purple{background:#27184d;color:#bdb4fe}.chip.tg-pink{background:#3d0f2c;color:#faa7e0}}
+.tag-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 0 0}.tag-row .tag-chips{margin:0}.tag-row .chip{white-space:normal}.tag-row .tag-open{margin:0}
+.tag-picker{position:fixed;inset:0;z-index:50;background:rgba(17,27,33,.45);display:flex;align-items:flex-start;justify-content:center;padding:6vh 16px}.tag-picker[hidden]{display:none}
+.tp-box{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);width:100%;max-width:560px;max-height:88vh;overflow-y:auto;padding:16px}
+.tp-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.tp-head h3{margin:0}.tp-head button{margin:0}.tp-box .search{margin:12px 0}
+.tp-group{border:0;padding:0;margin:0 0 10px;min-width:0}.tp-group legend{font-weight:700;font-size:13px;color:var(--muted);padding:0;margin-bottom:2px}
+.tp-tag{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin:0 12px 0 0;cursor:pointer}.tp-tag input{width:20px;height:20px;accent-color:var(--accent)}.tp-tag[hidden],.tp-group[hidden],.tp-error[hidden],.tp-nomatch[hidden]{display:none}
+.tp-new{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}.tp-new>summary{cursor:pointer;font-weight:700;list-style:none;display:flex;align-items:center;gap:6px;min-height:44px}.tp-error{display:block}
+body.tp-open{overflow:hidden}
+.list-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;margin:-6px 0 12px}.list-tools button,.list-tools .btn{margin:0}
+.tag-filter>summary{list-style:none}.tag-filter>summary::-webkit-details-marker{display:none}.tag-filter.on>summary{background:var(--accent);color:var(--accent-ink)}
+.tag-filter[open]{flex:1 1 100%}.tf-box{background:var(--surface);border-radius:14px;box-shadow:var(--shadow);padding:6px 14px 12px;margin-top:8px}.tf-mode{display:flex;flex-wrap:wrap;gap:4px 16px;margin-bottom:8px}.tf-mode .check{min-height:44px;margin:0}
+.sel-item{display:flex;align-items:center}.sel-item[hidden]{display:none}.sel-item>a.item-head{flex:1;min-width:0;color:inherit;text-decoration:none;border-radius:12px;cursor:pointer;padding-left:0}.sel-item>a.item-head:hover{background:var(--surface-2)}
+.sel{display:flex;align-items:center;justify-content:center;width:44px;min-height:44px;flex:none;cursor:pointer;margin:0}.sel input{width:20px;height:20px;accent-color:var(--accent);margin:0}
+.row-tags{margin:4px 0 0}.row-tags .chip{font-size:12px;padding:2px 8px;white-space:normal}
+.bulk-bar{position:sticky;bottom:12px;z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:var(--surface);border-radius:var(--radius);box-shadow:0 4px 18px rgba(17,27,33,.18);padding:10px 14px;margin:12px 0}
+.bulk-bar[hidden]{display:none}.bulk-bar button{margin:0}.bulk-bar select{width:auto;max-width:100%;flex:1 1 140px}.bulk-count{font-weight:800}
+@media (max-width:600px){.tag-picker{padding:0}.tp-box{max-width:none;max-height:none;height:100%;border-radius:0}.bulk-bar{bottom:76px}}
 .rec-head{display:flex;gap:14px;align-items:center}.rec-actions .btn{max-width:100%;overflow-wrap:anywhere}.rec-head h2{margin:0;font-size:22px}.rec-head .chips{margin:4px 0 0}
 .record-form .section,#offer,#step,#notes,#files{scroll-margin-top:80px}.steps .chip{font-weight:600}.step-count{display:none}@media (max-width:600px){.steps{display:none}.step-count{display:block}
   #applicants-list .item-head{flex-wrap:wrap}#applicants-list .item-head>.grow{flex:1 1 calc(100% - 100px)}
@@ -455,7 +482,8 @@ const SCRIPT = `<script type="speculationrules">{"prefetch":[{"where":{"href_mat
     input.addEventListener('input', function () {
       var q = input.value.trim().toLowerCase(), shown = 0;
       document.querySelectorAll(input.dataset.filter).forEach(function (row) {
-        var match = !q || row.textContent.toLowerCase().indexOf(q) !== -1;
+        // Rows hidden by another filter (the tag filter on list pages) have data-out.
+        var match = (!q || row.textContent.toLowerCase().indexOf(q) !== -1) && !row.hasAttribute('data-out');
         row.hidden = !match; if (match) shown++;
       });
       var none = document.querySelector(input.dataset.empty);

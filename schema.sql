@@ -265,6 +265,38 @@ CREATE TABLE IF NOT EXISTS field_log (
 );
 CREATE INDEX IF NOT EXISTS field_log_module ON field_log (module, at);
 
+-- Tags with folders on VAs, applicants and clients (Settings > Tags). Changes are logged in field_log (module 'tags').
+CREATE TABLE IF NOT EXISTS tag_folders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS tag_folders_name ON tag_folders (name COLLATE NOCASE);
+
+CREATE TABLE IF NOT EXISTS tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  folder_id INTEGER REFERENCES tag_folders(id),   -- empty: "No folder"
+  colour TEXT NOT NULL DEFAULT 'grey',            -- one of the colours in src/tags-views.js
+  on_vas INTEGER NOT NULL DEFAULT 1,              -- which kinds of records can have it
+  on_applicants INTEGER NOT NULL DEFAULT 1,
+  on_clients INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_by INTEGER REFERENCES users(id)
+);
+-- Tag names are unique inside their folder, compared without capitals.
+CREATE UNIQUE INDEX IF NOT EXISTS tags_name ON tags (IFNULL(folder_id, 0), name COLLATE NOCASE);
+
+CREATE TABLE IF NOT EXISTS record_tags (
+  record_id INTEGER NOT NULL REFERENCES records(id),
+  tag_id INTEGER NOT NULL REFERENCES tags(id),
+  added_by INTEGER REFERENCES users(id),
+  added_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (record_id, tag_id)
+);
+CREATE INDEX IF NOT EXISTS record_tags_tag ON record_tags (tag_id);
+
 -- Shared client/VA email (replaces Zoho CRM's email): each admin connects their Gmail once. The app keeps
 -- only emails to or from the addresses of clients, client contacts and VAs (see src/email.js).
 

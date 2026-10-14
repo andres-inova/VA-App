@@ -12,6 +12,7 @@ import { wufooState } from './wufoo.js';
 import { applicantTrainings, linkApplicantToTraining } from './training.js';
 import { recordEmails, forgetRecordEmails } from './email.js';
 import { partsIn, REPORT_ZONE } from './time.js';
+import { loadTags, tagsByRecord, tagsOn, forgetRecordTags, recordTagChange } from './tags.js';
 import * as rv from './records-views.js';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -253,6 +254,7 @@ async function deleteRecords(env, ids) {
       env.DB.prepare('UPDATE trainings SET applicant_id = NULL WHERE applicant_id IN (SELECT value FROM json_each(?))').bind(list),
       env.DB.prepare('UPDATE users SET record_id = NULL WHERE record_id IN (SELECT value FROM json_each(?))').bind(list),
       env.DB.prepare('UPDATE projects SET client_record_id = NULL WHERE client_record_id IN (SELECT value FROM json_each(?))').bind(list),
+      forgetRecordTags(env, list),
       env.DB.prepare('DELETE FROM records WHERE id IN (SELECT value FROM json_each(?))').bind(list),
     ));
 }
@@ -373,7 +375,13 @@ async function showRecord(env, user, key, record, message, tempPassword = null) 
     env.DB.prepare('SELECT f.*, u.name AS user_name FROM record_files f LEFT JOIN users u ON u.id = f.uploaded_by WHERE f.record_id = ? ORDER BY f.uploaded_at DESC').bind(record.id).all(),
     env.DB.prepare('SELECT h.*, u.name AS user_name FROM record_history h LEFT JOIN users u ON u.id = h.user_id WHERE h.record_id = ? ORDER BY h.at DESC, h.id DESC LIMIT 100').bind(record.id).all(),
   ]);
-  const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null, va: null, training: null, mail: null };
+  const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null, va: null, training: null, mail: null, tags: null };
+  // Tags (VAs, applicants and clients): this record's, and all of them for the picker.
+  if (key !== 'contacts') {
+    const all = await loadTags(env);
+    const ids = (await env.DB.prepare('SELECT tag_id FROM record_tags WHERE record_id = ?').bind(record.id).all().catch(() => ({ results: [] }))).results.map((r) => r.tag_id);
+    extra.tags = { all, on: tagsOn(all, ids), ids: new Set(ids) };
+  }
   // The choices for changing a value right on the page (the same lists as on the Edit page).
   extra.edit = {
     choices: await lookupChoices(env, key, record),
@@ -437,22 +445,25 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
 
   if (path === '/admin/applicants' && method === 'GET') {
     const { results } = await env.DB.prepare("SELECT * FROM records WHERE module = 'applicants' ORDER BY created_at DESC").all();
-    const records = results.map((r) => ({ ...r, data: JSON.parse(r.data) }));
+    const tagIds = await tagsByRecord(env, 'applicants');
+    const records = results.map((r) => ({ ...r, data: JSON.parse(r.data), tagIds: tagIds.get(r.id) || [] }));
     const wufoo = { ...(await wufooState(env)), url: `${url.origin}/api/wufoo/application`, keySet: Boolean(env.WUFOO_HANDSHAKE_KEY) };
-    return page(rv.applicantsPage({ user, records, wufoo, message }));
+    return page(rv.applicantsPage({ user, records, wufoo, tags: await loadTags(env), message }));
   }
 
   if ((m = path.match(/^\/admin\/(clients|vas)$/)) && method === 'GET') {
     const key = m[1];
     const { results } = await env.DB.prepare('SELECT * FROM records WHERE module = ? ORDER BY name COLLATE NOCASE').bind(key).all();
-    const records = results.map((r) => ({ ...r, data: JSON.parse(r.data) }));
+    const tagIds = await tagsByRecord(env, key);
+    const records = results.map((r) => ({ ...r, data: JSON.parse(r.data), tagIds: tagIds.get(r.id) || [] }));
+    const tags = await loadTags(env);
     if (key === 'clients') {
       const names = await recordNames(env);
       const projects = await projectsByClient(env);
-      return page(rv.clientsPage({ user, records, names, projects, message }));
+      return page(rv.clientsPage({ user, records, names, projects, tags, message }));
     }
     const login = await vaLogins(env);
-    return page(rv.vasPage({ user, records: records.map((r) => ({ ...r, ...login(r) })), message }));
+    return page(rv.vasPage({ user, records: records.map((r) => ({ ...r, ...login(r) })), tags, message }));
   }
 
   // A new record: the empty form, then saving it.
@@ -490,7 +501,7 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     return vaLoginAction(env, user, Number(m[1]), m[2], field);
   }
 
-  m = path.match(/^\/admin\/(clients|vas|contacts|applicants)\/(\d+)(?:\/(edit|field|delete|notes|files|step|checklist|hire)(?:\/(\d+)(?:\/(save|delete))?)?)?$/);
+  m = path.match(/^\/admin\/(clients|vas|contacts|applicants)\/(\d+)(?:\/(edit|field|tags|delete|notes|files|step|checklist|hire)(?:\/(\d+)(?:\/(save|delete))?)?)?$/);
   if (!m) return redirect(path.startsWith('/admin/applicants') ? '/admin/applicants' : '/admin/clients');
   const [, key, idText, action, subId, subAction] = m;
   const record = await getRecord(env, key, Number(idText));
@@ -522,6 +533,9 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
 
   // One field changed on the record page.
   if (action === 'field' && method === 'POST') return saveOneField(env, user, key, record, field, fieldAll);
+
+  // A tag ticked, unticked or made in the tag picker on the record page.
+  if (action === 'tags' && method === 'POST') return recordTagChange(env, user, key, record, field);
 
   if (action === 'delete' && !subId && method === 'POST') {
     const ids = [record.id];

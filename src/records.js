@@ -4,7 +4,7 @@
 // a VA record. Records copied from Zoho CRM in 2026 keep their Zoho id (zoho_id) as history; nothing reads Zoho CRM.
 
 import { redirect, page, isDate } from './util.js';
-import { MODULES, allFields, formFields, nameOf, statusOf, searchOf, STEPS, CLOSED, OFFER_ITEMS } from './fields.js';
+import { MODULES, allFields, formFields, nameOf, statusOf, searchOf, plainValue, STEPS, CLOSED, OFFER_ITEMS, resumeScore, callScore } from './fields.js';
 import { FILE_TYPES, MAX_FILE } from './sops.js';
 import { applyVaRecords, linkProjectClients } from './zoho.js';
 import { sendInvite, newTemporaryPassword } from './invites.js';
@@ -13,6 +13,8 @@ import { applicantTrainings, linkApplicantToTraining } from './training.js';
 import { recordEmails, forgetRecordEmails } from './email.js';
 import { partsIn, REPORT_ZONE } from './time.js';
 import { loadTags, tagsByRecord, tagsOn, forgetRecordTags, recordTagChange } from './tags.js';
+import { tagIndex } from './tags-views.js';
+import * as lists from './lists.js';
 import * as rv from './records-views.js';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -175,23 +177,31 @@ function changesBetween(key, before, after) {
 // its history, and what follows from the change (VA logins, project links, an applicant's Onboarding Training).
 // Returns { changes, linked (the applicant was linked to a training), noEmail (an Active VA with no email) }.
 async function saveRecord(env, user, key, record, data, parent) {
-  const changes = changesBetween(key, record.data, data);
-  if (key === 'contacts' && parent !== record.parent_id) changes.push({ f: '_client', from: record.parent_id, to: parent });
+  const { changes, statements } = saveStatements(env, user, key, record, data, parent, 'Edited');
   if (changes.length) {
-    const now = new Date().toISOString();
-    const name = nameOf(key, data);
-    await env.DB.batch([
-      env.DB.prepare('UPDATE records SET name = ?, status = ?, parent_id = ?, email = ?, search = ?, data = ?, updated_at = ?, updated_by = ? WHERE id = ?')
-        .bind(name, statusOf(key, data), parent, (data.Email || '').toLowerCase() || null, searchOf(key, data, name), JSON.stringify(data), now, user.id, record.id),
-      env.DB.prepare('INSERT INTO record_history (record_id, user_id, summary, changes, at) VALUES (?, ?, ?, ?, ?)')
-        .bind(record.id, user.id, 'Edited', JSON.stringify(changes), now),
-    ]);
+    await env.DB.batch(statements);
     await vaChanged(env, key);
   }
   // An applicant's email set or changed: link them to the Onboarding Training of the person with that email.
   const linked = Boolean(key === 'applicants' && changes.some((c) => c.f === 'Email') && data.Email && await linkApplicantToTraining(env, user, record.id));
   const noEmail = Boolean(key === 'vas' && changes.length && data.VA_Status === 'Active' && !data.Email);
   return { changes, linked, noEmail };
+}
+
+// The changes between a record and its new values, and the statements that save them with a line in its history
+// (see saveRecord; a field changed on many records at once uses them too, then follows up once for all).
+function saveStatements(env, user, key, record, data, parent, summary) {
+  const changes = changesBetween(key, record.data, data);
+  if (key === 'contacts' && parent !== record.parent_id) changes.push({ f: '_client', from: record.parent_id, to: parent });
+  if (!changes.length) return { changes, statements: [] };
+  const now = new Date().toISOString();
+  const name = nameOf(key, data);
+  return { changes, statements: [
+    env.DB.prepare('UPDATE records SET name = ?, status = ?, parent_id = ?, email = ?, search = ?, data = ?, updated_at = ?, updated_by = ? WHERE id = ?')
+      .bind(name, statusOf(key, data), parent, (data.Email || '').toLowerCase() || null, searchOf(key, data, name), JSON.stringify(data), now, user.id, record.id),
+    env.DB.prepare('INSERT INTO record_history (record_id, user_id, summary, changes, at) VALUES (?, ?, ?, ?, ?)')
+      .bind(record.id, user.id, summary, JSON.stringify(changes), now),
+  ] };
 }
 
 // One field changed on the record page (click a value to change it). Same checks and the same save as the Edit
@@ -438,41 +448,180 @@ async function vaLoginAction(env, user, recordId, what, field) {
   return showRecord(env, user, 'vas', record, null, { name: person.name, password });
 }
 
+// ---- List pages ----
+
+// Every record of one kind, with what the list's columns show besides fields (r.extra): tags, a client's VAs, a VA's
+// clients, a contact's client, an applicant's scores. Also the tags and record names, for the page.
+async function listRecords(env, key) {
+  const { results } = key === 'contacts'
+    ? await env.DB.prepare(`SELECT r.*, p.name AS parent_name FROM records r LEFT JOIN records p ON p.id = r.parent_id AND p.module = 'clients'
+        WHERE r.module = 'contacts' ORDER BY r.name COLLATE NOCASE`).all()
+    : await env.DB.prepare(`SELECT * FROM records WHERE module = ? ORDER BY ${key === 'applicants' ? 'created_at DESC' : 'name COLLATE NOCASE'}`).bind(key).all();
+  const tags = key === 'contacts' ? null : await loadTags(env);
+  const tagIds = tags ? await tagsByRecord(env, key) : new Map();
+  const byId = tags ? tagIndex(tags) : new Map();
+  const names = await recordNames(env);
+  const projects = key === 'clients' ? await projectsByClient(env) : null;
+  const login = key === 'vas' ? await vaLogins(env) : null;
+  const score = (n) => `${Number.isInteger(n) ? n : n.toFixed(1)} / 10`;
+  const records = results.map((row) => {
+    const r = { ...row, data: JSON.parse(row.data), tagIds: tagIds.get(row.id) || [] };
+    r.tagList = r.tagIds.map((id) => byId.get(id)).filter(Boolean).sort((a, b) => a.i - b.i);
+    r.extra = { _tags: r.tagList.map((t) => t.name).join(', '), _client: row.parent_name || '' };
+    if (login) {
+      Object.assign(r, login(r));
+      r.extra._clients = [...new Set(r.projects.filter((p) => !p.is_coverage).map((p) => p.client))].join(', ');
+    }
+    if (projects) r.extra._vas = (projects.get(r.id) || []).filter((p) => !p.is_coverage).map((p) => p.vas).filter(Boolean).join(', ');
+    if (key === 'applicants') {
+      const rs = resumeScore(r.data);
+      const cs = callScore(r.data);
+      r.extra._scores = [rs && `Resume ${score(rs.total)}`, cs && `Call ${score(cs.overall)}`].filter(Boolean).join(', ');
+    }
+    return r;
+  });
+  return { records, tags, names };
+}
+
+// What a change to many records at once says afterwards (from the address it was sent back to).
+function bulkMessage(key, url) {
+  const q = (n) => url.searchParams.get(n) || '';
+  const x = lists.bulkFields(key).find((y) => y.key === q('bf'));
+  const label = (x || allFields(key).find((y) => y.key === q('bf')))?.label || 'That field';
+  const one = MODULES[key].one;
+  const count = (n) => `${n} ${n === 1 ? one : `${one}s`}`;
+  const bad = {
+    none: 'Please tick at least one record first.',
+    many: `Please tick at most ${lists.MAX_BULK} records at a time.`,
+    locked: `${label} can't be changed on many records at once. Change it on each record's page.`,
+    choice: `Please choose one of the choices for ${label}.`,
+    need: `${label} can't be empty.`,
+    range: x && x.min !== undefined ? `${label.replace(/ \(.*\)/, '')} must be a number from ${x.min} to ${x.max}.` : 'That value is out of range.',
+  }[q('bad')];
+  if (bad) return ['bad', bad];
+  const changed = Number(q('bn')) || 0;
+  const same = Number(q('bs')) || 0;
+  const gone = Number(q('bg')) || 0;
+  const noEmail = Number(q('be')) || 0;
+  const parts = [`${label}: changed ${count(changed)}.`];
+  if (same || gone) parts.push(`${same + gone} skipped (${[same && `${same} already had that value`, gone && `${gone} not found, maybe deleted`].filter(Boolean).join('; ')}).`);
+  if (noEmail) parts.push(`${count(noEmail)} ${noEmail === 1 ? 'is' : 'are'} Active but ${noEmail === 1 ? 'has' : 'have'} no email, so ${noEmail === 1 ? 'that VA' : 'they'} can't log in.`);
+  return [changed ? (noEmail ? 'bad' : 'good') : 'info', parts.join(' ')];
+}
+
+// The list's address without one-time parts (a message), for the links on the page.
+function cleanSearch(url) {
+  const u = new URLSearchParams(url.search);
+  for (const n of ['msg', 'bn', 'bs', 'bg', 'be', 'bf', 'bad']) u.delete(n);
+  const text = u.toString();
+  return text ? `?${text}` : '';
+}
+
+// A list page: the records that match the field filters in the address, sorted, with this admin's columns. The tag
+// filter and the search box work on the page itself (see LIST_SCRIPT in lists-views.js).
+async function showList(env, user, key, url, message) {
+  const { records, tags, names } = await listRecords(env, key);
+  const owners = await adminNames(env);
+  const { cols, custom } = await lists.savedColumns(env, user.id, key);
+  const filters = lists.filtersOf(key, url);
+  let rows = records.filter((r) => lists.matchesAll(r, filters, names));
+  const sort = lists.sortOf(key, url);
+  if (sort) rows = lists.sortRows(rows, sort, names);
+  const msg = message === 'bulk-changed' ? bulkMessage(key, url) : message;
+  const tools = { cols, custom, choices: lists.columnChoices(key), filters, sort, fields: lists.fieldsForScript(key, owners), total: records.length, search: cleanSearch(url) };
+  if (key === 'applicants') {
+    const wufoo = { ...(await wufooState(env)), url: `${url.origin}/api/wufoo/application`, keySet: Boolean(env.WUFOO_HANDSHAKE_KEY) };
+    return page(rv.applicantsPage({ user, records: rows, names, wufoo, tags, tools, message: msg }));
+  }
+  const pageOf = { clients: rv.clientsPage, vas: rv.vasPage, contacts: rv.contactsPage }[key];
+  return page(pageOf({ user, records: rows, names, tags, tools, message: msg }));
+}
+
+// "Change a field" in the bar of a list page: one field set to one value on the ticked records (at most MAX_BULK),
+// with the same checks and the same save as the Edit page (a line in each record's history; VA logins follow once,
+// at the end). Records that already have the value are skipped.
+async function bulkField(env, user, key, field, fieldAll, back) {
+  const go = (q) => redirect(`${back}${back.includes('?') ? '&' : '?'}msg=bulk-changed&${q}`);
+  const ids = [...new Set(fieldAll('ids').map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  const fkey = field('_f');
+  const x = lists.bulkFields(key).find((y) => y.key === fkey);
+  if (!x) return go(`bad=locked&bf=${encodeURIComponent(fkey)}`);
+  const bf = `bf=${encodeURIComponent(x.key)}`;
+  if (!ids.length) return go(`bad=none&${bf}`);
+  if (ids.length > lists.MAX_BULK) return go(`bad=many&${bf}`);
+  const allowed = { owners: x.type === 'owner' ? await adminNames(env) : [] };
+  // The value is checked once, against the field's own choices (not a value one record happens to have).
+  const v = readValue(x, field, fieldAll, {}, allowed);
+  if ((x.type === 'pick' || x.type === 'owner') && field(x.key) && v === null) return go(`bad=choice&${bf}`);
+  if (isBlank(v) && x.key === MODULES[key].statusKey) return go(`bad=need&${bf}`);
+  if (valueProblem(x, v)) return go(`bad=range&${bf}`);
+  const { results } = await env.DB.prepare('SELECT * FROM records WHERE module = ? AND id IN (SELECT value FROM json_each(?))').bind(key, JSON.stringify(ids)).all();
+  const statements = [];
+  let changed = 0;
+  let same = 0;
+  let noEmail = 0;
+  for (const row of results) {
+    const record = { ...row, data: JSON.parse(row.data) };
+    const data = { ...record.data };
+    if (isBlank(v)) delete data[x.key]; else data[x.key] = v;
+    if (nameProblem(key, data)) { same++; continue; }
+    const saved = saveStatements(env, user, key, record, data, record.parent_id, 'Edited (changed on many records at once)');
+    if (!saved.changes.length) { same++; continue; }
+    statements.push(...saved.statements);
+    changed++;
+    if (key === 'vas' && data.VA_Status === 'Active' && !data.Email) noEmail++;
+  }
+  if (changed) {
+    const text = plainValue(x, v) || 'empty';
+    statements.push(env.DB.prepare('INSERT INTO field_log (module, user_id, summary, at) VALUES (?, ?, ?, ?)')
+      .bind(key, user.id, `Changed "${x.label}" to "${text.slice(0, 80)}" on ${changed} ${changed === 1 ? MODULES[key].one : `${MODULES[key].one}s`} at once`, new Date().toISOString()));
+    await env.DB.batch(statements);
+    await vaChanged(env, key);
+  }
+  return go(`${bf}&bn=${changed}&bs=${same}&bg=${ids.length - results.length}${noEmail ? `&be=${noEmail}` : ''}`);
+}
+
+// "Export CSV" on a list page: the records sent (the rows shown on the page, or the ticked ones), in that order, with
+// this admin's columns or every field. Written in the field log (who, which list, how many rows).
+async function exportCsv(env, user, key, field, fieldAll, back) {
+  const ids = [...new Set(fieldAll('ids').map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 5000);
+  if (!ids.length) return redirect(`${back}${back.includes('?') ? '&' : '?'}msg=export-none`);
+  const { records, names } = await listRecords(env, key);
+  const byId = new Map(records.map((r) => [r.id, r]));
+  const rows = ids.map((id) => byId.get(id)).filter(Boolean);
+  const all = field('all') === '1';
+  const cols = all ? lists.allColumns(key) : (await lists.savedColumns(env, user.id, key)).cols;
+  const csv = lists.toCsv([['Name', ...cols.map((c) => c.label)], ...rows.map((r) => [r.name, ...cols.map((c) => lists.csvValue(c, r, names))])]);
+  const day = lists.dayOf(new Date().toISOString());
+  const what = MODULES[key].label.toLowerCase();
+  await env.DB.prepare('INSERT INTO field_log (module, user_id, summary, at) VALUES (?, ?, ?, ?)')
+    .bind(key, user.id, `Exported ${rows.length} ${rows.length === 1 ? MODULES[key].one : what} to a CSV file (${all ? 'all fields' : 'the columns shown'})`, new Date().toISOString()).run();
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${key}-${day}.csv"`,
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+}
+
 // ---- Pages and actions ----
 
 export async function recordRoutes(env, user, path, method, field, fieldAll, form, message, url) {
   let m;
 
-  if (path === '/admin/applicants' && method === 'GET') {
-    const { results } = await env.DB.prepare("SELECT * FROM records WHERE module = 'applicants' ORDER BY created_at DESC").all();
-    const tagIds = await tagsByRecord(env, 'applicants');
-    const records = results.map((r) => ({ ...r, data: JSON.parse(r.data), tagIds: tagIds.get(r.id) || [] }));
-    const wufoo = { ...(await wufooState(env)), url: `${url.origin}/api/wufoo/application`, keySet: Boolean(env.WUFOO_HANDSHAKE_KEY) };
-    return page(rv.applicantsPage({ user, records, wufoo, tags: await loadTags(env), message }));
-  }
-
-  if ((m = path.match(/^\/admin\/(clients|vas)$/)) && method === 'GET') {
-    const key = m[1];
-    const { results } = await env.DB.prepare('SELECT * FROM records WHERE module = ? ORDER BY name COLLATE NOCASE').bind(key).all();
-    const tagIds = await tagsByRecord(env, key);
-    const records = results.map((r) => ({ ...r, data: JSON.parse(r.data), tagIds: tagIds.get(r.id) || [] }));
-    const tags = await loadTags(env);
-    if (key === 'clients') {
-      const names = await recordNames(env);
-      const projects = await projectsByClient(env);
-      return page(rv.clientsPage({ user, records, names, projects, tags, message }));
+  // The list pages, and their tools (columns, CSV export, changing a field on many records).
+  if ((m = path.match(/^\/admin\/(clients|vas|contacts|applicants)$/)) && method === 'GET') return showList(env, user, m[1], url, message);
+  if ((m = path.match(/^\/admin\/(clients|vas|contacts|applicants)\/(columns|export|bulk-field)$/)) && method === 'POST') {
+    const [, key, what] = m;
+    const back = new RegExp(`^/admin/${key}(\\?[^#]*)?$`).test(field('back')) ? field('back') : `/admin/${key}`;
+    if (what === 'columns') {
+      await lists.saveColumns(env, user.id, key, fieldAll('cols'), field('op') === 'reset');
+      return redirect(`${back}${back.includes('?') ? '&' : '?'}msg=columns-saved`);
     }
-    const login = await vaLogins(env);
-    return page(rv.vasPage({ user, records: records.map((r) => ({ ...r, ...login(r) })), tags, message }));
-  }
-
-  // Every contact, with their client.
-  if (path === '/admin/contacts' && method === 'GET') {
-    const { results } = await env.DB.prepare(
-      `SELECT r.*, p.name AS parent_name FROM records r LEFT JOIN records p ON p.id = r.parent_id AND p.module = 'clients'
-       WHERE r.module = 'contacts' ORDER BY r.name COLLATE NOCASE`
-    ).all();
-    return page(rv.contactsPage({ user, records: results.map((r) => ({ ...r, data: JSON.parse(r.data) })), message }));
+    if (what === 'export') return exportCsv(env, user, key, field, fieldAll, back);
+    return bulkField(env, user, key, field, fieldAll, back);
   }
 
   // A new record: the empty form, then saving it.

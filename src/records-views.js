@@ -1,12 +1,14 @@
 // The pages for clients, client contacts, VAs and applicants kept in the app (see records.js).
 
 import { esc } from './util.js';
-import { formatDate, REPORT_ZONE } from './time.js';
+import { formatDate } from './time.js';
 import { MODULES, allFields, plainValue, STEPS, CLOSED, OFFER_ITEMS, RESUME_INVITE, resumeScore, callScore } from './fields.js';
 import { layout, icon, avatar, chip, section, empty, zohoTime, mailLink, phoneLink, loginResult, loginText, lastLoginText, loginButtons, checkedInfo } from './views.js';
 import { applicantTrainingRows } from './training-views.js';
 import { emailsSection } from './email-views.js';
-import { tagChips, tagIndex, recordTagsRow, tagPicker, PICKER_SCRIPT, listTools, bulkBar, LIST_SCRIPT } from './tags-views.js';
+import { tagChips, recordTagsRow, tagPicker, PICKER_SCRIPT } from './tags-views.js';
+import { listHead, listTools, bulkBar, listFields, LIST_SCRIPT } from './lists-views.js';
+import { cellValue } from './lists.js';
 
 const TONE = { Current: 'good', Active: 'good', Paused: 'warn', 'On Deck': 'info', Offboarded: 'muted', 'n/a': 'muted', Hired: 'good', Declined: 'muted', Ghosted: 'muted' };
 const tone = (status) => TONE[status] || (STEPS.includes(status) ? 'info' : 'muted');
@@ -22,78 +24,83 @@ const linkTo = (key, id, name) => `<a href="/admin/${key}/${esc(id)}">${esc(name
 const recordRow = (key, r, sub, side = '') => `<a class="item flat pick" href="/admin/${key}/${esc(r.id)}"><div class="item-head">${avatar(r.name)}
   <div class="grow"><div class="title">${esc(r.name)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${side}${icon('chevron', 'chev')}</div></a>`;
 
-// A row on the VAs, Hiring and Clients pages: a tick box (for the bulk bar), then the record's link, with its tags.
-// data-tags is read by the tag filter (LIST_SCRIPT in tags-views.js).
-const selRow = (key, r, sub, side, byId) => {
-  const tags = (r.tagIds || []).map((id) => byId.get(id)).filter(Boolean).sort((a, b) => a.i - b.i);
-  return `<div class="item flat sel-item" data-tags="${esc((r.tagIds || []).join(','))}"><label class="sel"><input type="checkbox" class="sel-box" value="${esc(r.id)}" aria-label="Select ${esc(r.name)}"></label>
-  <a class="item-head" href="/admin/${key}/${esc(r.id)}">${avatar(r.name)}<div class="grow"><div class="title">${esc(r.name)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}${tags.length ? `<div class="chips row-tags">${tagChips(tags)}</div>` : ''}</div>${side}${icon('chevron', 'chev')}</a></div>`;
-};
+// A column's value in a list row (see lists.js): status as a chip, tags as chips, a contact's client as a link.
+function cellHtml(key, c, r) {
+  if (c.key === '_tags') return r.tagList?.length ? `<span class="chips">${tagChips(r.tagList)}</span>` : '';
+  if (c.key === '_scores') return `<span class="chips">${scoreChips(r.data, r.status)}</span>`;
+  if (c.key === '_client') return r.parent_name ? `<a href="/admin/clients/${esc(r.parent_id)}">${esc(r.parent_name)}</a>` : '';
+  if (c.key === '_created' || c.key === '_updated') { const v = cellValue(c, r); return v ? esc(formatDate(v, true).replace(/^\w+, /, '')) : ''; }
+  if (c.key === MODULES[key].statusKey) return chip(r.status === 'n/a' ? 'No status' : r.status, tone(r.status));
+  const v = cellValue(c, r);
+  if (isEmpty(v)) return '';
+  if (c.type === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return esc(formatDate(v, true).replace(/^\w+, /, ''));
+  const text = plainValue(c.x, v, c.names);
+  return esc(text.length > 90 ? `${text.slice(0, 90)}…` : text);
+}
 
-// A list page (Clients, VAs, Contacts): records in groups by status, a search box and, when the records have tags,
-// the tag filter, tick boxes and bulk bar. `first`: a group shown above the status groups (Contacts: "No client").
-function listPage({ user, key, title, active, lead, records, statuses, rowOf, searchHint, tags, message, first = null }) {
-  const rest = first ? records.filter((r) => !first.rows.includes(r)) : records;
-  const by = (s) => rest.filter((r) => r.status === s);
-  const others = rest.filter((r) => !statuses.includes(r.status));
-  const list = (label, rows, open) => (rows.length ? section({ title: label, count: rows.length, open, key: `${key}-${label}`, body: rows.map(rowOf).join('') }) : '');
-  const closed = ['Offboarded', 'n/a'];
+// A row on a list page: a tick box (for the bar at the bottom), the record's name (a link over the whole row) and the
+// chosen columns. data-tags is read by the tag filter (LIST_SCRIPT in lists-views.js).
+const listRow = (key, r, cols) => `<div class="item flat sel-item lrow" data-tags="${esc((r.tagIds || []).join(','))}"><label class="sel"><input type="checkbox" class="sel-box" value="${esc(r.id)}" aria-label="Select ${esc(r.name)}"></label>
+  <a class="lr-name" href="/admin/${key}/${esc(r.id)}">${avatar(r.name)}<span class="title">${esc(r.name)}</span></a>${cols.map((c, i) => `<div class="lr-cell${i < 2 ? ' lr-top' : ''}">${cellHtml(key, c, r)}</div>`).join('')}</div>`;
+
+// A list page (Clients, Contacts, VAs, Hiring): records in groups (by status), with this admin's columns (click a
+// heading to sort), a search box, the Filter box, Columns, Export CSV, the tag filter (when the records have tags),
+// tick boxes and the bar for ticked records. groups: [label, rows, open]. Group counts are the records that match
+// the filters (the page's script lowers them while the tag filter or the search box is used).
+function listPage({ user, key, title, active, lead, records, groups, summary, searchHint, tags, tools, names, message, after = '' }) {
+  const cols = tools.cols.map((c) => ({ ...c, names }));
+  const sections = groups.filter(([, rows]) => rows.length).map(([label, rows, open]) =>
+    section({ title: label, count: rows.length, open, key: `${key}-${label}`, body: rows.map((r) => listRow(key, r, cols)).join('') })).join('');
+  const searchIcon = { clients: 'building', vas: 'va', contacts: 'people', applicants: 'applicant' }[key];
   return layout({
     title, user, active, message,
     body: `<p class="lead">${lead}</p>
     <div class="actions" style="margin:0 0 14px"><a class="btn sm" href="/admin/${key}/new">${icon('plus')} New ${MODULES[key].one}</a></div>
-    ${records.length ? `<div class="summary-chips">${statuses.filter((s) => by(s).length).map((s) => chip(`${by(s).length} ${s === 'n/a' ? 'no status' : s.toLowerCase()}`, tone(s))).join('')}</div>
-    <label class="search" for="find-${key}">${icon('building')}<input id="find-${key}" type="search" placeholder="${esc(searchHint)}" autocomplete="off" data-filter="#${key}-list .item" data-empty="#${key}-none"></label>
-    ${tags ? listTools(key, tags) : ''}
-    <div id="${key}-list" data-list data-search="find-${key}">${first ? list(first.label, first.rows, true) : ''}${statuses.map((s) => list(s === 'n/a' ? 'No status' : s, by(s), !closed.includes(s))).join('')}${list('Other', others, false)}</div>
-    <div class="empty no-results" id="${key}-none">Nothing matches.</div>${tags ? bulkBar(key, tags) : ''}<script>${LIST_SCRIPT}</script>` : ''}`,
+    ${tools.total ? `<div class="summary-chips">${summary}</div>
+    <label class="search" for="find-${key}">${icon(searchIcon)}<input id="find-${key}" type="search" placeholder="${esc(searchHint)}" autocomplete="off" data-filter="#${key}-list .item" data-empty="#${key}-none"></label>
+    ${listTools(key, tags, tools)}
+    <div class="lwrap" style="--n:${cols.length}">${listHead(key, tools)}
+    <div id="${key}-list" data-list data-search="find-${key}">${sections}</div></div>
+    <div class="empty no-results" id="${key}-none"${records.length ? '' : ' style="display:block"'}>Nothing matches.</div>${bulkBar(key, tags)}${listFields(tools.fields)}<script>${LIST_SCRIPT}</script>` : ''}
+    ${after}`,
   });
 }
 
-export function clientsPage({ user, records, names, projects, tags, message }) {
-  const byId = tagIndex(tags);
+// Groups by status, in the module's order; records with another status last, under Other.
+function statusGroups(records, statuses, closed = ['Offboarded', 'n/a']) {
+  const by = (s) => records.filter((r) => r.status === s);
+  return [...statuses.map((s) => [s === 'n/a' ? 'No status' : s, by(s), !closed.includes(s)]), ['Other', records.filter((r) => !statuses.includes(r.status)), false]];
+}
+const statusChips = (records, statuses) => statuses.map((s) => [s, records.filter((r) => r.status === s).length]).filter(([, n]) => n)
+  .map(([s, n]) => chip(`${n} ${s === 'n/a' ? 'no status' : s.toLowerCase()}`, tone(s))).join('');
+
+export function clientsPage({ user, records, names, tags, tools, message }) {
+  const statuses = MODULES.clients.statuses;
   return listPage({
-    user, key: 'clients', title: 'Clients', active: '/admin/clients', message, records, tags,
+    user, key: 'clients', title: 'Clients', active: '/admin/clients', message, records, tags, tools, names,
     lead: 'Every client, with contacts, notes and files. Click a client to see or change it.',
-    statuses: MODULES.clients.statuses, searchHint: 'Search clients, emails or places',
-    rowOf: (r) => {
-      const d = r.data;
-      const vas = (projects.get(r.id) || []).filter((p) => !p.is_coverage).map((p) => p.vas).filter(Boolean);
-      const sub = [names.get(d.Contact), d.Package_Hours && `${d.Package_Hours} hours`, [d.Shift, d.Timezone].filter(Boolean).join(' '), vas.length && `VA: ${vas.join(', ')}`]
-        .filter(Boolean).map(esc).join(' · ');
-      return selRow('clients', r, sub, chip(r.status, tone(r.status)), byId);
-    },
+    groups: statusGroups(records, statuses), summary: statusChips(records, statuses), searchHint: 'Search clients, emails or places',
   });
 }
 
-export function vasPage({ user, records, tags, message }) {
-  const byId = tagIndex(tags);
+export function vasPage({ user, records, names, tags, tools, message }) {
+  const statuses = MODULES.vas.statuses;
   return listPage({
-    user, key: 'vas', title: 'VAs', active: '/admin/vas', message, records, tags,
+    user, key: 'vas', title: 'VAs', active: '/admin/vas', message, records, tags, tools, names,
     lead: 'Every VA, with contact details, pay notes, scores, notes and files. Active VAs can log in and check in. Click a VA to see or change them; changes count right away.',
-    statuses: MODULES.vas.statuses, searchHint: 'Search VAs, emails or places',
-    rowOf: (r) => {
-      const d = r.data;
-      const clients = [...new Set(r.projects.filter((p) => !p.is_coverage).map((p) => p.client))];
-      const sub = [clients.length && clients.join(', '), d.Time_Zone, d.Availability].filter(Boolean).map(esc).join(' · ');
-      return selRow('vas', r, sub, chip(r.status === 'n/a' ? 'No status' : r.status, tone(r.status)), byId);
-    },
+    groups: statusGroups(records, statuses), summary: statusChips(records, statuses), searchHint: 'Search VAs, emails or places',
   });
 }
 
-// Every contact, with their client (a link of its own), title, email and phone. Contacts with no client come first.
-export function contactsPage({ user, records, message }) {
+// Every contact, with their client. Contacts with no client come first.
+export function contactsPage({ user, records, names, tools, message }) {
+  const statuses = ['Current', 'Offboarded'];
+  const noClient = records.filter((r) => !r.parent_name);
+  const rest = records.filter((r) => r.parent_name);
   return listPage({
-    user, key: 'contacts', title: 'Contacts', active: '/admin/contacts', message, records, tags: null,
+    user, key: 'contacts', title: 'Contacts', active: '/admin/contacts', message, records, tags: null, tools, names,
     lead: "Every client contact. Click a contact to see or change them, or their client's name to open the client.",
-    statuses: ['Current', 'Offboarded'], searchHint: 'Search contacts or clients',
-    first: { label: 'No client', rows: records.filter((r) => !r.parent_name) },
-    rowOf: (r) => {
-      const d = r.data;
-      const sub = [d.Title, d.Email, d.Phone].filter(Boolean).map(esc).join(' · ');
-      return `<div class="item flat sel-item contact-row"><a class="item-head" href="/admin/contacts/${esc(r.id)}">${avatar(r.name)}<div class="grow"><div class="title">${esc(r.name)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${r.status === 'Offboarded' ? chip('Offboarded', 'muted') : ''}</a>
-        ${r.parent_name ? `<a class="contact-client" href="/admin/clients/${esc(r.parent_id)}">${icon('building')}<span>${esc(r.parent_name)}</span></a>` : ''}</div>`;
-    },
+    groups: [['No client', noClient, true], ...statusGroups(rest, statuses)], summary: statusChips(records, statuses), searchHint: 'Search contacts or clients',
   });
 }
 
@@ -682,9 +689,6 @@ export function editPage({ user, key, record, choices, owners, clients, error, m
 
 // ---- Hiring: the list of applicants ----
 
-const appliedOn = (iso) => (iso ? new Date(iso.includes('T') ? iso : `${iso.replace(' ', 'T')}Z`)
-  .toLocaleDateString('en-US', { timeZone: REPORT_ZONE, month: 'short', day: 'numeric', year: 'numeric' }) : '');
-
 // The Wufoo box on the Applicants page: where Wufoo sends new applications, and what arrived last.
 function wufooBox(w) {
   if (!w) return '';
@@ -715,26 +719,15 @@ function wufooBox(w) {
     count: w.keySet ? undefined : 'not set up', body: `<div style="padding:0 8px 8px">${lines.join('')}</div>` });
 }
 
-export function applicantsPage({ user, records, wufoo, tags, message }) {
-  const byId = tagIndex(tags);
+export function applicantsPage({ user, records, names, wufoo, tags, tools, message }) {
   const by = (s) => records.filter((r) => r.status === s);
-  const others = records.filter((r) => !STEPS.includes(r.status) && !CLOSED.includes(r.status));
-  const row = (r) => {
-    const d = r.data;
-    const sub = [d.Email, [d.Location, d.Time_zone].filter(Boolean).join(', '), `Applied ${appliedOn(r.created_at)}`].filter(Boolean).map(esc).join(' · ');
-    return selRow('applicants', r, sub, `<span class="chips side-chips">${scoreChips(d, r.status)}</span>`, byId);
-  };
-  const list = (label, rows, open) => (rows.length ? section({ title: label, count: rows.length, open, key: `applicants-${label}`, body: rows.map(row).join('') }) : '');
   const open = records.filter((r) => STEPS.includes(r.status) && r.status !== 'Hired').length;
-  return layout({
-    title: 'Hiring', user, active: '/admin/applicants', message,
-    body: `<p class="lead">Everyone who applied, by hiring step. Click an applicant to see their details, scores and notes, and to move them to the next step.</p>
-    <div class="actions" style="margin:0 0 14px"><a class="btn sm" href="/admin/applicants/new">${icon('plus')} New applicant</a></div>
-    ${records.length ? `<div class="summary-chips">${chip(`${open} in progress`, 'info')}${chip(`${by('Hired').length} hired`, 'good')}${CLOSED.map((s) => chip(`${by(s).length} ${s.toLowerCase()}`, 'muted')).join('')}</div>
-    <label class="search" for="find-applicants">${icon('applicant')}<input id="find-applicants" type="search" placeholder="Search applicants, emails or places" autocomplete="off" data-filter="#applicants-list .item" data-empty="#applicants-none"></label>
-    ${listTools('applicants', tags)}
-    <div id="applicants-list" data-list data-search="find-applicants">${STEPS.map((s) => list(s, by(s), s !== 'Hired')).join('')}${CLOSED.map((s) => list(s, by(s), false)).join('')}${list('Other', others, false)}</div>
-    <div class="empty no-results" id="applicants-none">Nothing matches.</div>${bulkBar('applicants', tags)}<script>${LIST_SCRIPT}</script>` : ''}
-    ${wufooBox(wufoo)}`,
+  return listPage({
+    user, key: 'applicants', title: 'Hiring', active: '/admin/applicants', message, records, tags, tools, names,
+    lead: 'Everyone who applied, by hiring step. Click an applicant to see their details, scores and notes, and to move them to the next step.',
+    groups: [...STEPS.map((s) => [s, by(s), s !== 'Hired']), ...CLOSED.map((s) => [s, by(s), false]),
+      ['Other', records.filter((r) => !STEPS.includes(r.status) && !CLOSED.includes(r.status)), false]],
+    summary: `${chip(`${open} in progress`, 'info')}${chip(`${by('Hired').length} hired`, 'good')}${CLOSED.map((s) => chip(`${by(s).length} ${s.toLowerCase()}`, 'muted')).join('')}`,
+    searchHint: 'Search applicants, emails or places', after: wufooBox(wufoo),
   });
 }

@@ -193,95 +193,26 @@ export const PICKER_SCRIPT = `(function () {
   });
 })();`;
 
-// ---- List pages: tag filter and tick boxes ----
+// ---- List pages: the tag filter and the tag buttons in the bar for ticked records (see lists-views.js) ----
 
-// The tag filter and "Select all shown" above a list. The filter is kept in the address (?tags=1,2&match=all&q=...).
-export function listTools(key, all) {
+// The tag filter above a list. It is kept in the address (?tags=1,2&match=all).
+export function tagFilter(key, all) {
   const groups = grouped(all, key).filter((g) => g.tags.length);
-  const filter = groups.length ? `<details class="tag-filter"><summary class="btn sm plain">${icon('tag')} <span class="tf-label">Filter by tag</span></summary>
+  if (!groups.length) return '';
+  return `<details class="tag-filter lt-pop"><summary class="btn sm plain">${icon('tag')} <span class="tf-label">Filter by tag</span></summary>
     <div class="tf-box">
       <div class="tf-mode" role="radiogroup" aria-label="How to match tags"><label class="check"><input type="radio" name="tf-match-${key}" value="any" checked> Has any of them</label>
         <label class="check"><input type="radio" name="tf-match-${key}" value="all"> Has all of them</label></div>
       ${groups.map((g) => `<fieldset class="tp-group"><legend>${esc(g.folder.name)}</legend>${g.tags.map((t) =>
         `<label class="tp-tag"><input type="checkbox" class="tf-tag" value="${t.id}"> ${tagChip(t)}</label>`).join('')}</fieldset>`).join('')}
-      <div class="actions"><button type="button" class="sm plain tf-clear">Clear the tag filter</button></div></div></details>` : '';
-  return `<div class="list-tools">${filter}<button type="button" class="sm plain sel-all">${icon('check')} Select all shown</button></div>`;
+      <div class="actions"><button type="button" class="sm plain tf-clear">Clear the tag filter</button></div></div></details>`;
 }
 
-// The bar at the bottom that appears when records are ticked: what can be done with them. Step 5 adds more actions
-// here (each is a button with name="op" in this form, sent to its own address with formaction).
-export function bulkBar(key, all) {
+// Adding or removing a tag on the ticked records (sent to /admin/tags/bulk, the bar's own address).
+export function tagBulk(key, all) {
   const tags = grouped(all, key).filter((g) => g.tags.length);
   const options = tags.map((g) => `<optgroup label="${esc(g.folder.name)}">${g.tags.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</optgroup>`).join('');
-  return `<form method="post" action="/admin/tags/bulk" class="bulk-bar" id="bulk-bar" hidden>
-    <input type="hidden" name="module" value="${key}"><input type="hidden" name="back" value="/admin/${key}">
-    <span class="bulk-count" role="status">0 selected</span>
-    ${options ? `<select name="tag" aria-label="Tag" required>${options}</select>
-    <button class="sm" name="op" value="add">${icon('plus')} Add tag</button><button class="sm plain" name="op" value="remove">Remove tag</button>`
-    : '<span class="small">Add tags on Settings &gt; Tags first.</span>'}
-    <button type="button" class="sm plain bulk-clear">Clear</button></form>`;
+  return options ? `<span class="bulk-tags"><select name="tag" aria-label="Tag">${options}</select>
+    <button class="sm" name="op" value="add">${icon('plus')} Add tag</button><button class="sm plain" name="op" value="remove">Remove tag</button></span>`
+    : '<span class="small">Add tags on Settings &gt; Tags first.</span>';
 }
-
-// Tag filter (together with the search box), tick boxes and the bulk bar on a list page with [data-list].
-export const LIST_SCRIPT = `document.addEventListener('DOMContentLoaded', function () {
-  var list = document.querySelector('[data-list]');
-  if (!list) return;
-  var search = document.getElementById(list.dataset.search), bar = document.getElementById('bulk-bar');
-  var params = new URLSearchParams(location.search);
-  var chosen = (params.get('tags') || '').split(',').filter(Boolean), mode = params.get('match') === 'all' ? 'all' : 'any';
-  var boxes = document.querySelectorAll('.tf-tag'), label = document.querySelector('.tf-label');
-  boxes.forEach(function (b) { b.checked = chosen.indexOf(b.value) !== -1; });
-  chosen = chosen.filter(function (id) { return document.querySelector('.tf-tag[value="' + id + '"]'); });
-  document.querySelectorAll('.tf-mode input').forEach(function (r) { r.checked = r.value === mode; });
-  if (search && params.get('q')) search.value = params.get('q');
-  function rows() { return list.querySelectorAll('.sel-item'); }
-  function shown(r) { return r.offsetParent !== null; }
-  function remember() {
-    var u = new URL(location.href);
-    if (chosen.length) u.searchParams.set('tags', chosen.join(',')); else u.searchParams.delete('tags');
-    if (chosen.length > 1 && mode === 'all') u.searchParams.set('match', 'all'); else u.searchParams.delete('match');
-    if (search && search.value.trim()) u.searchParams.set('q', search.value.trim()); else u.searchParams.delete('q');
-    history.replaceState(history.state, '', u.pathname + u.search.replace(/%2C/g, ',') + u.hash);
-  }
-  function apply() {
-    rows().forEach(function (r) {
-      var has = (r.dataset.tags || '').split(',');
-      var ok = !chosen.length || (mode === 'all' ? chosen.every(function (t) { return has.indexOf(t) !== -1; }) : chosen.some(function (t) { return has.indexOf(t) !== -1; }));
-      if (ok) r.removeAttribute('data-out'); else r.setAttribute('data-out', '');
-    });
-    if (label) label.textContent = chosen.length ? 'Tags: ' + chosen.length + ' chosen' : 'Filter by tag';
-    var d = document.querySelector('.tag-filter'); if (d) d.classList.toggle('on', chosen.length > 0);
-    if (search) search.dispatchEvent(new Event('input'));
-    remember(); count();
-  }
-  function count() {
-    if (!bar) return;
-    var n = 0;
-    rows().forEach(function (r) { if (r.querySelector('.sel-box').checked && shown(r)) n++; });
-    bar.hidden = !n; bar.querySelector('.bulk-count').textContent = n + ' selected';
-    document.body.classList.toggle('bulk-on', n > 0);
-  }
-  boxes.forEach(function (b) { b.addEventListener('change', function () {
-    chosen = Array.prototype.filter.call(boxes, function (x) { return x.checked; }).map(function (x) { return x.value; }); apply();
-  }); });
-  document.querySelectorAll('.tf-mode input').forEach(function (r) { r.addEventListener('change', function () { mode = r.value; apply(); }); });
-  var clear = document.querySelector('.tf-clear');
-  if (clear) clear.addEventListener('click', function () { boxes.forEach(function (b) { b.checked = false; }); chosen = []; apply(); });
-  if (search) search.addEventListener('input', function (e) { if (e.isTrusted) { remember(); count(); } });
-  list.addEventListener('change', function (e) { if (e.target.classList.contains('sel-box')) count(); });
-  list.addEventListener('toggle', count, true);
-  var all = document.querySelector('.sel-all');
-  if (all) all.addEventListener('click', function () { rows().forEach(function (r) { if (shown(r)) r.querySelector('.sel-box').checked = true; }); count(); });
-  if (bar) {
-    bar.querySelector('.bulk-clear').addEventListener('click', function () { rows().forEach(function (r) { r.querySelector('.sel-box').checked = false; }); count(); });
-    bar.addEventListener('submit', function () {
-      bar.querySelectorAll('input[name=ids]').forEach(function (i) { i.remove(); });
-      rows().forEach(function (r) {
-        var b = r.querySelector('.sel-box');
-        if (b.checked && shown(r)) { var i = document.createElement('input'); i.type = 'hidden'; i.name = 'ids'; i.value = b.value; bar.appendChild(i); }
-      });
-      bar.querySelector('[name=back]').value = location.pathname + location.search;
-    });
-  }
-  apply();
-});`;

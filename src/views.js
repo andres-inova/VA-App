@@ -66,6 +66,8 @@ const MESSAGES = {
   'tags-removed': ['good', 'Tag removed from the ticked records.'],
   'tags-none-selected': ['bad', 'Please tick at least one record first.'],
   'tag-missing': ['bad', 'That tag is not there any more.'],
+  'columns-saved': ['good', 'Columns saved. They are saved for you only.'],
+  'export-none': ['bad', 'Nothing to export: no rows are shown.'],
   'tag-not-allowed': ['bad', "That tag can't be used on this kind of record. Change that on Settings > Tags."],
   'note-added': ['good', 'Note added.'],
   'note-saved': ['good', 'Note saved.'],
@@ -156,6 +158,7 @@ const ICON_PATHS = {
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   doc: '<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h8"/>',
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
+  download: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 16v4h16v-4"/>',
   building: '<path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M16 9h2a2 2 0 0 1 2 2v10M2 21h20M8 7h4M8 11h4M8 15h4"/>',
   va: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="M8 4.5a6 6 0 0 1 8 0"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
@@ -406,6 +409,18 @@ body.tp-open{overflow:hidden}
 .row-tags{margin:4px 0 0}.row-tags .chip{font-size:12px;padding:2px 8px;white-space:normal}
 .bulk-bar{position:sticky;bottom:12px;z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:var(--surface);border-radius:var(--radius);box-shadow:0 4px 18px rgba(17,27,33,.18);padding:10px 14px;margin:12px 0}
 .bulk-bar[hidden]{display:none}.bulk-bar button{margin:0}.bulk-bar select{width:auto;max-width:100%;flex:1 1 140px}.bulk-count{font-weight:800}
+.bulk-tags{display:contents}.bf>summary,.lt-pop>summary{list-style:none}.bf>summary::-webkit-details-marker,.lt-pop>summary::-webkit-details-marker{display:none}
+.bf[open]{flex:1 1 100%;order:5;min-width:0}.bulk-bar select{min-width:0}.bf-box .bf-field{flex:1 1 100%;width:100%}.bf-box{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 0 0}.bf-box input:not([type=checkbox]){width:auto;flex:1 1 140px;margin:0}.bf-multi .check{min-height:40px;margin:0}.bf-val{display:contents}.bf-multi{display:flex;flex-wrap:wrap;gap:0 12px;flex:1 1 100%}.bf-note{flex:1 1 100%;margin:0}
+.lt-pop[open]{flex:1 1 100%}.lt-pop.on>summary{background:var(--accent);color:var(--accent-ink)}.lt-picks{display:flex;flex-wrap:wrap;gap:0 16px}.lt-picks .check{min-height:40px;margin:0}
+.ff-row{border-top:1px solid var(--line);padding:8px 0}.ff-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.ff-head select{width:auto;flex:1 1 140px;margin:0}.ff-head button{margin:0}
+.ff-vals{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-top:6px}.ff-vals:empty{display:none}.ff-vals input[type=text],.ff-vals input[type=number],.ff-vals input[type=date]{width:auto;flex:1 1 120px;margin:0}.ff-vals .check{min-height:40px;margin:0}
+.lwrap{overflow-x:auto}.lwrap .section{min-width:min-content}.lrow{display:grid;grid-template-columns:44px minmax(150px,1.6fr) repeat(var(--n),minmax(80px,1fr));min-width:calc(194px + var(--n)*80px + (var(--n) + 1)*10px);align-items:center;column-gap:10px;position:relative}
+.lrow>.lr-name{display:flex;align-items:center;gap:10px;min-width:0;padding:8px 0;color:inherit;text-decoration:none;font-weight:700}.lrow>.lr-name::after{content:"";position:absolute;inset:0;border-radius:12px}
+.lrow:hover{background:var(--surface-2);border-radius:12px}.lrow .sel,.lrow .lr-cell a{position:relative;z-index:1}.lr-cell{min-width:0;font-size:14px;color:var(--muted);overflow-wrap:anywhere;padding:6px 0}.lr-cell .chip{margin:0}.lr-cell .chips{margin:0}
+.lhead{font-size:13px;font-weight:700;padding:0 0 4px;margin:0 18px}.lhead .lh{color:var(--muted);text-decoration:none;padding:6px 0;min-height:32px;display:flex;align-items:center}.lhead .lh.on{color:var(--text)}.lh-sort{visibility:hidden}
+.sec-body>.lrow{margin:0 8px}
+@media (max-width:600px){.lwrap{overflow:visible}.lwrap .section{min-width:0}.lrow{grid-template-columns:44px minmax(0,1fr);min-width:0;column-gap:4px}.lr-cell{grid-column:2;padding:0 0 4px}.lr-cell:not(.lr-top),.lr-top:empty{display:none}.lrow>.lr-name{padding-bottom:4px}
+  .lhead{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0 0 6px}.lhead .lh:nth-of-type(n+4){display:none}.lh-sort{visibility:visible;align-self:center}}
 @media (max-width:600px){.tag-picker{padding:0}.tp-box{max-width:none;max-height:none;height:100%;border-radius:0}.bulk-bar{bottom:76px}}
 .rec-head{display:flex;gap:14px;align-items:center}.rec-actions .btn{max-width:100%;overflow-wrap:anywhere}.rec-head h2{margin:0;font-size:22px}.rec-head .chips{margin:4px 0 0}
 .record-form .section,#offer,#step,#notes,#files{scroll-margin-top:80px}.steps .chip{font-weight:600}.step-count{display:none}@media (max-width:600px){.steps{display:none}.step-count{display:block}
@@ -580,7 +595,8 @@ const SCRIPT = `<script type="speculationrules">{"prefetch":[{"where":{"href_mat
 </script>`;
 
 export function layout({ title, user, active, message, body }) {
-  const msg = MESSAGES[message];
+  // A message is a name from MESSAGES, or [tone, text] made by the page (for example "changed 5 records").
+  const msg = Array.isArray(message) ? message : MESSAGES[message];
   const toast = msg ? `<div class="toast ${msg[0]}" role="status">${msg[0] === 'good' ? icon('check') : ''}${esc(msg[1])}</div>` : '';
   const head = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#008069"><link rel="manifest" href="/manifest.webmanifest">

@@ -158,6 +158,7 @@ const ICON_PATHS = {
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
   building: '<path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M16 9h2a2 2 0 0 1 2 2v10M2 21h20M8 7h4M8 11h4M8 15h4"/>',
   va: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="M8 4.5a6 6 0 0 1 8 0"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
   tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   note: '<path d="M4 4h16v12l-4 4H4z"/><path d="M16 20v-4h4M8 9h8M8 13h5"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>',
@@ -311,6 +312,12 @@ input::-webkit-date-and-time-value{text-align:left}
 .auth{min-height:100vh;display:grid;place-items:center;padding:16px}.auth .card{width:100%;max-width:420px;padding:28px}
 .auth .logo{width:52px;height:52px;font-size:20px;margin-bottom:10px}
 .tabbar{display:none}
+.side-search{flex:none;display:flex;align-items:center;gap:8px;background:var(--side-hover);border-radius:10px;padding:0 10px;margin:0 0 6px;color:var(--side-muted)}
+.side-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--side-ink);font:inherit;padding:9px 0;outline:none}.side-search input::placeholder{color:var(--side-muted)}
+.side-search:focus-within{box-shadow:0 0 0 2px var(--accent)}
+kbd{font-size:12px;line-height:1;font-family:inherit;border:1px solid currentColor;border-radius:5px;padding:2px 6px;opacity:.8}
+.top-search{display:none;color:#fff}
+.page-search input{flex:1;min-width:0}.page-search button{margin:0}
 .scrim{display:none}#nav-toggle{display:none}
 /* Page changes: the content fades and slides slightly while the menu and bars stay still. */
 @view-transition{navigation:auto}
@@ -333,7 +340,7 @@ button.busy::after{content:"";width:14px;height:14px;border-radius:50%;border:2p
 .toast{transition:opacity .4s,transform .4s,max-height .4s,margin .4s,padding .4s;max-height:200px;overflow:hidden}
 .toast.hide{opacity:0;transform:translateY(-6px);max-height:0;margin:0;padding-top:0;padding-bottom:0}
 .search{display:flex;align-items:center;gap:8px;background:var(--surface);border-radius:99px;box-shadow:var(--shadow);padding:4px 16px;margin-bottom:16px}
-.search input{border:0;box-shadow:none;background:transparent;padding:10px 0}.search input:focus{box-shadow:none}
+.search input{flex:1;min-width:0;border:0;box-shadow:none;background:transparent;padding:10px 0}.search input:focus{box-shadow:none}
 .no-results{display:none}
 .timerbar{display:flex;align-items:center;gap:10px;background:var(--accent-soft);color:var(--text);border-radius:14px;padding:8px 10px 8px 14px;margin-bottom:16px;box-shadow:var(--shadow);text-decoration:none}
 .timerbar a{color:inherit;text-decoration:none}.timerbar form{margin:0}.timerbar button{margin:0}
@@ -393,6 +400,7 @@ body.tp-open{overflow:hidden}
 .list-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;margin:-6px 0 12px}.list-tools button,.list-tools .btn{margin:0}
 .tag-filter>summary{list-style:none}.tag-filter>summary::-webkit-details-marker{display:none}.tag-filter.on>summary{background:var(--accent);color:var(--accent-ink)}
 .tag-filter[open]{flex:1 1 100%}.tf-box{background:var(--surface);border-radius:14px;box-shadow:var(--shadow);padding:6px 14px 12px;margin-top:8px}.tf-mode{display:flex;flex-wrap:wrap;gap:4px 16px;margin-bottom:8px}.tf-mode .check{min-height:44px;margin:0}
+.contact-row>a.item-head{padding-left:8px}.contact-client{flex:0 1 auto;max-width:42%;display:inline-flex;align-items:center;gap:6px;padding:10px 8px;border-radius:10px;font-weight:600;font-size:14px;overflow-wrap:anywhere;text-decoration:none}.contact-client:hover{background:var(--surface-2)}.contact-client .ic{width:16px;height:16px}.contact-row>.chip{margin:0 8px}
 .sel-item{display:flex;align-items:center}.sel-item[hidden]{display:none}.sel-item>a.item-head{flex:1;min-width:0;color:inherit;text-decoration:none;border-radius:12px;cursor:pointer;padding-left:0}.sel-item>a.item-head:hover{background:var(--surface-2)}
 .sel{display:flex;align-items:center;justify-content:center;width:44px;min-height:44px;flex:none;cursor:pointer;margin:0}.sel input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 .row-tags{margin:4px 0 0}.row-tags .chip{font-size:12px;padding:2px 8px;white-space:normal}
@@ -436,6 +444,7 @@ body.tp-open{overflow:hidden}
   .save-bar{bottom:calc(78px + env(safe-area-inset-bottom))}
   .item.stack>.item-head{flex-wrap:wrap;row-gap:8px}.item.stack>.item-head>.grow{flex:1 1 100%}.item.stack>.item-head>.grow+*{margin-left:auto}
   .sec-title{min-width:0;hyphens:auto;-webkit-hyphens:auto;overflow-wrap:break-word}
+  .top-search{display:inline-flex;padding:4px}.side-search kbd{display:none}
   .tabbar{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:10;background:var(--surface);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
   .tabbar a,.tabbar label{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;font-weight:700;color:var(--muted);text-decoration:none;position:relative;cursor:pointer;margin:0}
   .tabbar .on{color:var(--brand)}.tabbar .badge{position:absolute;top:-4px;left:52%;font-size:10px;padding:0 6px}
@@ -555,6 +564,15 @@ const SCRIPT = `<script type="speculationrules">{"prefetch":[{"where":{"href_mat
   if (toggle) document.querySelectorAll('.sidebar a').forEach(function (a) {
     a.addEventListener('click', function () { toggle.checked = false; });
   });
+  // "/" jumps to the search box (admins, not while typing in a field).
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+    var t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    var box = document.getElementById('page-search') || (window.matchMedia('(max-width:860px)').matches ? null : document.querySelector('.side-search input'));
+    if (!box) return;
+    e.preventDefault(); box.focus(); if (box.select) box.select();
+  });
   // Short window: scroll the menu so the current page's link is in view.
   var sideNav = document.querySelector('.side-nav'), sideOn = sideNav && sideNav.querySelector('.on');
   if (sideOn && sideOn.offsetTop + sideOn.offsetHeight > sideNav.clientHeight) sideNav.scrollTop = sideOn.offsetTop - 8;
@@ -586,12 +604,13 @@ export function layout({ title, user, active, message, body }) {
   if (user.is_admin) {
     groups.push(['Daily', [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/calendar', 'Calendar', 'calendar']]]);
     groups.push(['Team', [['/admin/vas', 'VAs', 'va'], ['/admin/training', 'Training', 'training'], ['/admin/applicants', 'Applicants', 'applicant'], ['/admin/people', 'People', 'people']]]);
-    groups.push(['Clients', [['/admin/clients', 'Clients', 'building'], ['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'Coverage SOPs', 'doc']]]);
+    groups.push(['Clients', [['/admin/clients', 'Clients', 'building'], ['/admin/contacts', 'Contacts', 'people'], ['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'Coverage SOPs', 'doc']]]);
   }
   const link = ([href, label, ic, badge]) =>
     `<a class="side-link ${href === active ? 'on' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${badge ? `<span class="badge">${badge}</span>` : ''}</a>`;
   const sidebar = `<aside class="sidebar" aria-label="Menu">
     <div class="side-brand"><div class="logo">IV</div><div><strong>InoVA Local</strong><small>VA App</small></div></div>
+    ${user.is_admin ? `<form class="side-search" action="/admin/search" method="get" role="search">${icon('search')}<input type="search" name="q" placeholder="Search everything" aria-label="Search everything" autocomplete="off"><kbd title="Press / to search">/</kbd></form>` : ''}
     <nav class="side-nav" aria-label="Pages">${groups.map(([label, links]) => `<div class="side-group"><div class="side-label">${label}</div>${links.map(link).join('')}</div>`).join('')}</nav>
     <div class="side-user">
       <div class="me">${avatar(user.name)}<div><strong>${esc(user.name)}</strong><small>${user.is_admin ? 'Admin' : user.is_va && !user.in_training ? 'VA' : 'In training'}</small></div></div>
@@ -613,7 +632,7 @@ export function layout({ title, user, active, message, body }) {
   return `${head}<input type="checkbox" id="nav-toggle" aria-hidden="true">
 <div class="app">${sidebar}<label for="nav-toggle" class="scrim" aria-hidden="true"></label>
   <div class="main-col">
-    <header class="topbar"><label for="nav-toggle" class="menu" aria-label="Open menu">${icon('menu')}</label><h1>${esc(title)}</h1></header>
+    <header class="topbar"><label for="nav-toggle" class="menu" aria-label="Open menu">${icon('menu')}</label><h1>${esc(title)}</h1>${user.is_admin ? `<a class="top-search" href="/admin/search" aria-label="Search everything">${icon('search')}</a>` : ''}</header>
     <main>${toast}${active === '/va/work' ? '' : timerBar(user)}${active === '/va/sops' ? '' : sopBanner(user, active)}${body}</main>
   </div>
 </div>${tabbar}<div id="loading" class="loading" role="status" hidden>${icon('sync')} Loading from Zoho…</div>${SCRIPT}</body></html>`;

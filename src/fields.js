@@ -388,12 +388,19 @@ export function statusOf(key, data) {
   return data.VA_Status || 'n/a';
 }
 
-// The text searched on the list pages.
-// Custom text, email and phone fields (added on Settings > Fields) are searched too.
-export const searchOf = (key, data, name) =>
-  [name, data.Email, data.Secondary_Email, data.Phone, data.Location, data.Title,
-    ...Object.entries(MODULES[key].layout.custom).filter(([, c]) => ['text', 'email', 'phone'].includes(c.type)).map(([k]) => data[k])]
-    .filter((v) => typeof v === 'string' && v).join(' ').toLowerCase();
+// The text the global search looks in (records.search, see search.js): the name, emails, phone, place, title and
+// every field added on Settings > Fields (not hidden ones, not yes/no boxes), plus each phone number as digits only,
+// so "(512) 555" finds "512-555-0100". Tag names and a contact's client are added when searching.
+// When this changes, raise SEARCH_VERSION in search.js so saved records get the new text.
+export function searchOf(key, data, name) {
+  const L = MODULES[key].layout;
+  const custom = Object.entries(L.custom).filter(([k, c]) => c.type !== 'bool' && !L.hidden.includes(k)).map(([k]) => data[k]);
+  const values = [name, data.Email, data.Secondary_Email, data.Phone, data.Location, data.Title, ...custom].flat()
+    .filter((v) => (typeof v === 'string' && v) || typeof v === 'number').map(String);
+  const digits = allFields(key).filter((x) => x.type === 'phone').map((x) => (typeof data[x.key] === 'string' ? data[x.key].replace(/\D/g, '') : ''))
+    .filter((v) => v.length >= 3);
+  return [...values, ...digits].join(' ').toLowerCase();
+}
 
 // Plain-text version of a value, for the change history.
 export function plainValue(field, v, names = new Map()) {

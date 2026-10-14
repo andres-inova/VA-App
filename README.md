@@ -346,9 +346,10 @@ The app works on computers and phones. On a computer, the menu is on the left. F
 
 ## Clients and VAs
 
-Admin-only pages: **Clients → Clients** and **Team → VAs** in the menu; VAs can't open them. They replaced Zoho CRM for clients and VAs in October 2026.
+Admin-only pages: **Clients → Clients**, **Clients → Contacts** and **Team → VAs** in the menu; VAs can't open them. They replaced Zoho CRM for clients and VAs in October 2026.
 
 - **Clients**: every client, split into **Current**, **Paused** and **Offboarded**, with a search box and **New client**. A client's page shows its details in sections, its **contacts** (with the main contact marked, and **Add contact**), the **VAs and projects** the app has for it (the active Zoho Projects projects linked to this client, with SOP links), **Notes**, **Files** (for example the contract) and **History**.
+- **Contacts**: every client contact, with their client (click the client's name to open the client), title, email and phone, and a search box. Contacts with no client are listed first, under **No client**, then **Current** and **Offboarded**. **New contact** adds one (choosing a client is optional). Contacts have no tags.
 - **VAs**: every VA, split into **Active**, **On Deck**, **Offboarded** and **No status**, with their tags, a tag filter and tick boxes (see **Tags** below). A VA's page shows a **Login** box, their details (contact, time zone, availability, Slack IDs, pay, scores, emergency contact, referrals), their clients and projects, **Notes**, **Files** (for example the resume) and **History**.
 - **Login box** (on a VA's page): the email they log in with, whether they have logged in, their **last login** (recorded from 2026-10-13 on; people who ticked "Keep me logged in" stay logged in, so it can be old), when the last invite was sent, and whether the app checks them. Buttons: **Send login invite**, **Just show a temporary password**, and **Exempt this VA** / **Remove exemption**, the same as on the People page. An Active VA with no email gets a red warning ("can't log in"); the record is still saved.
 - **Change a value right on the page**: click (or tap) any value on a client, contact or VA page, change it, and press **Enter** or **Save** (a pick list or a tick box saves as soon as you change it; **Esc** or **Cancel** leaves it as it was). The field shows **Saved** for a moment, or the problem in red (for example a bad email, a missing name, or a VA email that someone else already uses). It is saved in the same way as with Edit: the same checks, a line in **History**, and the same follow-up (a VA's login follows their record). With a keyboard, tab to the small pencil next to a value and press Enter. Empty fields are hidden; click **Show empty fields** under the details to fill them in. On a contact's page, **Client** can be changed the same way. Files, the Login box and the offer checklist keep their own buttons. If someone else changed the record while you had it open, their changes show after your save; if you both changed the same field, the last save counts.
@@ -373,7 +374,7 @@ Admin-only pages: **Clients → Clients** and **Team → VAs** in the menu; VAs 
 
 Admins change the fields of clients, contacts, VAs and applicants on **Settings → Fields** (like "Modules and Fields" in Zoho CRM). Pick **Clients**, **Contacts**, **VAs** or **Applicants** at the top. Each section lists its fields; click **Change** under a field for its options. Changes show right away on every record page, the Edit page and when you change a value right on a record page.
 
-- **Add a field**: type its name, choose the type (text, long text, number, date, pick list, checkbox group, yes/no checkbox, email, phone or link), the section, and help text if you want. For a pick list or checkbox group, type the choices, one per line. The app keeps each field's values under a fixed inside name, so renaming the field later never loses data. New text, email and phone fields are also searched on the list pages (each record after its next save). A Wufoo question with exactly the same title as a new applicant field (text, long text, email, phone, link or yes/no) fills it in.
+- **Add a field**: type its name, choose the type (text, long text, number, date, pick list, checkbox group, yes/no checkbox, email, phone or link), the section, and help text if you want. For a pick list or checkbox group, type the choices, one per line. The app keeps each field's values under a fixed inside name, so renaming the field later never loses data. The values of fields added here are found by **Search** (see below), right away; values of hidden fields are not. A Wufoo question with exactly the same title as a new applicant field (text, long text, email, phone, link or yes/no) fills it in.
 - **Rename a field or change its help text**: works for every field, also the built-in ones.
 - **Move a field** up or down (the arrows), or to another section (**Move to section**).
 - **Hide a field**: it no longer shows on records or the Edit page, but its values are kept. Hidden fields are listed under **Hidden fields**, with **Show again**.
@@ -382,6 +383,16 @@ Admins change the fields of clients, contacts, VAs and applicants on **Settings 
 - **Delete a field**: only fields added here. The question says how many records have a value; the values are deleted with the field. Built-in fields can be hidden instead.
 - **Fields used by the app** have a lock and "Used by the app": only their name and help text can be changed (not hidden, moved to another section, deleted or given other choices), because the app reads them. These are the names, Email and phone, status fields (client Status, VA status, Hiring step, Why declined), time zones, Availability, Slack IDs, VA company affiliation, Main contact, Client owner, Referred by, the score parts, the offer checklist, Resume and Contract, and a few others that the list pages show.
 - **Recent changes** at the bottom shows the last 20 changes to that kind of record, with who made them and when.
+
+## Search
+
+Admins search everything at once with the **Search everything** box at the top of the menu (on a phone: the magnifying glass at the top right, or at the top of **Menu**). On a computer, press **/** on any page to jump to the box (not while typing in a field).
+
+- Results come in groups: **Clients**, **Contacts**, **VAs**, **Applicants**, **Notes**, **Emails**, **Projects** and **People** (logins). Each group shows up to 10; click **Show all** for the rest. Click a result to open it (a note opens its record at the notes, an email opens the email).
+- It looks in: names, emails, phone numbers, places, titles, every field added on **Settings → Fields**, tag names, a contact's client, note text (and the name of the record the note is on), and saved emails' subject, sender, receivers and first line.
+- Capitals don't matter. **Every word must match**, so "acme austin" finds the client Acme in Austin, and "spanish monterrey" a VA with the tag Spanish who lives in Monterrey.
+- Phone numbers match with or without spaces, dashes and brackets: "(512) 555", "512555" and "512-555" all find 512-555-0100.
+- Emails follow the same rule as on record pages: you see emails from inboxes shared with all admins and from your own inbox, never another admin's private emails.
 
 ## Tags
 

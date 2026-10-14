@@ -17,6 +17,7 @@ import * as work from './work.js';
 import { sopRoutes, adminSopRoutes, vaSops, allSops, coveringSops } from './sops.js';
 import { recordRoutes } from './records.js';
 import { loadFieldLayouts } from './fields.js';
+import { searchRoutes } from './search.js';
 import { fieldRoutes } from './field-editor.js';
 import { tagRoutes } from './tags.js';
 import { emailRoutes } from './email.js';
@@ -142,6 +143,8 @@ async function handle(request, env) {
     if (path === '/admin/settings/fields' || path.startsWith('/admin/settings/fields/')) return fieldRoutes(env, user, path, method, field, message, url);
     // Settings > Tags, and adding or removing a tag on many records at once (list pages).
     if (path === '/admin/settings/tags' || path === '/admin/tags/bulk') return tagRoutes(env, user, path, method, field, fieldAll, message);
+    // Search everything (the box at the top of the menu).
+    if (path === '/admin/search') { await loadFieldLayouts(env); return searchRoutes(env, user, url, message); }
     if (path === '/admin/training' || path.startsWith('/admin/training/')) return adminTrainingRoutes(env, user, path, method, field, message, url);
     // Shared email: Settings > Email (Connect Gmail), saved emails and their attachments.
     if (/^\/admin\/emails?(\/|$)/.test(path)) return emailRoutes(env, user, path, method, field, message, url);

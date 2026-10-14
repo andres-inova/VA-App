@@ -8,7 +8,7 @@ const when = (iso) => (iso ? zohoTime(iso) : '');
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 // "Jane Doe <jane@x.com>" gives "Jane Doe"; a bare address stays as it is.
-function nameIn(header) {
+export function nameIn(header) {
   const first = String(header || '').split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)[0] || '';
   const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>/.exec(first);
   return (m ? m[1].trim() || m[2] : first.trim()) || 'Unknown sender';

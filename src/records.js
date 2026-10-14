@@ -466,6 +466,15 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     return page(rv.vasPage({ user, records: records.map((r) => ({ ...r, ...login(r) })), tags, message }));
   }
 
+  // Every contact, with their client.
+  if (path === '/admin/contacts' && method === 'GET') {
+    const { results } = await env.DB.prepare(
+      `SELECT r.*, p.name AS parent_name FROM records r LEFT JOIN records p ON p.id = r.parent_id AND p.module = 'clients'
+       WHERE r.module = 'contacts' ORDER BY r.name COLLATE NOCASE`
+    ).all();
+    return page(rv.contactsPage({ user, records: results.map((r) => ({ ...r, data: JSON.parse(r.data) })), message }));
+  }
+
   // A new record: the empty form, then saving it.
   if ((m = path.match(/^\/admin\/(clients|vas|contacts|applicants)\/new$/))) {
     const key = m[1];
@@ -505,7 +514,7 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
   if (!m) return redirect(path.startsWith('/admin/applicants') ? '/admin/applicants' : '/admin/clients');
   const [, key, idText, action, subId, subAction] = m;
   const record = await getRecord(env, key, Number(idText));
-  if (!record) return redirect(key === 'contacts' ? '/admin/clients' : `/admin/${key}`);
+  if (!record) return redirect(`/admin/${key}`);
   const here = `/admin/${key}/${record.id}`;
   const now = new Date().toISOString();
 
@@ -545,7 +554,7 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
     }
     await deleteRecords(env, ids);
     await vaChanged(env, key);
-    const back = key === 'contacts' && record.parent_id ? `/admin/clients/${record.parent_id}` : key === 'contacts' ? '/admin/clients' : `/admin/${key}`;
+    const back = key === 'contacts' && record.parent_id ? `/admin/clients/${record.parent_id}` : `/admin/${key}`;
     return redirect(`${back}?msg=record-deleted`);
   }
 

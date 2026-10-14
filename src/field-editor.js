@@ -4,6 +4,7 @@
 
 import { redirect, page, esc } from './util.js';
 import { MODULES, CUSTOM_TYPES, normalLayout, fieldOf, isProtected, loadFieldLayouts } from './fields.js';
+import { refreshSearchText } from './search.js';
 import { layout, icon, section, empty, zohoTime, settingsTabs } from './views.js';
 
 const KEYS = ['clients', 'contacts', 'vas', 'applicants'];
@@ -237,6 +238,8 @@ export async function fieldRoutes(env, user, path, method, field, message, url) 
     if (!error && summary) {
       await saveLayout(env, user, key, N, summary, extra);
       await loadFieldLayouts(env);
+      // Values may have changed (a choice renamed, a field deleted or hidden): the global search text follows.
+      await refreshSearchText(env, key);
     }
     if (error) return page(await fieldsPage(env, user, key, { error }), 400);
     const k = field('k');

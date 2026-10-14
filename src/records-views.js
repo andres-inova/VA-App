@@ -10,7 +10,7 @@ import { tagChips, tagIndex, recordTagsRow, tagPicker, PICKER_SCRIPT, listTools,
 
 const TONE = { Current: 'good', Active: 'good', Paused: 'warn', 'On Deck': 'info', Offboarded: 'muted', 'n/a': 'muted', Hired: 'good', Declined: 'muted', Ghosted: 'muted' };
 const tone = (status) => TONE[status] || (STEPS.includes(status) ? 'info' : 'muted');
-const activeFor = (key) => (key === 'vas' ? '/admin/vas' : key === 'applicants' ? '/admin/applicants' : '/admin/clients');
+const activeFor = (key) => (key === 'vas' ? '/admin/vas' : key === 'applicants' ? '/admin/applicants' : key === 'contacts' ? '/admin/contacts' : '/admin/clients');
 const isEmpty = (v) => v === null || v === undefined || v === '' || v === false || (Array.isArray(v) && !v.length);
 const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`);
 const when = (iso) => (iso ? zohoTime(iso.includes('T') ? iso : `${iso.replace(' ', 'T')}Z`) : '');
@@ -30,9 +30,12 @@ const selRow = (key, r, sub, side, byId) => {
   <a class="item-head" href="/admin/${key}/${esc(r.id)}">${avatar(r.name)}<div class="grow"><div class="title">${esc(r.name)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}${tags.length ? `<div class="chips row-tags">${tagChips(tags)}</div>` : ''}</div>${side}${icon('chevron', 'chev')}</a></div>`;
 };
 
-function listPage({ user, key, title, active, lead, records, statuses, rowOf, searchHint, tags, message }) {
-  const by = (s) => records.filter((r) => r.status === s);
-  const others = records.filter((r) => !statuses.includes(r.status));
+// A list page (Clients, VAs, Contacts): records in groups by status, a search box and, when the records have tags,
+// the tag filter, tick boxes and bulk bar. `first`: a group shown above the status groups (Contacts: "No client").
+function listPage({ user, key, title, active, lead, records, statuses, rowOf, searchHint, tags, message, first = null }) {
+  const rest = first ? records.filter((r) => !first.rows.includes(r)) : records;
+  const by = (s) => rest.filter((r) => r.status === s);
+  const others = rest.filter((r) => !statuses.includes(r.status));
   const list = (label, rows, open) => (rows.length ? section({ title: label, count: rows.length, open, key: `${key}-${label}`, body: rows.map(rowOf).join('') }) : '');
   const closed = ['Offboarded', 'n/a'];
   return layout({
@@ -41,9 +44,9 @@ function listPage({ user, key, title, active, lead, records, statuses, rowOf, se
     <div class="actions" style="margin:0 0 14px"><a class="btn sm" href="/admin/${key}/new">${icon('plus')} New ${MODULES[key].one}</a></div>
     ${records.length ? `<div class="summary-chips">${statuses.filter((s) => by(s).length).map((s) => chip(`${by(s).length} ${s === 'n/a' ? 'no status' : s.toLowerCase()}`, tone(s))).join('')}</div>
     <label class="search" for="find-${key}">${icon('building')}<input id="find-${key}" type="search" placeholder="${esc(searchHint)}" autocomplete="off" data-filter="#${key}-list .item" data-empty="#${key}-none"></label>
-    ${listTools(key, tags)}
-    <div id="${key}-list" data-list data-search="find-${key}">${statuses.map((s) => list(s === 'n/a' ? 'No status' : s, by(s), !closed.includes(s))).join('')}${list('Other', others, false)}</div>
-    <div class="empty no-results" id="${key}-none">Nothing matches.</div>${bulkBar(key, tags)}<script>${LIST_SCRIPT}</script>` : ''}`,
+    ${tags ? listTools(key, tags) : ''}
+    <div id="${key}-list" data-list data-search="find-${key}">${first ? list(first.label, first.rows, true) : ''}${statuses.map((s) => list(s === 'n/a' ? 'No status' : s, by(s), !closed.includes(s))).join('')}${list('Other', others, false)}</div>
+    <div class="empty no-results" id="${key}-none">Nothing matches.</div>${tags ? bulkBar(key, tags) : ''}<script>${LIST_SCRIPT}</script>` : ''}`,
   });
 }
 
@@ -74,6 +77,22 @@ export function vasPage({ user, records, tags, message }) {
       const clients = [...new Set(r.projects.filter((p) => !p.is_coverage).map((p) => p.client))];
       const sub = [clients.length && clients.join(', '), d.Time_Zone, d.Availability].filter(Boolean).map(esc).join(' · ');
       return selRow('vas', r, sub, chip(r.status === 'n/a' ? 'No status' : r.status, tone(r.status)), byId);
+    },
+  });
+}
+
+// Every contact, with their client (a link of its own), title, email and phone. Contacts with no client come first.
+export function contactsPage({ user, records, message }) {
+  return listPage({
+    user, key: 'contacts', title: 'Contacts', active: '/admin/contacts', message, records, tags: null,
+    lead: "Every client contact. Click a contact to see or change them, or their client's name to open the client.",
+    statuses: ['Current', 'Offboarded'], searchHint: 'Search contacts or clients',
+    first: { label: 'No client', rows: records.filter((r) => !r.parent_name) },
+    rowOf: (r) => {
+      const d = r.data;
+      const sub = [d.Title, d.Email, d.Phone].filter(Boolean).map(esc).join(' · ');
+      return `<div class="item flat sel-item contact-row"><a class="item-head" href="/admin/contacts/${esc(r.id)}">${avatar(r.name)}<div class="grow"><div class="title">${esc(r.name)}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${r.status === 'Offboarded' ? chip('Offboarded', 'muted') : ''}</a>
+        ${r.parent_name ? `<a class="contact-client" href="/admin/clients/${esc(r.parent_id)}">${icon('building')}<span>${esc(r.parent_name)}</span></a>` : ''}</div>`;
     },
   });
 }
@@ -477,7 +496,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
   const mod = MODULES[key];
   const here = `/admin/${key}/${record.id}`;
   const back = key === 'contacts'
-    ? (parent ? [`/admin/clients/${parent.id}`, parent.name] : ['/admin/clients', 'All clients'])
+    ? (parent ? [`/admin/clients/${parent.id}`, parent.name] : ['/admin/contacts', 'All contacts'])
     : [`/admin/${key}`, `All ${mod.label.toLowerCase()}`];
   const status = record.status === 'n/a' ? 'No status' : record.status;
   const contactLine = [d.Title && esc(d.Title), d.Email && mailLink(d.Email), d.Phone && phoneLink(d.Phone), d.Location && esc(d.Location)].filter(Boolean);
@@ -636,7 +655,7 @@ export function editPage({ user, key, record, choices, owners, clients, error, m
   const d = record.data || {};
   const isNew = !record.id;
   const action = isNew ? `/admin/${key}/new` : `/admin/${key}/${record.id}/edit`;
-  const back = isNew ? (key === 'contacts' && record.parent_id ? `/admin/clients/${record.parent_id}` : key === 'contacts' ? '/admin/clients' : `/admin/${key}`) : `/admin/${key}/${record.id}`;
+  const back = isNew ? (key === 'contacts' && record.parent_id ? `/admin/clients/${record.parent_id}` : key === 'contacts' ? '/admin/contacts' : `/admin/${key}`) : `/admin/${key}/${record.id}`;
   const title = isNew ? `New ${mod.one}` : `Edit ${record.name}`;
   const clientPick = key === 'contacts' ? `<div class="card"><label for="f-parent" style="margin-top:0">Client</label>
     <select id="f-parent" name="parent_id"><option value="">No client</option>${clients.map((c) => `<option value="${c.id}" ${c.id === Number(record.parent_id) ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>` : '';

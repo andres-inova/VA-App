@@ -305,9 +305,8 @@ export async function runEveryMinute(env, now = new Date()) {
 export const TIMER_MAX_HOURS = 8;
 async function stopLongTimers(env, now) {
   const cutoff = new Date(now.getTime() - TIMER_MAX_HOURS * 3600000).toISOString();
-  const { results } = await env.DB.prepare('SELECT user_id, started_at FROM timers WHERE stopped_at IS NULL AND started_at <= ?').bind(cutoff).all();
-  for (const t of results) {
-    const stop = new Date(Date.parse(t.started_at) + TIMER_MAX_HOURS * 3600000).toISOString();
-    await env.DB.prepare('UPDATE timers SET stopped_at = ?, auto_stopped = 1 WHERE user_id = ? AND stopped_at IS NULL').bind(stop, t.user_id).run();
-  }
+  const { results } = await env.DB.prepare('SELECT id, started_at FROM work_timers WHERE stopped_at IS NULL AND started_at <= ? LIMIT 200').bind(cutoff).all();
+  if (!results.length) return;
+  await env.DB.batch(results.map((t) => env.DB.prepare('UPDATE work_timers SET stopped_at = ?, auto_stopped = 1 WHERE id = ? AND stopped_at IS NULL')
+    .bind(new Date(Date.parse(t.started_at) + TIMER_MAX_HOURS * 3600000).toISOString(), t.id)));
 }

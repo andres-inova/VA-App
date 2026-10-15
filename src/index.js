@@ -20,6 +20,7 @@ import { loadFieldLayouts } from './fields.js';
 import { searchRoutes } from './search.js';
 import { fieldRoutes } from './field-editor.js';
 import { tagRoutes } from './tags.js';
+import { projectRoutes, projectLog, PID } from './projects.js';
 import { emailRoutes } from './email.js';
 import { trainingRoutes, adminTrainingRoutes, myTrainings, lateTrainings, ONBOARDING } from './training.js';
 import * as views from './views.js';
@@ -109,7 +110,8 @@ async function handle(request, env) {
   if (path === '/') return redirect(homeOf(user));
 
   if (user.is_va && !user.in_training) {
-    user.timer = await env.DB.prepare('SELECT t.*, p.client FROM timers t LEFT JOIN projects p ON p.id = t.project_id WHERE t.user_id = ?').bind(user.id).first();
+    // The old Zoho "Tasks & time" page uses one timer per VA: the newest one.
+    user.timer = await env.DB.prepare('SELECT t.*, p.client FROM work_timers t LEFT JOIN projects p ON p.id = t.project_id WHERE t.user_id = ? ORDER BY t.started_at DESC LIMIT 1').bind(user.id).first();
     // Coverage SOPs the VA still has to fill in or upload (a badge in the menu, and a card on My day).
     user.sops_todo = (await vaSops(env, user.id)).filter((s) => !s.status.done);
   }
@@ -143,6 +145,11 @@ async function handle(request, env) {
     if (path === '/admin/settings/fields' || path.startsWith('/admin/settings/fields/')) return fieldRoutes(env, user, path, method, field, message, url);
     // Settings > Tags, and adding or removing a tag on many records at once (list pages).
     if (path === '/admin/settings/tags' || path === '/admin/tags/bulk') return tagRoutes(env, user, path, method, field, fieldAll, message);
+    // A project's page (settings, package, VAs), new projects, Settings > Task types and Settings > Pay periods.
+    if (path.startsWith('/admin/projects/') || path === '/admin/settings/task-types' || path === '/admin/settings/pay-periods') {
+      const res = await projectRoutes(env, user, path, method, field, fieldAll, message);
+      if (res) return res;
+    }
     // Search everything (the box at the top of the menu).
     if (path === '/admin/search') { await loadFieldLayouts(env); return searchRoutes(env, user, url, message); }
     if (path === '/admin/training' || path.startsWith('/admin/training/')) return adminTrainingRoutes(env, user, path, method, field, message, url);
@@ -235,7 +242,7 @@ async function workRoutes(env, user, path, method, field, message, url) {
   const day = await dayInfo(env, user, now);
   const { results: projects } = await env.DB.prepare(
     `SELECT p.id, p.client, p.client_record_id, p.name, p.is_coverage FROM assignments a JOIN projects p ON p.id = a.project_id
-     WHERE a.user_id = ? AND p.active = 1 ORDER BY p.is_coverage, p.client`
+     WHERE a.user_id = ? AND p.active = 1 AND p.id NOT LIKE 'p-%' ORDER BY p.is_coverage, p.client`
   ).bind(user.id).all();
   const projectId = field('project') || url.searchParams.get('project') || user.timer?.project_id || projects[0]?.id || '';
   const project = projects.find((p) => p.id === projectId);
@@ -280,7 +287,7 @@ async function workRoutes(env, user, path, method, field, message, url) {
       if (user.timer) {
         return back({ err: user.timer.stopped_at ? 'Please save or discard your stopped timer first.' : 'Please stop your running timer first.' });
       }
-      await env.DB.prepare('INSERT INTO timers (user_id, project_id, task_id, task_name, started_at) VALUES (?, ?, ?, ?, ?)')
+      await env.DB.prepare('INSERT INTO work_timers (user_id, project_id, task_id, task_name, started_at) VALUES (?, ?, ?, ?, ?)')
         .bind(user.id, project.id, field('task') || null, field('task_name').slice(0, 500) || 'General', now.toISOString()).run();
       // Starting work counts as the day's check-in.
       const row = await env.DB.prepare('SELECT status, checked_in_at FROM attendance WHERE user_id = ? AND work_date = ?')
@@ -293,11 +300,11 @@ async function workRoutes(env, user, path, method, field, message, url) {
       return done('timer-started');
     }
     if (path === '/va/work/timer/stop') {
-      await env.DB.prepare('UPDATE timers SET stopped_at = ? WHERE user_id = ? AND stopped_at IS NULL').bind(now.toISOString(), user.id).run();
+      await env.DB.prepare('UPDATE work_timers SET stopped_at = ? WHERE id = ? AND stopped_at IS NULL').bind(now.toISOString(), user.timer?.id || 0).run();
       return redirect(`/va/work?project=${encodeURIComponent(user.timer?.project_id || projectId)}&msg=timer-stopped#timer`);
     }
     if (path === '/va/work/timer/discard') {
-      await env.DB.prepare('DELETE FROM timers WHERE user_id = ?').bind(user.id).run();
+      await env.DB.prepare('DELETE FROM work_timers WHERE id = ?').bind(user.timer?.id || 0).run();
       return done('timer-discarded');
     }
 
@@ -315,7 +322,7 @@ async function workRoutes(env, user, path, method, field, message, url) {
       if (log.end <= log.start) return back({ err: 'The end time must be after the start time.' });
       if (path === '/va/work/log') {
         await work.addLog(env, project.id, user.zoho_projects_user_id, log);
-        if (field('from_timer') === '1') await env.DB.prepare('DELETE FROM timers WHERE user_id = ?').bind(user.id).run();
+        if (field('from_timer') === '1') await env.DB.prepare('DELETE FROM work_timers WHERE id = ?').bind(user.timer?.id || 0).run();
         return done('log-added');
       }
       await work.updateLog(env, project.id, field('log'), user.zoho_projects_user_id, log);
@@ -685,8 +692,9 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
   }
 
   // An admin chooses the client of a project ("No client" allowed). The hourly sync never changes this choice.
-  if ((m = path.match(/^\/admin\/projects\/(\d+)\/client$/)) && method === 'POST') {
-    const project = await env.DB.prepare('SELECT id FROM projects WHERE id = ?').bind(m[1]).first();
+  if ((m = path.match(new RegExp(`^/admin/projects/${PID}/client$`))) && method === 'POST') {
+    // A project made in the app keeps the client it was made with.
+    const project = await env.DB.prepare("SELECT id FROM projects WHERE id = ? AND id NOT LIKE 'p-%'").bind(m[1]).first();
     const client = field('client_id')
       ? await env.DB.prepare("SELECT id FROM records WHERE id = ? AND module = 'clients'").bind(Number(field('client_id'))).first() : null;
     if (project && (client || !field('client_id'))) {
@@ -696,35 +704,47 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     return redirect('/admin/projects');
   }
 
-  if ((m = path.match(/^\/admin\/projects\/(\d+)\/assign$/)) && method === 'POST') {
-    const va = await env.DB.prepare('SELECT id FROM users WHERE id = ? AND is_va = 1').bind(field('user_id')).first();
+  // The VA rows on a project's own page send back=/admin/projects/<id>, so the admin returns there.
+  const projectBack = new RegExp(`^/admin/projects/${PID}$`).test(field('back')) ? field('back') : '/admin/projects';
+  const startText = () => `${isTime(field('start_time')) ? `start ${field('start_time')}${cleanZone(field('time_zone')) ? ` ${cleanZone(field('time_zone'))}` : ''}` : 'no start time'}, days ${cleanDays(fieldAll('days'))}`;
+
+  if ((m = path.match(new RegExp(`^/admin/projects/${PID}/assign$`))) && method === 'POST') {
+    const va = await env.DB.prepare('SELECT id, name FROM users WHERE id = ? AND is_va = 1').bind(field('user_id')).first();
     const project = await env.DB.prepare('SELECT id FROM projects WHERE id = ?').bind(m[1]).first();
     if (va && project) {
-      await env.DB.batch([
+      const res = await env.DB.batch([
         env.DB.prepare('INSERT OR IGNORE INTO assignments (project_id, user_id, start_time, time_zone, days) VALUES (?, ?, ?, ?, ?)')
           .bind(project.id, va.id, isTime(field('start_time')) ? field('start_time') : null, cleanZone(field('time_zone')), cleanDays(fieldAll('days'))),
         env.DB.prepare('UPDATE projects SET assignment_locked = 1 WHERE id = ?').bind(project.id),
       ]);
+      if (res[0].meta?.changes) await projectLog(env, project.id, user.id, `Added ${va.name} (${startText()})`).run();
     }
-    return redirect('/admin/projects?msg=saved');
+    return redirect(`${projectBack}?msg=saved`);
   }
 
   if ((m = path.match(/^\/admin\/assignments\/(\d+)$/)) && method === 'POST') {
-    await env.DB.prepare('UPDATE assignments SET start_time = ?, time_zone = ?, days = ? WHERE id = ?')
-      .bind(isTime(field('start_time')) ? field('start_time') : null, cleanZone(field('time_zone')), cleanDays(fieldAll('days')), m[1]).run();
-    return redirect('/admin/projects?msg=saved');
+    const a = await env.DB.prepare('SELECT a.project_id, u.name FROM assignments a JOIN users u ON u.id = a.user_id WHERE a.id = ?').bind(m[1]).first();
+    if (a) {
+      await env.DB.batch([
+        env.DB.prepare('UPDATE assignments SET start_time = ?, time_zone = ?, days = ? WHERE id = ?')
+          .bind(isTime(field('start_time')) ? field('start_time') : null, cleanZone(field('time_zone')), cleanDays(fieldAll('days')), m[1]),
+        projectLog(env, a.project_id, user.id, `Changed ${a.name}: ${startText()}`),
+      ]);
+    }
+    return redirect(`${projectBack}?msg=saved`);
   }
 
   if ((m = path.match(/^\/admin\/assignments\/(\d+)\/delete$/)) && method === 'POST') {
-    const a = await env.DB.prepare('SELECT project_id FROM assignments WHERE id = ?').bind(m[1]).first();
+    const a = await env.DB.prepare('SELECT a.project_id, u.name FROM assignments a JOIN users u ON u.id = a.user_id WHERE a.id = ?').bind(m[1]).first();
     if (a) {
       // Locking the project stops the hourly sync from assigning it again.
       await env.DB.batch([
         env.DB.prepare('DELETE FROM assignments WHERE id = ?').bind(m[1]),
         env.DB.prepare('UPDATE projects SET assignment_locked = 1 WHERE id = ?').bind(a.project_id),
+        projectLog(env, a.project_id, user.id, `Removed ${a.name}`),
       ]);
     }
-    return redirect('/admin/projects?msg=removed');
+    return redirect(`${projectBack}?msg=removed`);
   }
 
   if ((m = path.match(/^\/admin\/people\/(\d+)\/exempt$/)) && method === 'POST') {

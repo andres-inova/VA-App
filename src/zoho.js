@@ -220,9 +220,9 @@ async function syncProjects(env, token) {
          is_coverage = excluded.is_coverage, active = 1`
     ).bind(String(p.id), p.name.trim(), client, vaName, coverage ? 1 : 0);
   });
-  // Projects that are no longer open in Zoho stop counting.
+  // Projects that are no longer open in Zoho stop counting. Projects made in the app (ids "p-<n>") are left alone.
   const ids = JSON.stringify(projects.map((p) => String(p.id)));
-  statements.push(env.DB.prepare('UPDATE projects SET active = 0 WHERE id NOT IN (SELECT value FROM json_each(?))').bind(ids));
+  statements.push(env.DB.prepare("UPDATE projects SET active = 0 WHERE id NOT LIKE 'p-%' AND id NOT IN (SELECT value FROM json_each(?))").bind(ids));
   await env.DB.batch(statements);
   await linkProjectClients(env);
 

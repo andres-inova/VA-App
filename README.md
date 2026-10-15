@@ -212,6 +212,26 @@ Setup, done once in the Slack app you created (VA App):
    The app uses it to check that each command really comes from Slack.
 6. If Slack shows a banner asking you to **reinstall** the app, click it and allow.
 
+## Projects (app)
+
+Projects are moving from Zoho Projects into the app (time logging in the app comes in the next steps). For now both kinds show on the **Projects** page: projects made in the app (labeled "Made in the app") and projects from Zoho Projects. The hourly Zoho sync never changes or closes projects made in the app.
+
+- **New project** (top of the Projects page): choose the **client** (required, and it can never be changed afterwards), the VA, and the VA's start time and work days. The name is "Client - VA" unless you type one ("Client - VA - Coverage" when **Coverage project** is ticked). More VAs can be added on the project's page.
+- **Project settings**: click a project, then **Project settings** (the address is /admin/projects/&lt;id&gt;). It works for Zoho projects too.
+  - **Time zone** (PST, MST, CST or EST): time logged counts on the day it is in this time zone. If left on Default, it is the client record's "Time zone", else the first VA's.
+  - **Billing day of the month** (1st to 28th): a billing cycle runs from that day to the day before it next month (for example the 16th to the 15th). Default: the first choice in the client's "Invoice date", else the 1st.
+  - **Package**: hours per billing cycle. Each change has a **Takes effect on** date, so a new package can start at the next billing cycle while the current one still counts. The page shows the package now, upcoming changes (which can be removed before they start) and earlier ones. When no package is set yet, the box is filled in from the client's "Package hours".
+  - **VAs**: add, change (start time, time zone, work days) or remove VAs, the same as on the Projects page.
+  - **History**: every change to the project (who and when).
+  - **Close project** (projects made in the app only): it stops showing on the Projects page and for its VAs. Nothing is deleted, and it can be reopened from its page.
+- Projects made in the app have ids like "p-1", "p-2"; Zoho projects keep their Zoho ids (long numbers).
+- The old **Tasks & time** page (below) still works for Zoho projects only until the new time page replaces it.
+
+## Task types and pay periods
+
+- **Settings → Task types**: one list for the whole company of the kinds of work a VA picks when logging time (Phones and inbound calls, Scheduling, Email and inbox, Follow-ups, Sales and leads, Billing and invoicing, Admin, Meetings, Training, Other). Click one to rename it, move it up or down, hide it or delete it. A hidden type can't be picked for new time. A type that already has time logged can't be deleted, only hidden.
+- **Settings → Pay periods**: the pay periods from the "2026 Pay Periods" sheet (first day, last day, pay day), grouped by year. Click one to change or delete it; **Add a pay period** at the bottom. Periods can't overlap, and the pay day must be on or after the last day. A period that isn't 14 days long shows its length (Nov 27 - Dec 3, 2026 is 7 days, as in the sheet).
+
 ## Tasks & time (Zoho Projects)
 
 VAs open **Tasks & time** in the menu (on phones, in the bottom bar). Everything they do there is saved straight into Zoho Projects, on the project the app assigned to them. A VA with several projects first chooses the project from a list (with today's start time for each); inside a project, the buttons at the top switch to another project or go back to the list. Every section on the page (Log time, My time, each task list) starts closed; sections the VA opens stay open while they use the page, even after saving.
@@ -552,6 +572,7 @@ The VA training program, moved here from the separate training tracker app. A **
 | `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |
 | `src/zoho.js` | The hourly sync: VA logins (linked to their VA records) and the backup list from the app's VA records, active projects from Zoho Projects, linking projects to client records, assigning new projects by name, and finding each VA's Zoho Projects user |
 | `src/work.js` | Tasks, task lists and time logs in Zoho Projects (the Tasks & time page) |
+| `src/projects.js`, `src/projects-views.js` | Projects made in the app, each project's settings page (time zone, billing day, package with dates, VAs, history), Settings → Task types and Settings → Pay periods |
 | `src/fields.js` | The built-in fields of clients, contacts, VAs and applicants, in sections, with the admins' changes from Settings → Fields laid over them; the hiring steps and scores |
 | `src/field-editor.js` | Settings → Fields: the page where admins add, rename, move, hide and delete fields and change pick-list choices |
 | `src/tags.js`, `src/tags-views.js` | Tags with folders: Settings → Tags, the tag picker on a record page, the tag filter and the tick boxes ("bulk" bar) on the VAs, Hiring and Clients pages |

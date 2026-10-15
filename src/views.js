@@ -58,6 +58,13 @@ const MESSAGES = {
   'record-created-no-email': ['bad', "Added. This VA is Active but has no email, so they can't log in. Add their email with Edit."],
   'saved-no-email': ['bad', "Saved. This VA is Active but has no email, so they can't log in. Add their email with Edit."],
   'client-saved': ['good', "Client saved for this project. The hourly sync won't change it."],
+  'project-created': ['good', 'Project created. Check its time zone, billing day and package below.'],
+  'project-missing': ['bad', 'Please choose the client of the new project.'],
+  'project-closed': ['good', 'Project closed. It no longer shows on the Projects page or for its VAs.'],
+  'project-reopened': ['good', 'Project reopened.'],
+  'package-saved': ['good', 'Package saved.'],
+  'package-bad': ['bad', 'Please enter the hours (0 or more) and the date the package starts.'],
+  'package-deleted': ['good', 'Upcoming package change removed.'],
   'record-created-training-linked': ['good', 'Added. This applicant is already in an Onboarding Training (same email), so the two are now linked.'],
   'saved-training-linked': ['good', 'Saved. This applicant is in an Onboarding Training (same email), so the two are now linked.'],
   'record-deleted': ['good', 'Deleted.'],
@@ -190,7 +197,8 @@ export const chip = (label, tone = 'muted') => `<span class="chip ${tone}">${esc
 const pageTabs = (tabs, on) => `<div class="chips proj-tabs">${tabs.map(([href, label]) =>
   `<a class="chip ${href === on ? 'on' : 'muted'}" href="${href}">${esc(label)}</a>`).join('')}</div>`;
 const CALENDAR_TABS = [['/admin/calendar', 'Time off calendar'], ['/admin/history', 'Check-in history']];
-const SETTINGS_TABS = [['/admin/settings', 'Settings'], ['/admin/email', 'Email'], ['/admin/holidays', 'Holidays'], ['/admin/settings/fields', 'Fields'], ['/admin/settings/tags', 'Tags']];
+const SETTINGS_TABS = [['/admin/settings', 'Settings'], ['/admin/email', 'Email'], ['/admin/holidays', 'Holidays'], ['/admin/settings/fields', 'Fields'], ['/admin/settings/tags', 'Tags'],
+  ['/admin/settings/task-types', 'Task types'], ['/admin/settings/pay-periods', 'Pay periods']];
 export const settingsTabs = (on) => pageTabs(SETTINGS_TABS, on);
 
 const pill = (status) => {
@@ -211,7 +219,7 @@ export function section({ title, count, open = true, hint = '', body, tone = '',
 }
 
 // A clickable row: avatar, title, subtitle and a chip; clicking opens the extra content.
-function item({ name, title, sub = '', side = '', body = '', open = false, tone = '', key = '' }) {
+export function item({ name, title, sub = '', side = '', body = '', open = false, tone = '', key = '' }) {
   const head = `${name !== undefined ? avatar(name) : ''}<div class="grow"><div class="title">${title}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${side}`;
   if (!body) return `<div class="item flat ${tone}"><div class="item-head">${head}</div></div>`;
   return `<details class="item ${tone}" ${open ? 'open' : ''} ${key ? `data-key="${esc(key)}"` : ''}><summary class="item-head">${head}${icon('chevron', 'chev')}</summary><div class="item-body">${body}</div></details>`;
@@ -1406,8 +1414,11 @@ export function settingsPage({ user, grace, emailError, admins, recipients, mess
 
 // ---- Projects page ----
 
+// Projects made in the app have ids "p-1", "p-2" ...; Zoho Projects ids are long numbers.
+export const isAppProject = (p) => String(p?.id || '').startsWith('p-');
+
 // Work-day toggles, Monday first. Each looks like a small pill that turns green when on.
-function dayBoxes(days) {
+export function dayBoxes(days) {
   const on = new Set((days ?? '1,2,3,4,5').split(','));
   return `<span class="days">${[1, 2, 3, 4, 5, 6, 0].map((d) =>
     `<label><input type="checkbox" name="days" value="${d}" ${on.has(String(d)) ? 'checked' : ''}><span>${DAY_NAMES[d].slice(0, 2)}</span></label>`).join('')}</span>`;
@@ -1426,6 +1437,8 @@ export function projectsPage({ user, projects, assignments, vas, clients = [], m
 
   // The client record of a project: matched by name while empty, or chosen here (then the sync leaves it alone).
   const clientForm = (p, prefix = 'cl') => {
+    // A project made in the app keeps the client it was made with.
+    if (isAppProject(p)) return `<p class="meta">Client: <b>${esc(p.client_name || p.client)}</b> (made in the app; the client can't change)</p>`;
     const note = p.client_set ? (p.client_record_id ? 'Chosen by an admin. The hourly sync won\'t change it.' : 'Set to "No client" by an admin. The hourly sync won\'t change it.')
       : p.client_record_id ? `Matched by name ("${p.client}"). Choose another client if this is wrong.`
       : `No client record is named "${p.client}". Choose the client, or "No client".`;
@@ -1479,16 +1492,33 @@ export function projectsPage({ user, projects, assignments, vas, clients = [], m
       name: p.client_name || p.client, title: `${esc(p.client_name || p.client)}${p.is_coverage ? ` ${chip('Coverage', 'info')}` : ''}`, sub: esc(who || 'No VA assigned'),
       side: `<span class="chips side-chips stack">${clientChip(p)}${!list.length ? chip('No VA', 'warn') : missingTime ? chip('Needs a start time', 'warn') : chip(`${list.length} VA${list.length > 1 ? 's' : ''}`, 'good')}</span>`,
       open,
-      body: `<p class="meta">${esc(p.name)}</p>${clientForm(p)}${list.map(assignmentRow).join('')}${addForm(p)}`,
+      body: `<p class="meta">${esc(p.name)}${isAppProject(p) ? ` ${chip('Made in the app', 'info')}` : ''}</p>
+        <p style="margin:0 0 6px"><a class="btn plain sm" style="margin:0" href="/admin/projects/${esc(p.id)}">${icon('edit')} Project settings: time zone, package, billing day</a></p>
+        ${clientForm(p)}${list.map(assignmentRow).join('')}${addForm(p)}`,
     });
   };
 
   return layout({
     title: 'Projects', user, active: '/admin/projects', message,
     body: `<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
-      <p class="lead" style="margin:0;flex:1;min-width:240px">Projects come from Zoho Projects every hour and go to the VA named after the " - " in the project name. Each project belongs to the client record with the name before the " - ", or the client chosen here. A VA with several projects checks in once a day, by the earliest start.</p>
+      <p class="lead" style="margin:0;flex:1;min-width:240px">Projects are made here (<b>New project</b>), or come from Zoho Projects every hour and go to the VA named after the " - " in the project name. Each Zoho project belongs to the client record with the name before the " - ", or the client chosen here. A VA with several projects checks in once a day, by the earliest start.</p>
       <form method="post" action="/admin/sync"><input type="hidden" name="back" value="/admin/projects"><button style="margin:0">${icon('sync')} Sync with Zoho now</button></form>
     </div>
+    ${section({
+      title: 'New project', open: message === 'project-missing', key: 'new-project',
+      hint: "The client can't be changed later. The time zone, billing day and package are set on the project's page next.",
+      body: `<form method="post" action="/admin/projects/new" style="padding:0 8px 8px">
+        <div class="row">
+          <div><label for="np-client">Client</label><select id="np-client" name="client_id" required><option value="">Choose a client</option>${clients.filter((c) => c.status !== 'Offboarded').map((c) =>
+            `<option value="${c.id}">${esc(c.name)}${c.status && c.status !== 'Current' ? ` (${esc(c.status)})` : ''}</option>`).join('')}</select></div>
+          <div><label for="np-va">VA</label><select id="np-va" name="user_id"><option value="">No VA yet</option>${vas.map((v) => `<option value="${v.id}">${esc(v.name)}</option>`).join('')}</select></div>
+        </div>
+        <label for="np-name">Project name</label><input type="text" id="np-name" name="name" maxlength="120" placeholder="Empty = &quot;Client - VA&quot;">
+        <label class="check"><input type="checkbox" name="coverage" value="1"> Coverage project (a backup VA covers this client; the name ends in " - Coverage")</label>
+        <label>Start time and work days of the VA</label>
+        <div class="assign" style="border:0;padding:0"><input type="time" name="start_time" aria-label="Start time">${zoneSelect('', '')}${dayBoxes()}</div>
+        <button>${icon('plus')} Create project</button></form>`,
+    })}
     <label class="search" for="find-project">${icon('projects')}<input id="find-project" type="search" placeholder="Search projects or VAs" autocomplete="off" data-filter="#projects-list .item" data-empty="#projects-none"></label>
     <div id="projects-list">
     ${noClient.length ? section({

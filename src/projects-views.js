@@ -12,7 +12,7 @@ const logList = (log) => (log.length ? log.map((l) => `<div class="item flat"><d
 
 // ---- A project's page ----
 
-export function projectPage({ user, project, settings, today, cycle, assignments, vas, packages, history, creator, message }) {
+export function projectPage({ user, project, settings, today, cycle, assignments, vas, packages, history, exceptions = [], creator, message }) {
   const app = isAppProject(project);
   const here = `/admin/projects/${esc(project.id)}`;
   const client = settings.client;
@@ -85,6 +85,20 @@ export function projectPage({ user, project, settings, today, cycle, assignments
     <input type="time" name="start_time" aria-label="Start time">${startZone('', '')}${dayBoxes()}
     <button class="sm" style="margin:0">${icon('plus')} Add</button></form>`;
 
+  // Past-date exceptions (a fuller page comes later): who may log time for which earlier days.
+  const exceptionBody = `${exceptions.map((e) => `<div class="item flat"><div class="item-head">${avatar(e.va_name)}<div class="grow">
+      <div class="title">${esc(e.va_name)} · ${esc(formatDate(e.from_date, true))}${e.to_date !== e.from_date ? ` – ${esc(formatDate(e.to_date, true))}` : ''}</div>
+      <div class="sub">${e.reason ? `${esc(e.reason)} · ` : ''}allowed by ${esc(e.approved_by_name || 'someone')}${e.approved_at ? ` on ${esc(zohoTime(e.approved_at))}` : ''}</div></div>
+      <form method="post" action="${here}/exceptions/${e.id}/delete" data-confirm="Remove this exception? The VA can then no longer add or change time for those days."><button class="sm danger" style="margin:0">Remove</button></form></div></div>`).join('') || empty('No exceptions. VAs can log time only for today.')}
+    <form method="post" action="${here}/exceptions" style="padding:0 8px 8px">
+      <div class="row">
+        <div><label for="ex-va">VA</label><select id="ex-va" name="user_id" required><option value="">Choose…</option>${assignments.map((a) => `<option value="${a.user_id}">${esc(a.va_name)}</option>`).join('')}</select></div>
+        <div><label for="ex-from">First day</label><input type="date" id="ex-from" name="from_date" required max="${esc(today)}"></div>
+        <div><label for="ex-to">Last day</label><input type="date" id="ex-to" name="to_date" required max="${esc(today)}"></div>
+      </div>
+      <label for="ex-reason">Reason</label><input type="text" id="ex-reason" name="reason" maxlength="500" placeholder="For example: forgot to log on Monday">
+      <button>Allow these days</button></form>`;
+
   const closeForm = app ? `<div class="card"><form method="post" action="${here}/${project.active ? 'close' : 'reopen'}"
       ${project.active ? 'data-confirm="Close this project? It stops showing on the Projects page and for its VAs. Nothing is deleted."' : ''}>
       <p class="meta" style="margin:0">${project.active ? 'Close the project when the work for this client ends. Nothing is deleted, and it can be reopened from this page.' : 'This project is closed.'}</p>
@@ -96,6 +110,7 @@ export function projectPage({ user, project, settings, today, cycle, assignments
     ${section({ title: 'Settings', open: true, key: 'settings', body: settingsForm })}
     ${section({ title: 'Package', open: true, key: 'package', count: packages.length || undefined, hint: 'How many hours the client buys per billing cycle. A change can start on a later date.', body: packageBody })}
     ${section({ title: 'VAs', count: assignments.length, open: true, key: 'vas', hint: project.is_coverage ? 'Coverage project: the start time is used only on days the VA covers this client.' : 'Start time and work days of each VA on this project (same as on the Projects page).', body: `${assignments.length ? assignments.map(vaRow).join('') : empty('No VA on this project yet.')}${addVa}` })}
+    ${section({ title: 'Past-date exceptions', count: exceptions.length || undefined, open: exceptions.length > 0, key: 'exceptions', hint: `VAs log time only for today (${esc(settings.zone)}). Here you can allow a VA to add or change time for earlier days in this project.`, body: exceptionBody })}
     ${section({ title: 'History', count: history.length, open: false, key: 'history', hint: 'Changes to this project, newest first (the last 50).', body: logList(history) })}
     ${closeForm}`,
   });

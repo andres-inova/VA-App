@@ -102,3 +102,35 @@ export function formatTimeIn(iso, zone) {
   if (!iso) return '';
   return new Date(iso).toLocaleTimeString('en-US', { timeZone: zone, hour: 'numeric', minute: '2-digit' });
 }
+
+// ---- Time logging: each project's own day ----
+
+// The time zone label (PST, MST, CST or EST) of each project, in one query: the project's saved zone, else the
+// client record's "Timezone", else the first VA's, else EST (the same order as the project settings page).
+export async function projectZones(env, ids) {
+  const list = [...new Set(ids.filter(Boolean).map(String))];
+  const zones = new Map();
+  for (let i = 0; i < list.length; i += 90) {  // D1 takes at most 100 values per query
+    const part = list.slice(i, i + 90);
+    const { results } = await env.DB.prepare(
+    `SELECT p.id, ps.time_zone AS saved, CASE WHEN json_valid(r.data) THEN json_extract(r.data, '$.Timezone') END AS client_zone,
+       (SELECT u.time_zone FROM assignments a JOIN users u ON u.id = a.user_id WHERE a.project_id = p.id AND u.is_va = 1 ORDER BY a.id LIMIT 1) AS va_zone
+     FROM projects p LEFT JOIN project_settings ps ON ps.project_id = p.id LEFT JOIN records r ON r.id = p.client_record_id AND r.module = 'clients'
+     WHERE p.id IN (${part.map(() => '?').join(',')})`
+    ).bind(...part).all();
+    for (const r of results) zones.set(String(r.id), [r.saved, r.client_zone, r.va_zone].find((z) => ZONES[z]) || 'EST');
+  }
+  return zones;
+}
+
+// A timer stops by itself after 8 hours, and never runs past 11:59 PM of the day it started in the project's
+// time zone. Returns when it must stop and why (1 = 8 hours, 2 = midnight).
+export const TIMER_MAX_HOURS = 8;
+export function timerLimit(startedAt, zoneLabel) {
+  const start = new Date(startedAt);
+  const eight = new Date(start.getTime() + TIMER_MAX_HOURS * 3600000);
+  const day = partsIn(ZONES[zoneLabel] || ZONES.EST, start).date;
+  const midnight = zonedTimeToUtc(day, 23, 59, ZONES[zoneLabel] || ZONES.EST);
+  if (midnight < start) return { at: start, reason: 2 };
+  return midnight < eight ? { at: midnight, reason: 2 } : { at: eight, reason: 1 };
+}

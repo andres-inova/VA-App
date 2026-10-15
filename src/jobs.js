@@ -1,6 +1,6 @@
 // The job that runs every minute: late alerts, reports, the hourly sync (VA records and Zoho Projects) and email.
 
-import { REPORT_ZONE, zoneFor, partsIn, zonedTimeToUtc, parseHHMM, weekdayIndex, addDays, formatHM, formatDate } from './time.js';
+import { REPORT_ZONE, zoneFor, partsIn, zonedTimeToUtc, parseHHMM, weekdayIndex, addDays, formatHM, formatDate, projectZones, timerLimit } from './time.js';
 import { postToSlack, sendEmail, slackSafe } from './notify.js';
 import { syncVAsAndProjects } from './zoho.js';
 import { syncEmail } from './email.js';
@@ -35,15 +35,7 @@ export async function dayInfo(env, user, now = new Date()) {
   // Coverage projects count only on days this VA is the backup for that client on approved time off
   // (whatever their work days are); other days they are ignored.
   // The client of each coverage row is the client of the covered project (its client record), or else its name.
-  let covering = [];
-  if (user.zoho_id && assignments.some((a) => a.is_coverage)) {
-    const { results } = await env.DB.prepare(
-      `SELECT DISTINCT cp.client, p.client_record_id FROM coverage_projects cp JOIN time_off_requests r ON r.id = cp.request_id
-       LEFT JOIN projects p ON p.id = cp.project_id
-       WHERE cp.backup_zoho_id = ? AND cp.project_id != '' AND r.status = 'approved' AND r.kind != 'emergency' AND ? BETWEEN r.start_date AND r.end_date`
-    ).bind(user.zoho_id, local.date).all();
-    covering = results;
-  }
+  const covering = assignments.some((a) => a.is_coverage) ? await coveringClients(env, user, local.date) : [];
   // Each start time is in the assignment's own time zone, or the VA's when none is set.
   const allToday = assignments
     .filter((a) => (a.is_coverage ? covering.some((c) => sameClient(c, a)) : a.days.split(',').includes(today)))
@@ -87,6 +79,18 @@ export async function dayInfo(env, user, now = new Date()) {
     projectsOffNames: onTimeOff ? '' : projectsOff.map((p) => p.client).join(', '),
     startLabel: first ? first.startLabel : null,
   };
+}
+
+// The clients a VA is the backup for on a date (approved time off, not emergencies): [{ client, client_record_id }].
+// The client of each coverage row is the client of the covered project (its client record), or else its name.
+export async function coveringClients(env, user, date) {
+  if (!user.zoho_id) return [];
+  const { results } = await env.DB.prepare(
+    `SELECT DISTINCT cp.client, p.client_record_id FROM coverage_projects cp JOIN time_off_requests r ON r.id = cp.request_id
+     LEFT JOIN projects p ON p.id = cp.project_id
+     WHERE cp.backup_zoho_id = ? AND cp.project_id != '' AND r.status = 'approved' AND r.kind != 'emergency' AND ? BETWEEN r.start_date AND r.end_date`
+  ).bind(user.zoho_id, date).all();
+  return results;
 }
 
 // Admins can pause all check-ins (Settings). While paused, no check-ins are expected, no late alerts
@@ -301,12 +305,14 @@ export async function runEveryMinute(env, now = new Date()) {
   if (now.getUTCMinutes() !== 0) await safely('Email sync', () => syncEmail(env, now));
 }
 
-// A timer stops by itself after 8 hours. It then waits on the VA's Tasks & time page to be saved with notes.
-export const TIMER_MAX_HOURS = 8;
+// A timer stops by itself after 8 hours, or at 11:59 PM in the project's time zone (whichever comes first).
+// It then waits on the VA's Time page as "Finish saving". auto_stopped: 1 = after 8 hours, 2 = at midnight.
 async function stopLongTimers(env, now) {
-  const cutoff = new Date(now.getTime() - TIMER_MAX_HOURS * 3600000).toISOString();
-  const { results } = await env.DB.prepare('SELECT id, started_at FROM work_timers WHERE stopped_at IS NULL AND started_at <= ? LIMIT 200').bind(cutoff).all();
+  const { results } = await env.DB.prepare('SELECT id, project_id, started_at FROM work_timers WHERE stopped_at IS NULL LIMIT 500').all();
   if (!results.length) return;
-  await env.DB.batch(results.map((t) => env.DB.prepare('UPDATE work_timers SET stopped_at = ?, auto_stopped = 1 WHERE id = ? AND stopped_at IS NULL')
-    .bind(new Date(Date.parse(t.started_at) + TIMER_MAX_HOURS * 3600000).toISOString(), t.id)));
+  const zones = await projectZones(env, results.map((t) => t.project_id));
+  const due = results.map((t) => ({ t, limit: timerLimit(t.started_at, zones.get(String(t.project_id))) })).filter((x) => x.limit.at <= now);
+  if (!due.length) return;
+  await env.DB.batch(due.map(({ t, limit }) => env.DB.prepare('UPDATE work_timers SET stopped_at = ?, auto_stopped = ? WHERE id = ? AND stopped_at IS NULL')
+    .bind(limit.at.toISOString(), limit.reason, t.id)));
 }

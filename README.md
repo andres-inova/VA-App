@@ -214,7 +214,7 @@ Setup, done once in the Slack app you created (VA App):
 
 ## Projects (app)
 
-Projects are moving from Zoho Projects into the app (time logging in the app comes in the next steps). For now both kinds show on the **Projects** page: projects made in the app (labeled "Made in the app") and projects from Zoho Projects. The hourly Zoho sync never changes or closes projects made in the app.
+Projects are moving from Zoho Projects into the app. VAs now log their time in the app (see [Time logging (VA)](#time-logging-va)). For now both kinds show on the **Projects** page: projects made in the app (labeled "Made in the app") and projects from Zoho Projects. The hourly Zoho sync never changes or closes projects made in the app.
 
 - **New project** (top of the Projects page): choose the **client** (required, and it can never be changed afterwards), the VA, and the VA's start time and work days. The name is "Client - VA" unless you type one ("Client - VA - Coverage" when **Coverage project** is ticked). More VAs can be added on the project's page.
 - **Project settings**: click a project, then **Project settings** (the address is /admin/projects/&lt;id&gt;). It works for Zoho projects too.
@@ -222,28 +222,30 @@ Projects are moving from Zoho Projects into the app (time logging in the app com
   - **Billing day of the month** (1st to 28th): a billing cycle runs from that day to the day before it next month (for example the 16th to the 15th). Default: the first choice in the client's "Invoice date", else the 1st.
   - **Package**: hours per billing cycle. Each change has a **Takes effect on** date, so a new package can start at the next billing cycle while the current one still counts. The page shows the package now, upcoming changes (which can be removed before they start) and earlier ones. When no package is set yet, the box is filled in from the client's "Package hours".
   - **VAs**: add, change (start time, time zone, work days) or remove VAs, the same as on the Projects page.
+  - **Past-date exceptions**: VAs can log time only for today. Here an admin can allow one VA to add or change time for earlier days in this project: choose the VA, the first and last day (not in the future) and a reason. The admin's name and the time are saved with it. **Remove** takes it back. (A fuller exceptions page comes later.)
   - **History**: every change to the project (who and when).
   - **Close project** (projects made in the app only): it stops showing on the Projects page and for its VAs. Nothing is deleted, and it can be reopened from its page.
 - Projects made in the app have ids like "p-1", "p-2"; Zoho projects keep their Zoho ids (long numbers).
-- The old **Tasks & time** page (below) still works for Zoho projects only until the new time page replaces it.
 
 ## Task types and pay periods
 
 - **Settings → Task types**: one list for the whole company of the kinds of work a VA picks when logging time (Phones and inbound calls, Scheduling, Email and inbox, Follow-ups, Sales and leads, Billing and invoicing, Admin, Meetings, Training, Other). Click one to rename it, move it up or down, hide it or delete it. A hidden type can't be picked for new time. A type that already has time logged can't be deleted, only hidden.
 - **Settings → Pay periods**: the pay periods from the "2026 Pay Periods" sheet (first day, last day, pay day), grouped by year. Click one to change or delete it; **Add a pay period** at the bottom. Periods can't overlap, and the pay day must be on or after the last day. A period that isn't 14 days long shows its length (Nov 27 - Dec 3, 2026 is 7 days, as in the sheet).
 
-## Tasks & time (Zoho Projects)
+## Time logging (VA)
 
-VAs open **Tasks & time** in the menu (on phones, in the bottom bar). Everything they do there is saved straight into Zoho Projects, on the project the app assigned to them. A VA with several projects first chooses the project from a list (with today's start time for each); inside a project, the buttons at the top switch to another project or go back to the list. Every section on the page (Log time, My time, each task list) starts closed; sections the VA opens stay open while they use the page, even after saving.
+VAs open **Time** in the menu (on phones, in the bottom bar). Time is saved in the app, for all of the VA's projects (Zoho projects and projects made in the app). Nothing is sent to Zoho any more. Old links to "Tasks & time" open this page.
 
-- **Tasks and task lists**: the same lists and open tasks as in Zoho. VAs can add, rename, move and trash tasks, and add, rename and trash task lists. New task lists are visible to clients (External), like the existing ones.
-- **Timer**: **Start** next to a task (or **Start a general timer**). The timer keeps running on the app's server, so closing the app or locking the phone doesn't stop it. A bar at the top of every page shows it. **Stop** opens a form with the date, start and end times already filled in; the VA adds notes, picks Billable or Non Billable, and clicks **Save to Zoho** (or **Discard**). A timer that runs 8 hours stops by itself and waits to be saved the same way.
-- **Check-in**: starting the first timer of the day also checks the VA in (unless they called out or are off).
-- **Log time**: add time worked without the timer: task (or General with a log name), date, start and end time, billing type and notes.
-- **My time**: the VA's own time logs for the week (Sunday to Saturday), with billable and total hours. Each one can be edited or trashed. VAs can only change their own logs.
-- **Zoho's rules still apply**: Zoho's time log limits (which days can be logged, 10 hours a day, 50 a week). When Zoho turns something down, the app shows Zoho's reason.
-
-Needs: the Zoho key with the Tasks & time scopes (see [3. Zoho key](#3-zoho-key)), and each VA must be a user in the Zoho Projects portal. If a VA's Zoho Projects account isn't found, the app says so when they try to save time; check that their email in Zoho Projects matches their email in the app, then sync.
+- **Project buttons** at the top: one big button per project, with the time logged there today (for example "1h 20m today"). A red dot means a timer is running in that project. The app remembers the last project chosen. A coverage project shows only on days the VA covers that client.
+- **Start timer**: tap what you are working on (the task type). A description is optional and can be added later. Several timers can run at once, in different projects or for different task types. Timers run on the app's server, so closing the app or the phone does not stop them. Each running timer shows as a card at the top of the Time page with its time counting up, **Stop** and **Discard**. On the other pages a bar shows the timer (or "2 timers running").
+- **Stop** opens **Save time**: the task type, the description, the time (filled in from the timer, rounded to the minute; it can be lowered, not raised) and optional attachments. **Save** adds it to the day's list. A stopped timer that was not saved waits as a **Finish saving** card.
+- **Timers stop by themselves** after 8 hours, and at 11:59 PM in the project's time zone (a timer can't run past midnight). They then wait as **Finish saving**.
+- **Check-in**: the first timer of the day also checks the VA in (unless they called out or are off).
+- **Log time**: time worked without a timer: task type, description, hours and minutes, and optional attachments (PDF, Word, Excel, text or pictures, up to 5 files of 15 MB each). It is always for **today** in the project's time zone; the day is shown and can't be changed. If an admin allowed earlier days for that VA and project (Past-date exceptions on the project's page), a list of the allowed days appears.
+- **Today's list** (under the buttons): each log with its task type, description, time, files and a stamp such as "Entered 2:14 PM CST by Ana Pérez" (in the project's time zone). The stamp is set by the app and can never be changed, not even by an admin.
+- **Change or delete**: tap a log to change its task type, description, time or files, or to delete it. This works only while the log's day is still today (or an allowed earlier day). Every change and delete is kept in the log's history (who, when, what changed); a deleted log is kept, only hidden.
+- Attachments open only for the VA who logged the time and for admins.
+- Totals by pay period, charts and the admin views come in the next steps.
 
 ## Put the app on a phone or computer
 
@@ -332,7 +334,7 @@ The app works on computers and phones. On a computer, the menu is on the left. F
   - counts for check-ins **only on days that VA is the approved backup** for that client (on any day of the week); other days it is ignored. "That client" means the same client record as the covered project (the **Client** box on the Projects page); when one of them has no client, the names before " - " are compared. When the project first appears, its start time (and time zone) is copied from the client's regular VA; change it on the Projects page if needed.
   - needs **no Coverage SOP** (the client's regular project has it), and is left out of the SOP lists, reminders and counts.
   - can't be chosen when a VA asks for coverage, and doesn't raise "project has no VA" (the backup may not use this app).
-  - is listed under **Coverage projects** on the Projects page, labeled "(coverage)" on My day and Today, and in Tasks & time it links to the client's Coverage SOP while the VA is covering.
+  - is listed under **Coverage projects** on the Projects page, labeled "(coverage)" on My day and Today, and on the Time page it links to the client's Coverage SOP while the VA is covering.
 - **No projects that day, or no start times**, means no check-in is expected and no late alerts are sent. The VA can still check in.
 - **Holidays**: no check-in is expected on dates listed under Holidays.
 - **Exempt VAs are never checked.** A VA is exempt when the **VA Company Affiliation** on their VA record is anything other than "InoVA Local" (for example "Closers", or empty), or when an admin clicks **Exempt this VA** (on the People page or in the Login box of their VA record). Exempt VAs get no expected check-in, no late alerts, and don't appear in reports. They can still log in, check in and request time off. An empty affiliation shows a warning on the People page.
@@ -571,7 +573,7 @@ The VA training program, moved here from the separate training tracker app. A **
 | `src/wufoo.js` | Receives new job applications from the Wufoo form (WebHook); `WUFOO_FIELDS` says which question goes into which applicant field |
 | `google-form-script.js` | The script to paste into the Google Form (not part of the app itself) |
 | `src/zoho.js` | The hourly sync: VA logins (linked to their VA records) and the backup list from the app's VA records, active projects from Zoho Projects, linking projects to client records, assigning new projects by name, and finding each VA's Zoho Projects user |
-| `src/work.js` | Tasks, task lists and time logs in Zoho Projects (the Tasks & time page) |
+| `src/timelog.js`, `src/timelog-views.js` | The VA's Time page: project buttons, timers, Save time, Log time, changing and deleting today's logs, attachments, past-date exceptions |
 | `src/projects.js`, `src/projects-views.js` | Projects made in the app, each project's settings page (time zone, billing day, package with dates, VAs, history), Settings → Task types and Settings → Pay periods |
 | `src/fields.js` | The built-in fields of clients, contacts, VAs and applicants, in sections, with the admins' changes from Settings → Fields laid over them; the hiring steps and scores |
 | `src/field-editor.js` | Settings → Fields: the page where admins add, rename, move, hide and delete fields and change pick-list choices |

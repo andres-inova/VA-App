@@ -13,7 +13,7 @@ import { createCoverageChecklist, deleteChecklist, clickupReady } from './clicku
 import { formatTimeIn, formatDate, addDays, partsIn, weekdayIndex, weekdayOf, REPORT_ZONE } from './time.js';
 import { redirect, page, isDate, isTime, sameClient } from './util.js';
 import { isNearby, nearbyText } from './timeoff.js';
-import * as work from './work.js';
+import { timeRoutes, timeFile, loadTimers } from './timelog.js';
 import { sopRoutes, adminSopRoutes, vaSops, allSops, coveringSops } from './sops.js';
 import { recordRoutes } from './records.js';
 import { loadFieldLayouts } from './fields.js';
@@ -110,8 +110,8 @@ async function handle(request, env) {
   if (path === '/') return redirect(homeOf(user));
 
   if (user.is_va && !user.in_training) {
-    // The old Zoho "Tasks & time" page uses one timer per VA: the newest one.
-    user.timer = await env.DB.prepare('SELECT t.*, p.client FROM work_timers t LEFT JOIN projects p ON p.id = t.project_id WHERE t.user_id = ? ORDER BY t.started_at DESC LIMIT 1').bind(user.id).first();
+    // The VA's timers (several can run at once): cards on the Time page and the timer bar on other pages.
+    user.timers = await loadTimers(env, user.id);
     // Coverage SOPs the VA still has to fill in or upload (a badge in the menu, and a card on My day).
     user.sops_todo = (await vaSops(env, user.id)).filter((s) => !s.status.done);
   }
@@ -122,9 +122,18 @@ async function handle(request, env) {
   // Training: trainers and trainees (admins have their own Training pages below).
   if (path === '/training' || path.startsWith('/training/')) return trainingRoutes(env, user, path, method, field, message, url);
 
+  // Attachments of time logs: the VA whose log it is, and admins.
+  if (path.startsWith('/time-files/') && method === 'GET') return timeFile(env, user, path);
+
+  // The old "Tasks & time" page (Zoho Projects) was replaced by the Time page.
   if (path === '/va/work' || path.startsWith('/va/work/')) {
     if (!user.is_va || user.in_training) return redirect(homeOf(user));
-    return workRoutes(env, user, path, method, field, message, url);
+    const project = url.searchParams.get('project');
+    return redirect(`/va/time${project ? `?project=${encodeURIComponent(project)}` : ''}`);
+  }
+  if (path === '/va/time' || path.startsWith('/va/time/')) {
+    if (!user.is_va || user.in_training) return redirect(homeOf(user));
+    return timeRoutes(env, user, request, path, method, field, form, message, url);
   }
 
   if (path === '/va' || path.startsWith('/va/')) {
@@ -233,142 +242,6 @@ async function vaRoutes(env, user, path, method, field, message) {
 
   // Time-off and coverage requests are made with the Google Form (see src/forms.js).
   return redirect('/va');
-}
-
-// ---- Tasks and time (Zoho Projects) ----
-
-async function workRoutes(env, user, path, method, field, message, url) {
-  const now = new Date();
-  const day = await dayInfo(env, user, now);
-  const { results: projects } = await env.DB.prepare(
-    `SELECT p.id, p.client, p.client_record_id, p.name, p.is_coverage FROM assignments a JOIN projects p ON p.id = a.project_id
-     WHERE a.user_id = ? AND p.active = 1 AND p.id NOT LIKE 'p-%' ORDER BY p.is_coverage, p.client`
-  ).bind(user.id).all();
-  const projectId = field('project') || url.searchParams.get('project') || user.timer?.project_id || projects[0]?.id || '';
-  const project = projects.find((p) => p.id === projectId);
-  const back = (params) => redirect(`/va/work?${new URLSearchParams({ project: projectId, ...params })}`);
-
-  if (path === '/va/work' && method === 'GET') {
-    // A VA with more than one project chooses the project first.
-    if (!url.searchParams.get('project') && projects.length > 1) return page(views.workPickPage({ user, day, projects, message }));
-    // Weeks run Sunday to Saturday, as in Zoho.
-    const weekParam = url.searchParams.get('week');
-    const today = day.local.date;
-    const thisWeek = addDays(today, -weekdayIndex(day.local.weekday));
-    const week = isDate(weekParam) ? addDays(weekParam, -weekdayIndex(weekdayOf(weekParam))) : thisWeek;
-    // Tasks and time logs load separately, so a problem with one doesn't hide the other.
-    const problem = (err) => {
-      if (!(err instanceof work.ZohoError)) console.error(err.stack || err.message);
-      return err instanceof work.ZohoError ? err.message : 'Zoho Projects could not be reached. Please try again in a minute.';
-    };
-    let lists = [], logs = [], zohoError = url.searchParams.get('err') || '', logsError = '';
-    if (project) {
-      const [a, b] = await Promise.allSettled([
-        work.projectWork(env, project.id),
-        work.myLogs(env, project.id, user.zoho_projects_user_id, user.email, week, addDays(week, 6)),
-      ]);
-      if (a.status === 'fulfilled') lists = a.value; else zohoError = zohoError || `Tasks could not be loaded. ${problem(a.reason)}`;
-      if (b.status === 'fulfilled') logs = b.value; else logsError = `Your time logs could not be loaded. ${problem(b.reason)}`;
-    }
-    // In a coverage project, a link to the client's Coverage SOP while this VA is covering them.
-    const coverageSop = project?.is_coverage
-      ? (await coveringSops(env, user)).find((c) => sameClient(c, project) && (c.has_content || c.file_key)) || null
-      : null;
-    return page(views.workPage({ user, day, projects, project, coverageSop, lists, logs, week, thisWeek, today, message, zohoError, logsError }));
-  }
-
-  if (method !== 'POST' || !project) return redirect('/va/work');
-  const done = (key) => back({ msg: key });
-  const needName = (name) => (name.length < 1 || name.length > 500 ? 'Please enter a name.' : '');
-
-  try {
-    // ---- Timer ----
-    if (path === '/va/work/timer/start') {
-      if (user.timer) {
-        return back({ err: user.timer.stopped_at ? 'Please save or discard your stopped timer first.' : 'Please stop your running timer first.' });
-      }
-      await env.DB.prepare('INSERT INTO work_timers (user_id, project_id, task_id, task_name, started_at) VALUES (?, ?, ?, ?, ?)')
-        .bind(user.id, project.id, field('task') || null, field('task_name').slice(0, 500) || 'General', now.toISOString()).run();
-      // Starting work counts as the day's check-in.
-      const row = await env.DB.prepare('SELECT status, checked_in_at FROM attendance WHERE user_id = ? AND work_date = ?')
-        .bind(user.id, day.local.date).first();
-      const off = ['called_out', 'time_off', 'emergency', 'coverage'].includes(row?.status);
-      if (!row?.checked_in_at && !off) {
-        await checkIn(env, user, now);
-        return done('timer-started-checked-in');
-      }
-      return done('timer-started');
-    }
-    if (path === '/va/work/timer/stop') {
-      await env.DB.prepare('UPDATE work_timers SET stopped_at = ? WHERE id = ? AND stopped_at IS NULL').bind(now.toISOString(), user.timer?.id || 0).run();
-      return redirect(`/va/work?project=${encodeURIComponent(user.timer?.project_id || projectId)}&msg=timer-stopped#timer`);
-    }
-    if (path === '/va/work/timer/discard') {
-      await env.DB.prepare('DELETE FROM work_timers WHERE id = ?').bind(user.timer?.id || 0).run();
-      return done('timer-discarded');
-    }
-
-    // ---- Time logs ----
-    if (path === '/va/work/log' || path === '/va/work/log/edit') {
-      if (!user.zoho_projects_user_id) {
-        return back({ err: 'Your Zoho Projects account was not found, so time cannot be saved under your name yet. Please ask an admin to check that your email in Zoho Projects matches your email here.' });
-      }
-      const [task, taskName] = field('task').split('|');
-      const log = {
-        date: field('date'), start: field('start'), end: field('end'), billable: field('billable') !== 'no',
-        notes: field('notes').slice(0, 10000), taskId: task || '', name: (field('name') || taskName || 'General').slice(0, 1000),
-      };
-      if (!isDate(log.date) || !isTime(log.start) || !isTime(log.end)) return back({ err: 'Please enter the date, start time and end time.' });
-      if (log.end <= log.start) return back({ err: 'The end time must be after the start time.' });
-      if (path === '/va/work/log') {
-        await work.addLog(env, project.id, user.zoho_projects_user_id, log);
-        if (field('from_timer') === '1') await env.DB.prepare('DELETE FROM work_timers WHERE id = ?').bind(user.timer?.id || 0).run();
-        return done('log-added');
-      }
-      await work.updateLog(env, project.id, field('log'), user.zoho_projects_user_id, log);
-      return done('log-updated');
-    }
-    if (path === '/va/work/log/delete') {
-      await work.deleteLog(env, project.id, field('log'), field('type') === 'general' ? 'general' : 'task', user.zoho_projects_user_id);
-      return done('log-deleted');
-    }
-
-    // ---- Tasks and task lists ----
-    const name = field('name');
-    if (path === '/va/work/task/add') {
-      if (needName(name)) return back({ err: needName(name) });
-      await work.createTask(env, project.id, field('list'), name);
-      return done('task-added');
-    }
-    if (path === '/va/work/task/edit') {
-      if (needName(name)) return back({ err: needName(name) });
-      await work.renameTask(env, project.id, field('task'), name);
-      if (field('list') && field('list') !== field('old_list')) await work.moveTask(env, project.id, field('task'), field('list'));
-      return done('task-updated');
-    }
-    if (path === '/va/work/task/delete') {
-      await work.deleteTask(env, project.id, field('task'));
-      return done('task-deleted');
-    }
-    if (path === '/va/work/list/add') {
-      if (needName(name)) return back({ err: needName(name) });
-      await work.createList(env, project.id, name);
-      return done('list-added');
-    }
-    if (path === '/va/work/list/rename') {
-      if (needName(name)) return back({ err: needName(name) });
-      await work.renameList(env, project.id, field('list'), name);
-      return done('list-updated');
-    }
-    if (path === '/va/work/list/delete') {
-      await work.deleteList(env, project.id, field('list'));
-      return done('list-deleted');
-    }
-  } catch (err) {
-    if (!(err instanceof work.ZohoError)) console.error(err.stack || err.message);
-    return back({ err: err instanceof work.ZohoError ? err.message : 'Something went wrong while talking to Zoho. Please try again.' });
-  }
-  return redirect('/va/work');
 }
 
 // ---- Admin pages ----

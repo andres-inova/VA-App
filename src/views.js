@@ -34,17 +34,20 @@ const MESSAGES = {
   'checkins-resumed': ['good', 'Check-ins resumed. Late alerts start with the next shift that begins from now on.'],
   'timer-started': ['good', 'Timer started.'],
   'timer-started-checked-in': ['good', 'Timer started, and you are checked in for today.'],
-  'timer-stopped': ['info', 'Timer stopped. Add your notes and save it to Zoho.'],
-  'timer-discarded': ['good', 'Timer discarded. Nothing was saved to Zoho.'],
-  'log-added': ['good', 'Time log saved to Zoho.'],
-  'log-updated': ['good', 'Time log updated in Zoho.'],
-  'log-deleted': ['good', 'Time log trashed in Zoho.'],
-  'task-added': ['good', 'Task added in Zoho.'],
-  'task-updated': ['good', 'Task updated in Zoho.'],
-  'task-deleted': ['good', 'Task trashed in Zoho.'],
-  'list-added': ['good', 'Task list added in Zoho.'],
-  'list-updated': ['good', 'Task list renamed in Zoho.'],
-  'list-deleted': ['good', 'Task list trashed in Zoho.'],
+  'timer-discarded': ['good', 'Timer discarded. No time was saved.'],
+  'timer-already': ['info', 'A timer for this is already running.'],
+  'timer-too-many': ['bad', 'You have 10 timers running. Please stop one first.'],
+  'timer-gone': ['info', 'That timer is not there any more.'],
+  'time-saved': ['good', 'Time saved.'],
+  'time-saved-other-day': ['good', 'Time saved for the earlier day.'],
+  'time-updated': ['good', 'Changes saved.'],
+  'time-deleted': ['good', 'Time log deleted.'],
+  'time-file-removed': ['good', 'File removed.'],
+  'time-log-gone': ['info', 'That time log is not there any more.'],
+  'time-no-project': ['bad', 'That project is not one of yours. Please choose one of your projects.'],
+  'time-not-covering': ['bad', 'You can log time for a coverage project only on days you cover that client.'],
+  'exception-added': ['good', 'Allowed. The VA can now add or change time for those days in this project.'],
+  'exception-bad': ['bad', 'Please choose a VA of this project, a first day and a last day (the last day not before the first, and not in the future).'],
   'sop-unreadable': ['bad', 'The SOP could not be saved. Please try again.'],
   'sop-empty': ['bad', 'Saved, but not marked complete yet: please fill in your steps first.'],
   'sop-draft': ['good', 'Saved. It is not marked complete yet; come back any time to finish it.'],
@@ -362,7 +365,20 @@ button.busy::after{content:"";width:14px;height:14px;border-radius:50%;border:2p
 .attn.bad,.attn.warn,.attn.muted{background:none;color:var(--text)}.attn-card.done{display:flex;align-items:center;gap:8px;color:var(--good)}
 .loading{position:fixed;z-index:30;top:70px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;background:var(--surface);color:var(--text);
   font-weight:700;padding:10px 18px;border-radius:99px;box-shadow:0 6px 24px rgba(0,0,0,.18);white-space:nowrap}.loading[hidden]{display:none}.loading .ic{animation:spin 1s linear infinite}
-#timer{scroll-margin-top:80px}[data-since],.bigtime{font-variant-numeric:tabular-nums}.bigtime{font-size:36px;font-weight:800;line-height:1.2}
+#timer{scroll-margin-top:80px}
+.pj-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:0 0 16px}
+.pj-btn{position:relative;display:flex;flex-direction:column;justify-content:center;min-height:64px;padding:10px 26px 10px 14px;border-radius:14px;background:var(--surface);box-shadow:var(--shadow);color:var(--text);text-decoration:none;overflow-wrap:anywhere;line-height:1.25}
+.pj-btn small{color:var(--muted);font-weight:700;margin-top:2px}.pj-btn.on{background:var(--accent);color:#fff}.pj-btn.on small{color:#fff;opacity:.9}
+.pj-btn .dot{position:absolute;top:10px;right:10px;width:11px;height:11px;border-radius:50%;background:#e53935;box-shadow:0 0 0 2px var(--surface)}
+.tm-card{border-left:6px solid var(--accent)}.tm-card.stopped{border-left-color:var(--warn)}
+.tm-row{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;justify-content:space-between}.tm-what{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
+.tm-buttons{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.tm-buttons form{margin:0;flex:1 1 160px}.tm-buttons form:last-child{flex:0 0 auto}.tm-buttons button{margin-top:10px}
+.big-btn{min-height:56px;font-size:17px;justify-content:center;width:100%;margin-top:12px}
+.time-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:0 0 16px}.time-actions .btn{margin:0}
+.tt-list{display:grid;gap:8px;margin-top:10px}.tt-list button{margin:0;min-height:52px;justify-content:flex-start;background:var(--surface-2);color:var(--text);border-radius:14px;font-size:16px;box-shadow:inset 0 0 0 1.5px var(--line);text-align:left}
+.hm{display:grid;grid-template-columns:1fr 1fr;gap:12px}.stamp{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:4px;margin:4px 0 0}.stamp .ic{width:14px;height:14px}
+.log-row .log-desc{white-space:pre-line;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.log-row .sub .ic{width:14px;height:14px;vertical-align:-2px}.tl-mins{flex:none}
+.tl-file{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0}.tl-file a{display:inline-flex;align-items:center;gap:6px;overflow-wrap:anywhere;min-height:44px}.tl-file form{margin:0 0 0 auto}.tl-file button{margin:0}[data-since],.bigtime{font-variant-numeric:tabular-nums}.bigtime{font-size:36px;font-weight:800;line-height:1.2}
 a.item.pick{display:block;color:inherit;text-decoration:none;border-radius:12px}a.item.pick:hover{background:var(--surface-2)}a.item.pick .item-head{cursor:pointer}
 .proj-tabs{margin:0 0 12px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:2px 2px 8px}.proj-tabs::-webkit-scrollbar{display:none}.proj-tabs .chip{flex:none}.proj-tabs .chip{text-decoration:none;font-size:14px;padding:7px 14px;box-shadow:var(--shadow)}.proj-tabs .chip.on{background:var(--accent);color:#fff}
 .inline-add{display:flex;gap:8px;align-items:center;padding:8px}.inline-add input{flex:1}.inline-add button{margin:0}
@@ -546,7 +562,7 @@ const SCRIPT = `<script type="speculationrules">{"prefetch":[{"where":{"href_mat
       live.replaceWith(fresh); live = fresh; stamp();
     }).catch(function () {});
   }, 60000);
-  // Pages with data-remember (Tasks & time) start with everything closed, but keep the sections
+  // Pages with data-remember start with everything closed, but keep the sections
   // a person opened during this visit open after a save reloads the page.
   document.querySelectorAll('[data-remember]').forEach(function (box) {
     var key = 'open:' + box.dataset.remember, open = {};
@@ -559,14 +575,6 @@ const SCRIPT = `<script type="speculationrules">{"prefetch":[{"where":{"href_mat
       });
     });
   });
-  // Tasks & time waits for Zoho before the page appears; say so if it takes a moment.
-  var loading = document.getElementById('loading'), loadingTimer;
-  document.addEventListener('click', function (e) {
-    var a = e.target.closest && e.target.closest('a[href^="/va/work?"]');
-    if (!a || e.defaultPrevented || e.button || e.ctrlKey || e.metaKey || e.shiftKey || a.target) return;
-    loadingTimer = setTimeout(function () { if (loading) loading.hidden = false; }, 300);
-  });
-  window.addEventListener('pageshow', function () { clearTimeout(loadingTimer); if (loading) loading.hidden = true; });
   // The project buttons scroll sideways on phones: keep the chosen one in view.
   var onTab = document.querySelector('.proj-tabs .on');
   if (onTab) {
@@ -623,7 +631,7 @@ export function layout({ title, user, active, message, body }) {
   // Trainers and trainees get a Training link while their training runs; new hires in training see only that.
   const training = user.trainings?.length ? ['/training', user.in_training ? 'My training' : 'Training', 'training'] : null;
   if (user.in_training) groups.push(['Me', [training]]);
-  else if (user.is_va) groups.push(['Me', [['/va', 'My day', 'sun'], ['/va/work', 'Tasks & time', 'tasks'], ['/va/sops', 'Coverage SOPs', 'doc', sopsToDo], training].filter(Boolean)]);
+  else if (user.is_va) groups.push(['Me', [['/va', 'My day', 'sun'], ['/va/time', 'Time', 'timer'], ['/va/sops', 'Coverage SOPs', 'doc', sopsToDo], training].filter(Boolean)]);
   else if (training && !user.is_admin) groups.push(['Me', [training]]);
   if (user.is_admin) {
     groups.push(['Daily', [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/calendar', 'Calendar', 'calendar']]]);
@@ -648,7 +656,7 @@ export function layout({ title, user, active, message, body }) {
   const tabs = user.is_admin
     ? [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'SOPs', 'doc'], ['/admin/people', 'People', 'people']]
     : user.in_training || !user.is_va ? [training || ['/training', 'Training', 'training']]
-    : [['/va', 'My day', 'sun'], ['/va/work', 'Tasks & time', 'tasks'], ['/va/sops', 'SOPs', 'doc', sopsToDo], training].filter(Boolean);
+    : [['/va', 'My day', 'sun'], ['/va/time', 'Time', 'timer'], ['/va/sops', 'SOPs', 'doc', sopsToDo], training].filter(Boolean);
   const tabbar = `<nav class="tabbar" aria-label="Main pages">${tabs.map(([href, label, ic, badge]) =>
     `<a href="${href}" class="${href === active ? 'on' : ''}">${icon(ic)}${label}${badge ? `<span class="badge">${badge}</span>` : ''}</a>`).join('')}
     <label for="nav-toggle">${icon('menu')}Menu</label></nav>`;
@@ -657,22 +665,28 @@ export function layout({ title, user, active, message, body }) {
 <div class="app">${sidebar}<label for="nav-toggle" class="scrim" aria-hidden="true"></label>
   <div class="main-col">
     <header class="topbar"><label for="nav-toggle" class="menu" aria-label="Open menu">${icon('menu')}</label><h1>${esc(title)}</h1>${user.is_admin ? `<a class="top-search" href="/admin/search" aria-label="Search everything">${icon('search')}</a>` : ''}</header>
-    <main>${toast}${active === '/va/work' ? '' : timerBar(user)}${active === '/va/sops' ? '' : sopBanner(user, active)}${body}</main>
+    <main>${toast}${active === '/va/time' ? '' : timerBar(user)}${active === '/va/sops' ? '' : sopBanner(user, active)}${body}</main>
   </div>
-</div>${tabbar}<div id="loading" class="loading" role="status" hidden>${icon('sync')} Loading from Zoho…</div>${SCRIPT}</body></html>`;
+</div>${tabbar}${SCRIPT}</body></html>`;
 }
 
-// A bar at the top of every page while a VA's timer runs (or waits to be saved).
+// A bar at the top of every VA page while timers run (or wait to be saved). One running timer shows its time and a
+// Stop button; several show "2 timers running". Both open the Time page.
 function timerBar(user) {
-  const t = user.timer;
-  if (!t) return '';
-  const where = `${esc(t.task_name || 'General')}${t.client ? ` · ${esc(t.client)}` : ''}`;
-  const href = `/va/work?project=${encodeURIComponent(t.project_id)}#timer`;
-  if (t.stopped_at) {
-    return `<a class="timerbar stopped" href="${href}">${icon('timer')}<span class="grow"><b>Timer stopped${t.auto_stopped ? ' after 8 hours' : ''}.</b> Add notes and save it: ${where}</span>${icon('chevron')}</a>`;
+  const timers = user.timers || [];
+  const stopped = timers.filter((t) => t.stopped_at), running = timers.filter((t) => !t.stopped_at);
+  let html = '';
+  if (stopped.length) {
+    html += `<a class="timerbar stopped" href="/va/time">${icon('timer')}<span class="grow"><b>${stopped.length > 1 ? `${stopped.length} timers to finish saving` : 'Finish saving your timer'}</b>${stopped.length === 1 ? ` · ${esc(stopped[0].client || '')}` : ''}</span>${icon('chevron')}</a>`;
   }
-  return `<div class="timerbar">${icon('timer')}<a class="grow" href="${href}"><b data-since="${esc(t.started_at)}">0:00:00</b> · ${where}</a>
-    <form method="post" action="/va/work/timer/stop"><input type="hidden" name="project" value="${esc(t.project_id)}"><button class="sm">${icon('stop')} Stop</button></form></div>`;
+  if (running.length === 1) {
+    const t = running[0];
+    html += `<div class="timerbar">${icon('timer')}<a class="grow" href="/va/time?project=${esc(encodeURIComponent(t.project_id))}"><b data-since="${esc(t.started_at)}">0:00:00</b> · ${esc(t.type_name || t.task_name || 'General')}${t.client ? ` · ${esc(t.client)}` : ''}</a>
+    <form method="post" action="/va/time/timer/${t.id}/stop"><button class="sm">${icon('stop')} Stop</button></form></div>`;
+  } else if (running.length > 1) {
+    html += `<a class="timerbar slim" href="/va/time">${icon('timer')}<span class="grow"><b>${running.length} timers running</b></span>${icon('chevron')}</a>`;
+  }
+  return html;
 }
 
 // A reminder on every VA page while any of their projects has no Coverage SOP yet.
@@ -781,7 +795,7 @@ export function vaPage({ user, day, today, requests, history, formUrl, message }
       ${day.projectsOffNames ? `<p class="small">Approved time off today for: ${esc(day.projectsOffNames)}.</p>` : ''}
       <form method="post" action="/va/checkin"><button class="checkin ${checkedIn ? 'done' : ''}" ${checkedIn ? 'disabled' : ''}>${checkedIn ? `${icon('check')} Checked in` : 'Check in'}</button></form>
       ${status}
-      ${day.projects.length ? `<a class="btn plain" href="/va/work">${icon('tasks')} Tasks &amp; time</a><p class="small">Starting a timer there also checks you in.</p>` : ''}
+      ${day.projects.length ? `<a class="btn plain" href="/va/time">${icon('timer')} Log my time</a><p class="small">Starting a timer there also checks you in.</p>` : ''}
     </div>
     ${section({
       title: 'Need time off?', open: false,
@@ -1356,7 +1370,7 @@ export function holidaysPage({ user, holidays, message }) {
 function pauseCard(paused, back) {
   return paused
     ? `<div class="card" style="border:2px solid var(--warn)"><h2>${icon('stop')} Check-ins are paused</h2>
-        <p class="meta">No check-ins are expected, no late alerts are sent, no days count as missed, and the automatic weekly and monthly reports are not sent. VAs can still check in and use Tasks &amp; time.</p>
+        <p class="meta">No check-ins are expected, no late alerts are sent, no days count as missed, and the automatic weekly and monthly reports are not sent. VAs can still check in and log their time.</p>
         <form method="post" action="/admin/settings/pause" data-confirm="Resume check-ins? Late alerts start with the next shift that begins after now.">
           <input type="hidden" name="paused" value="0"><input type="hidden" name="back" value="${back}">
           <button>${icon('play')} Resume check-ins</button></form></div>`
@@ -1599,191 +1613,6 @@ export function calendarPage({ user, month, prev, next, today, events, holidays,
       ${legend}${grid}${list}
       <p class="small">Click a name to see all the details and next steps. Point at a name for a quick summary.</p>
     </div>`,
-  });
-}
-
-// ---- Tasks and time (Zoho Projects) ----
-
-const hhmm = (p) => `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
-const clock = (value) => { const t = parseHHMM(value); return t ? formatHM(t) : ''; };
-const minutesOf = (hours) => { const m = /^(\d+):(\d{2})$/.exec(hours || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : 0; };
-const asHours = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
-
-export function workPage({ user, day, projects, project, coverageSop = null, lists, logs, week, thisWeek, today, message, zohoError, logsError = '' }) {
-  const title = 'Tasks & time';
-  if (!project) {
-    return layout({ title, user, active: '/va/work', message, body: `<div class="card">${empty('You have no projects yet. An admin assigns them on the Projects page.')}</div>` });
-  }
-  const zone = day.zone;
-  const t = user.timer;
-  const q = (extra = {}) => `/va/work?${new URLSearchParams({ project: project.id, ...extra })}`;
-  const hidden = (projectId = project.id) => `<input type="hidden" name="project" value="${esc(projectId)}">`;
-  const allTasks = lists.flatMap((l) => l.tasks);
-
-  const error = zohoError ? `<div class="toast bad" role="alert">${esc(zohoError)}</div>` : '';
-  const switcher = projects.length > 1
-    ? `<nav class="chips proj-tabs" aria-label="Projects"><a class="chip muted" href="/va/work">‹ All projects</a>${projects.map((p) =>
-      `<a class="chip ${p.id === project.id ? 'on' : 'muted'}" href="/va/work?project=${encodeURIComponent(p.id)}" ${p.id === project.id ? 'aria-current="page"' : ''}>${esc(p.client)}${p.is_coverage ? ' (coverage)' : ''}</a>`).join('')}</nav>`
-    : '';
-  // A coverage project: what it is for, and the client's SOP.
-  const coverageNote = project.is_coverage ? `<div class="card coverage-note">${chip('Coverage', 'info')}
-      <p class="meta" style="margin:8px 0 0">Log the time you spend covering <b>${esc(project.client)}</b> here. It counts for check-ins only on days you are the backup for them.</p>
-      ${coverageSop ? `<div class="actions">${coverageSop.has_content ? `<a class="btn sm" href="/sops/${esc(encodeURIComponent(coverageSop.id))}">${icon('doc')} Read the Coverage SOP</a>` : ''}
-        ${coverageSop.file_key ? `<a class="btn sm plain" href="/sops/${esc(encodeURIComponent(coverageSop.id))}/file" target="_blank" rel="noopener">${icon('external')} Open the SOP file</a>` : ''}</div>` : ''}
-    </div>` : '';
-
-  const taskOptions = `<option value="">General (no task)</option>${lists.filter((l) => l.tasks.length).map((l) =>
-    `<optgroup label="${esc(l.name)}">${l.tasks.map((x) => `<option value="${esc(x.id)}|${esc(x.name)}">${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}`;
-  const logFields = ({ date = today, start = '', end = '', billable = true, notes = '' } = {}) => `
-    <div class="row">
-      <div><label>Date</label><input type="date" name="date" required value="${esc(date)}" max="${esc(today)}"></div>
-      <div><label>Start time</label><input type="time" name="start" required value="${esc(start)}"></div>
-      <div><label>End time</label><input type="time" name="end" required value="${esc(end)}"></div>
-      <div><label>Billing type</label><select name="billable"><option value="yes" ${billable ? 'selected' : ''}>Billable</option><option value="no" ${billable ? '' : 'selected'}>Non Billable</option></select></div>
-    </div>
-    <label>Notes</label><textarea name="notes" maxlength="10000" placeholder="What you worked on">${esc(notes)}</textarea>`;
-
-  // The timer
-  let timerCard;
-  if (t?.stopped_at) {
-    const s = partsIn(zone, new Date(t.started_at));
-    const e = partsIn(zone, new Date(t.stopped_at));
-    const crosses = s.date !== e.date;
-    timerCard = `<div class="card" id="timer">
-      <h2>${icon('timer')} Save your timer</h2>
-      <p class="meta"><b>${esc(t.task_name || 'General')}</b>${t.client ? ` · ${esc(t.client)}` : ''}</p>
-      ${t.auto_stopped ? '<p class="small">This timer stopped by itself after 8 hours. Change the times if you stopped working earlier.</p>' : ''}
-      ${crosses ? '<p class="small">This timer ran past midnight, so it ends at 11:59 PM here. Use "Log time" to add the time after midnight.</p>' : ''}
-      <form method="post" action="/va/work/log">
-        ${hidden(t.project_id)}<input type="hidden" name="from_timer" value="1">
-        <input type="hidden" name="task" value="${esc(t.task_id || '')}|${esc(t.task_name || 'General')}">
-        ${logFields({ date: s.date, start: hhmm(s), end: crosses ? '23:59' : hhmm(e) })}
-        <button>${icon('check')} Save to Zoho</button>
-      </form>
-      <form method="post" action="/va/work/timer/discard" data-confirm="Discard this timer? Nothing will be saved to Zoho.">${hidden(t.project_id)}<button class="danger sm">${icon('trash')} Discard</button></form>
-    </div>`;
-  } else if (t) {
-    timerCard = `<div class="card hero" id="timer">
-      <div class="date">Timer running</div>
-      <div class="bigtime" data-since="${esc(t.started_at)}">0:00:00</div>
-      <p class="meta"><b>${esc(t.task_name || 'General')}</b>${t.client ? ` · ${esc(t.client)}` : ''}<br>Started at ${esc(formatTimeIn(t.started_at, zone))} ${esc(day.zoneLabel)}</p>
-      <form method="post" action="/va/work/timer/stop">${hidden(t.project_id)}<button>${icon('stop')} Stop timer</button></form>
-      <p class="small">It keeps running if you close the app, and stops by itself after 8 hours.</p>
-    </div>`;
-  } else {
-    timerCard = `<div class="card" id="timer">
-      <h2>${icon('timer')} Timer</h2>
-      <p class="meta">Press <b>Start</b> next to a task below. The timer keeps running if you close the app, and stops by itself after 8 hours. Starting your first timer of the day also checks you in.</p>
-      <form method="post" action="/va/work/timer/start">${hidden()}<input type="hidden" name="task_name" value="General"><button class="plain sm">${icon('play')} Start a general timer</button></form>
-    </div>`;
-  }
-
-  // This week's time logs
-  const total = logs.reduce((sum, l) => sum + minutesOf(l.hours), 0);
-  const billable = logs.filter((l) => l.billable).reduce((sum, l) => sum + minutesOf(l.hours), 0);
-  const weekNav = `<div class="actions" style="padding:0 8px 8px">
-    <a class="btn plain sm" href="${q({ week: addDays(week, -7) })}">‹ Previous week</a>
-    ${week !== thisWeek ? `<a class="btn plain sm" href="${q({ week: addDays(week, 7) })}">Next week ›</a><a class="btn plain sm" href="${q()}">This week</a>` : ''}
-  </div>`;
-  const logItems = logs.map((l) => item({
-    title: esc(l.title),
-    tone: 'stack',
-    sub: `${esc(formatDate(l.date))}${l.start && l.end ? ` · ${esc(clock(l.start))}–${esc(clock(l.end))}` : ''} · ${esc(l.hours)} h`,
-    side: chip(l.billable ? 'Billable' : 'Non Billable', l.billable ? 'good' : 'muted'),
-    key: `log-${l.id}`,
-    body: `${l.notes ? `<div class="bubble">${esc(l.notes)}</div>` : ''}
-      <form method="post" action="/va/work/log/edit">
-        ${hidden()}<input type="hidden" name="log" value="${esc(l.id)}">
-        <input type="hidden" name="task" value="${esc(l.taskId)}|${esc(l.title)}">
-        ${l.type === 'general' ? `<label>Log name</label><input type="text" name="name" maxlength="1000" value="${esc(l.title)}">` : ''}
-        ${logFields({ date: l.date, start: l.start, end: l.end, billable: l.billable, notes: l.notes })}
-        <button>Save changes</button>
-      </form>
-      <form method="post" action="/va/work/log/delete" data-confirm="Trash this time log in Zoho?">
-        ${hidden()}<input type="hidden" name="log" value="${esc(l.id)}"><input type="hidden" name="type" value="${l.type === 'general' ? 'general' : 'task'}">
-        <button class="danger sm">${icon('trash')} Trash</button>
-      </form>`,
-  })).join('');
-
-  // Task lists and tasks
-  const listOptions = (selected) => lists.filter((l) => l.id).map((l) => `<option value="${esc(l.id)}" ${l.id === selected ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
-  const startForms = allTasks.map((x) => `<form id="start-${esc(x.id)}" method="post" action="/va/work/timer/start" hidden>${hidden()}
-    <input type="hidden" name="task" value="${esc(x.id)}"><input type="hidden" name="task_name" value="${esc(x.name)}"></form>`).join('');
-  const taskRow = (x, list) => {
-    const running = t && !t.stopped_at && t.task_id === x.id;
-    return item({
-      title: esc(x.name),
-      sub: esc(x.prefix),
-      tone: 'stack',
-      side: running ? chip('Running', 'good') : `<button class="sm" form="start-${esc(x.id)}" ${t ? 'disabled title="Stop or save your current timer first"' : ''}>${icon('play')} Start</button>`,
-      key: `task-${x.id}`,
-      body: `<form method="post" action="/va/work/task/edit">
-          ${hidden()}<input type="hidden" name="task" value="${esc(x.id)}"><input type="hidden" name="old_list" value="${esc(list.id)}">
-          <div class="row"><div><label>Task name</label><input type="text" name="name" required maxlength="500" value="${esc(x.name)}"></div>
-          ${list.id ? `<div><label>Task list</label><select name="list">${listOptions(list.id)}</select></div>` : ''}</div>
-          <button>Save</button>
-        </form>
-        <form method="post" action="/va/work/task/delete" data-confirm="Trash the task &quot;${esc(x.name)}&quot; in Zoho?">
-          ${hidden()}<input type="hidden" name="task" value="${esc(x.id)}"><button class="danger sm">${icon('trash')} Trash task</button>
-        </form>`,
-    });
-  };
-  const listSections = lists.map((l) => section({
-    title: l.name, count: l.tasks.length, key: `list-${l.id || 'other'}`, open: false,
-    body: `${l.tasks.map((x) => taskRow(x, l)).join('') || empty('No open tasks in this list.')}
-      <form class="inline-add" method="post" action="/va/work/task/add">${hidden()}<input type="hidden" name="list" value="${esc(l.id)}">
-        <input type="text" name="name" required maxlength="500" placeholder="Add a task to ${esc(l.name)}" aria-label="New task name"><button class="sm">${icon('plus')} Add</button></form>
-      ${l.id ? `<details class="list-opts"><summary>List options</summary>
-        <form class="inline-add" method="post" action="/va/work/list/rename">${hidden()}<input type="hidden" name="list" value="${esc(l.id)}">
-          <input type="text" name="name" required maxlength="500" value="${esc(l.name)}" aria-label="Task list name"><button class="sm plain">Rename</button></form>
-        <form method="post" action="/va/work/list/delete" style="padding:0 8px" data-confirm="Trash the task list &quot;${esc(l.name)}&quot; and its tasks in Zoho?">${hidden()}<input type="hidden" name="list" value="${esc(l.id)}">
-          <button class="danger sm">${icon('trash')} Trash this list</button></form>
-      </details>` : ''}`,
-  })).join('');
-
-  return layout({
-    title, user, active: '/va/work', message,
-    body: `${error}${switcher}${coverageNote}${timerCard}<div data-remember="work-${esc(project.id)}">
-    ${section({
-      title: 'Log time', open: false, key: 'log-time',
-      hint: 'Add time you worked without the timer. It is saved in Zoho under your name.',
-      body: `<form method="post" action="/va/work/log" style="padding:0 8px 8px">${hidden()}
-        <div class="row"><div><label>Task</label><select name="task">${taskOptions}</select></div>
-        <div><label>Log name (only for General)</label><input type="text" name="name" maxlength="1000" placeholder="General"></div></div>
-        ${logFields()}
-        <button>${icon('check')} Save to Zoho</button></form>`,
-    })}
-    ${section({
-      title: `My time · ${formatDate(week, false)} – ${formatDate(addDays(week, 6), false)}`, count: `${asHours(total)} h`, key: 'my-time', open: false,
-      hint: `Billable ${asHours(billable)} h · Non billable ${asHours(total - billable)} h. Zoho only accepts time from recent days (up to 10 hours a day and 50 a week).`,
-      body: `${logsError ? `<div class="toast bad" style="margin:0 8px 10px">${esc(logsError)}</div>` : ''}${weekNav}${logItems || (logsError ? '' : empty('No time logged this week.'))}`,
-    })}
-    ${listSections}
-    ${section({
-      title: 'Add a task list', open: false, key: 'add-list',
-      body: `<form class="inline-add" method="post" action="/va/work/list/add">${hidden()}
-        <input type="text" name="name" required maxlength="500" placeholder="Task list name" aria-label="Task list name"><button class="sm">${icon('plus')} Add list</button></form>`,
-    })}</div>
-    ${startForms}`,
-  });
-}
-
-// Tasks & time for a VA with more than one project: choose the project first.
-export function workPickPage({ user, day, projects, message }) {
-  const t = user.timer;
-  const today = new Map(day.projects.map((p) => [p.id, p]));
-  const rows = projects.map((p) => {
-    const running = t && t.project_id === p.id;
-    const sub = today.has(p.id) ? `Today${today.get(p.id).startLabel ? ` · starts ${today.get(p.id).startLabel}` : ''}`
-      : p.is_coverage ? 'Only for days you cover this client' : 'Not scheduled today';
-    return `<a class="item flat pick" href="/va/work?project=${encodeURIComponent(p.id)}"><div class="item-head">${avatar(p.client)}
-      <div class="grow"><div class="title">${esc(p.client)}</div><div class="sub">${esc(sub)}</div></div>
-      ${p.is_coverage ? chip('Coverage', 'info') : ''}${running ? chip(t.stopped_at ? 'Timer to save' : 'Timer running', t.stopped_at ? 'warn' : 'good') : ''}${icon('chevron', 'chev')}</div></a>`;
-  }).join('');
-  return layout({
-    title: 'Tasks & time', user, active: '/va/work', message,
-    body: `${timerBar(user)}<p class="lead">Choose the project you want to log time or work on.</p>
-    <div class="card" style="padding:8px">${rows}</div>`,
   });
 }
 

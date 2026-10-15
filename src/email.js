@@ -512,7 +512,8 @@ export async function emailRoutes(env, user, path, method, field, message, url) 
     if (!ready(env)) return redirect('/admin/email?msg=email-not-set-up');
     const share = field('share');
     if (!['shared', 'private'].includes(share)) return redirect('/admin/email?msg=email-choose-share#mine');
-    const state = toBase64(crypto.getRandomValues(new Uint8Array(24))).replace(/[+/=]/g, '');
+    // 24 random bytes, URL-safe: always 32 characters (no characters are dropped).
+    const state = toBase64(crypto.getRandomValues(new Uint8Array(24))).replace(/\+/g, '-').replace(/\//g, '_');
     const cutoff = new Date(Date.now() - STATE_MINUTES * 60000).toISOString();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM settings WHERE key LIKE 'email_state:%' AND json_extract(value, '$.at') < ?").bind(cutoff),

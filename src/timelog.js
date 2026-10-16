@@ -16,6 +16,7 @@ import { dayInfo, coveringClients } from './jobs.js';
 import { checkIn } from './actions.js';
 import { coveringSops, FILE_TYPES, MAX_FILE } from './sops.js';
 import * as tv from './timelog-views.js';
+import { hoursRoutes } from './timehours.js';
 
 const MAX_FILES = 5;             // attachments per log
 const MAX_RUNNING = 10;          // timers running at once
@@ -138,6 +139,8 @@ async function filesOf(env, logIds) {
 // ---- Routes ----
 
 export async function timeRoutes(env, user, request, path, method, field, form, message, url) {
+  // "My hours": totals, charts, history and the CSV file (read-only, timehours.js).
+  if ((path === '/va/time/hours' || path === '/va/time/hours.csv') && method === 'GET') return hoursRoutes(env, user, path, url, message);
   const now = new Date();
   const nowIso = now.toISOString();
   const projects = await myProjects(env, user, now);
@@ -287,14 +290,18 @@ export async function timeRoutes(env, user, request, path, method, field, form, 
     if (!log) return home('', 'time-log-gone');
     const project = byId(log.project_id);
     const editable = mayLog(project, log.work_date);
+    // A log of a project the VA no longer has (closed, or not on it any more) is shown read-only, with its own zone.
+    const shown = project || await env.DB.prepare('SELECT id, client, name, is_coverage FROM projects WHERE id = ?').bind(log.project_id).first();
+    if (!zones.has(String(log.project_id))) for (const [id, z] of await projectZones(env, [log.project_id])) zones.set(id, z);
+    const backTo = url.searchParams.get('from') === 'hours' ? '/va/time/hours' : '';
     const files = (await filesOf(env, [log.id])).get(log.id) || [];
     const types = await allTypes(env);
-    const show = (error, status = 200) => page(tv.entryPage({ user, log, project, zone: zones.get(String(log.project_id)) || 'EST', types, files, editable, error, history: null }), status);
+    const show = (error, status = 200) => page(tv.entryPage({ user, log, project: shown, backTo, zone: zones.get(String(log.project_id)) || 'EST', types, files, editable, error, history: null }), status);
     if (method === 'GET' && !m[2] && !m[3]) {
       const { results: history } = await env.DB.prepare(
         'SELECT h.*, u.name AS user_name FROM time_log_history h LEFT JOIN users u ON u.id = h.user_id WHERE h.log_id = ? ORDER BY h.id DESC LIMIT 50'
       ).bind(log.id).all();
-      return page(tv.entryPage({ user, log, project, zone: zones.get(String(log.project_id)) || 'EST', types, files, editable, message, history }));
+      return page(tv.entryPage({ user, log, project: shown, backTo, zone: zones.get(String(log.project_id)) || 'EST', types, files, editable, message, history }));
     }
     if (method !== 'POST') return redirect(`/va/time/entry/${log.id}`);
     if (!editable) return show('This log can no longer be changed: time can be changed only on the day it was logged for. Ask an admin if something is wrong.', 403);

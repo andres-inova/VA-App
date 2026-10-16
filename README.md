@@ -245,7 +245,20 @@ VAs open **Time** in the menu (on phones, in the bottom bar). Time is saved in t
 - **Today's list** (under the buttons): each log with its task type, description, time, files and a stamp such as "Entered 2:14 PM CST by Ana Pérez" (in the project's time zone). The stamp is set by the app and can never be changed, not even by an admin.
 - **Change or delete**: tap a log to change its task type, description, time or files, or to delete it. This works only while the log's day is still today (or an allowed earlier day). Every change and delete is kept in the log's history (who, when, what changed); a deleted log is kept, only hidden.
 - Attachments open only for the VA who logged the time and for admins.
-- Totals by pay period, charts and the admin views come in the next steps.
+- The admin views (charts across VAs, package use, missed time) come in the next steps.
+
+## My hours (VA)
+
+On the Time page, tap **My hours** at the top (next to **Log time**). It shows the VA's own time only, never anyone else's.
+
+- **Project**: "All projects" or one project. Every project the VA ever logged time on is in the list, also closed projects (marked "(closed)"), coverage projects (marked "(coverage)") and projects they no longer work on.
+- **Range buttons**: Today, This pay period, Last pay period (both show the pay day, for example "Paid Oct 23", from Settings → Pay periods), This billing cycle, This week (Monday to Sunday), This month, and Choose dates (up to one year).
+- **This billing cycle**: each project has its own billing day. With one project chosen, it shows that project's current cycle. With "All projects", each project counts its own current cycle, and its dates are shown under its name.
+- **Totals**: the total time for the range (for example "12h 30m"), then time and share (%) **by project** and **by task type**, with bars, and **hours per day** as columns (per week for ranges over a month, per month for ranges over 4 months). "Show as a list" gives the same numbers as text.
+- **Package**: with one project chosen that has a package, a card shows "This billing cycle: 18h 20m of 40h" (the VA's own time in the project's current cycle; the package that counts is the one in effect on the cycle's first day).
+- **History**: every log in the range, newest first, grouped by day, with project, task type, description, time, files and the fixed stamp. 100 at a time, with **Show more**. Tap a log to open it; changes still follow the Log time rules (only on the day it is for).
+- **Download my hours (CSV)**: all logs of the range in a spreadsheet file (date, project, task type, description, time, hours, minutes, when entered, time zone, who entered it, files).
+- Days are counted in each project's time zone. With "All projects", "today", "this week" and so on start from the VA's own time zone.
 
 ## Put the app on a phone or computer
 

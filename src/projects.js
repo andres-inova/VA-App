@@ -33,6 +33,12 @@ export function billingCycle(date, day) {
 // The package (hours per billing cycle) in effect on a date, from rows sorted by effective_from.
 export const packageOn = (packages, date) => [...packages].reverse().find((p) => p.effective_from <= date) || null;
 
+// The default billing day from a client's "Invoice date" value (its first day, 1-28), or null.
+export function invoiceDay(value) {
+  const first = parseInt((Array.isArray(value) ? value[0] : String(value ?? '').split(/[;,]/)[0]) || '', 10);
+  return first >= 1 && first <= 28 ? first : null;
+}
+
 // A project's settings with their defaults, and where each default came from.
 // Time zone: saved > client record's "Time zone" > first VA's > EST. Billing day: saved > the client's first "Invoice date" > 1.
 export async function projectSettings(env, project) {
@@ -51,8 +57,8 @@ export async function projectSettings(env, project) {
   }
   let billingDay = saved?.billing_day, billingFrom = 'saved';
   if (!(billingDay >= 1 && billingDay <= 28)) {
-    const first = parseInt((Array.isArray(data.Invoice_Date) ? data.Invoice_Date[0] : String(data.Invoice_Date || '').split(/[;,]/)[0]) || '', 10);
-    if (first >= 1 && first <= 28) { billingDay = first; billingFrom = 'client'; } else { billingDay = 1; billingFrom = 'none'; }
+    const first = invoiceDay(data.Invoice_Date);
+    if (first) { billingDay = first; billingFrom = 'client'; } else { billingDay = 1; billingFrom = 'none'; }
   }
   const packageHint = parseFloat(String(data.Package_Hours ?? '').replace(/[^\d.]/g, '')) || null;
   return { saved, client, zone, zoneFrom, billingDay, billingFrom, packageHint, createdBy: saved?.created_by, createdAt: saved?.created_at };

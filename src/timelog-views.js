@@ -4,6 +4,7 @@
 import { esc } from './util.js';
 import { layout, icon, chip, empty, section } from './views.js';
 import { ZONES, formatDate, formatTimeIn, partsIn } from './time.js';
+import { timeTabs } from './timehours-views.js';
 
 const FILE_ACCEPT = '.pdf,.doc,.docx,.odt,.rtf,.txt,.xls,.xlsx,.ods,.png,.jpg,.jpeg';
 const fileSize = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
@@ -66,7 +67,7 @@ export function timePage({ user, projects, project, timers, logs, files, coverag
   const title = 'Time';
   const cards = timers.map(timerCard).join('');
   if (!project) {
-    return layout({ title, user, active: '/va/time', message, body: `${cards}<div class="card">${empty('You have no projects yet. An admin adds you to a project, and it shows up here.')}</div>` });
+    return layout({ title, user, active: '/va/time', message, body: `${timeTabs('/va/time')}${cards}<div class="card">${empty('You have no projects yet. An admin adds you to a project, and it shows up here.')}</div>` });
   }
   const runningIn = new Set(timers.filter((t) => !t.stopped_at).map((t) => String(t.project_id)));
   const switcher = `<nav class="pj-grid" aria-label="Projects">${projects.map((p) => `<a class="pj-btn ${p.id === project.id ? 'on' : ''}" href="/va/time?project=${esc(encodeURIComponent(p.id))}" ${p.id === project.id ? 'aria-current="page"' : ''}>
@@ -86,7 +87,7 @@ export function timePage({ user, projects, project, timers, logs, files, coverag
   const otherDays = [...new Set(other.map((l) => l.work_date))];
   return layout({
     title, user, active: '/va/time', message,
-    body: `${cards}${switcher}${coverageNote}${actions}
+    body: `${timeTabs('/va/time')}${cards}${switcher}${coverageNote}${actions}
     ${section({
       title: `Today · ${formatDate(project.today)}`, count: duration(total), key: 'today',
       body: today.map((l) => logRow(l, files.get(l.id), project.zone, true)).join('') || empty('No time logged here today yet.'),
@@ -163,7 +164,7 @@ const FIELD_WORDS = { task_type: 'Task type', description: 'Description', minute
 const changeValue = (c, v) => (v === null || v === undefined || v === '' ? '(empty)' : c.f === 'minutes' ? duration(v) : c.f === 'deleted' ? 'yes' : String(v));
 
 // One time log: change or delete it while its day is still today (or an allowed date).
-export function entryPage({ user, log, project, zone, types, files, editable, error, message, history }) {
+export function entryPage({ user, log, project, backTo = '', zone, types, files, editable, error, message, history }) {
   const historyList = history?.length ? section({
     title: 'Changes', count: history.length, open: false, key: 'changes',
     body: history.map((h) => {
@@ -193,6 +194,6 @@ export function entryPage({ user, log, project, zone, types, files, editable, er
       <p class="small">This log can’t be changed any more: time can be changed only on the day it is for. Ask an admin if something is wrong.</p>`;
   return layout({
     title: 'Time log', user, active: '/va/time', message,
-    body: `${bad(error)}<div class="card">${body}${back(String(log.project_id))}</div>${historyList}`,
+    body: `${bad(error)}<div class="card">${body}${backTo ? `<p style="margin:12px 0 0"><a href="${esc(backTo)}">&larr; Back to My hours</a></p>` : back(String(log.project_id))}</div>${historyList}`,
   });
 }

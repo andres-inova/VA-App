@@ -14,21 +14,21 @@ export const projectName = (p) => `${p.client || p.name || 'Project'}${p.is_cove
 export const timeTabs = (on) => `<nav class="chips proj-tabs" aria-label="Time pages">${[['/va/time', 'Log time'], ['/va/time/hours', 'My hours']].map(([href, label]) =>
   `<a class="chip ${href === on ? 'on' : 'muted'}" href="${href}" ${href === on ? 'aria-current="page"' : ''}>${esc(label)}</a>`).join('')}</nav>`;
 
-const RANGE_LABELS = {
+export const RANGE_LABELS = {
   today: 'Today', pay: 'This pay period', prevpay: 'Last pay period', cycle: 'This billing cycle',
   week: 'This week', month: 'This month', custom: 'Choose dates',
 };
-const shortDate = (d) => formatDate(d).replace(/^\w+, /, '');  // "Oct 23"
-const span = (from, to) => (from === to ? formatDate(from, true) : `${shortDate(from)}${from.slice(0, 4) === to.slice(0, 4) ? '' : `, ${from.slice(0, 4)}`} – ${shortDate(to)}, ${to.slice(0, 4)}`);
-const percent = (part, whole) => (whole ? Math.round((part / whole) * 100) : 0);
+export const shortDate = (d) => formatDate(d).replace(/^\w+, /, '');  // "Oct 23"
+export const span = (from, to) => (from === to ? formatDate(from, true) : `${shortDate(from)}${from.slice(0, 4) === to.slice(0, 4) ? '' : `, ${from.slice(0, 4)}`} – ${shortDate(to)}, ${to.slice(0, 4)}`);
+export const percent = (part, whole) => (whole ? Math.round((part / whole) * 100) : 0);
 
 // A horizontal bar with its label, time and share as text (the bar only repeats what the text says).
-const shareRow = (name, minutes, total, sub = '') => `<div class="hb-row">
+export const shareRow = (name, minutes, total, sub = '') => `<div class="hb-row">
     <div class="hb-text"><span class="hb-name">${esc(name)}${sub ? `<small>${esc(sub)}</small>` : ''}</span><span class="hb-val">${esc(hm(minutes))} · ${minutes && !percent(minutes, total) ? '&lt;1' : percent(minutes, total)}%</span></div>
     <div class="hb-track" aria-hidden="true"><div class="hb-fill" style="width:${Math.max(minutes ? 1 : 0, percent(minutes, total))}%"></div></div></div>`;
 
 // Columns for each day (or week, or month), with a list of the same numbers under it.
-function columns(chart) {
+export function columns(chart) {
   const max = Math.max(...chart.list.map((b) => b.minutes), 0);
   const label = (b) => (chart.size === 'month' ? new Date(`${b.key}-01T00:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', year: 'numeric' })
     : chart.size === 'week' ? `Week of ${shortDate(b.key)}` : formatDate(b.key));

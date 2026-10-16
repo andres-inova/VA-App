@@ -3,6 +3,7 @@
 import { esc } from './util.js';
 import { layout, icon, avatar, chip, section, empty, zohoTime, settingsTabs, dayBoxes, isAppProject } from './views.js';
 import { formatDate, formatHM, parseHHMM, zoneFor } from './time.js';
+import { usageBlock } from './timeadmin-views.js';
 
 const ZONE_NAMES = { PST: 'Pacific (PST)', MST: 'Mountain (MST)', CST: 'Central (CST)', EST: 'Eastern (EST)' };
 const hours = (h) => `${Number(h)} hour${Number(h) === 1 ? '' : 's'}`;
@@ -12,7 +13,7 @@ const logList = (log) => (log.length ? log.map((l) => `<div class="item flat"><d
 
 // ---- A project's page ----
 
-export function projectPage({ user, project, settings, today, cycle, assignments, vas, packages, history, exceptions = [], creator, message }) {
+export function projectPage({ user, project, settings, today, cycle, assignments, vas, packages, history, exceptions = [], creator, message, usage = null }) {
   const app = isAppProject(project);
   const here = `/admin/projects/${esc(project.id)}`;
   const client = settings.client;
@@ -51,6 +52,8 @@ export function projectPage({ user, project, settings, today, cycle, assignments
     ${del ? `<form method="post" action="${here}/package/${p.id}/delete" data-confirm="Remove this upcoming package change?"><button class="sm danger" style="margin:0">Remove</button></form>` : ''}</div></div>`;
   const packageBody = `<div style="padding:0 8px">
       <p class="meta">This billing cycle: <b>${esc(formatDate(cycle.start, false))} – ${esc(formatDate(cycle.end, true))}</b>. Package now: <b>${current ? esc(hours(current.hours)) : 'not set'}</b>.</p></div>
+    ${usage && (usage.current || usage.last) ? `<div style="padding:0 8px 8px" id="package-use">${usageBlock(usage.current, { label: 'Hours this cycle' })}${usageBlock(usage.last, { label: 'Last cycle' })}
+      <p class="small" style="margin:6px 0 0">Time of every VA on this project${usage.coverageCounted ? ', plus the client’s coverage projects' : ''}, against the package in effect on the cycle’s first day. <a href="/admin/time?project=${esc(encodeURIComponent(project.id))}&amp;range=cycle">See the time logs</a> · <a href="/admin/time/packages">All packages</a></p></div>` : ''}
     ${current ? pkgRow(current, chip('Now', 'good')) : ''}
     ${upcoming.map((p) => pkgRow(p, chip('Upcoming', 'info'), true)).join('')}
     ${past.length ? `<details class="section" style="margin:8px 0;box-shadow:none;background:var(--surface-2)"><summary>Earlier packages <span class="count">${past.length}</span>${icon('chevron', 'chev')}</summary>
@@ -85,7 +88,7 @@ export function projectPage({ user, project, settings, today, cycle, assignments
     <input type="time" name="start_time" aria-label="Start time">${startZone('', '')}${dayBoxes()}
     <button class="sm" style="margin:0">${icon('plus')} Add</button></form>`;
 
-  // Past-date exceptions (a fuller page comes later): who may log time for which earlier days.
+  // Past-date exceptions: who may log time for which earlier days (all projects: Time > Exceptions).
   const exceptionBody = `${exceptions.map((e) => `<div class="item flat"><div class="item-head">${avatar(e.va_name)}<div class="grow">
       <div class="title">${esc(e.va_name)} · ${esc(formatDate(e.from_date, true))}${e.to_date !== e.from_date ? ` – ${esc(formatDate(e.to_date, true))}` : ''}</div>
       <div class="sub">${e.reason ? `${esc(e.reason)} · ` : ''}allowed by ${esc(e.approved_by_name || 'someone')}${e.approved_at ? ` on ${esc(zohoTime(e.approved_at))}` : ''}</div></div>
@@ -97,7 +100,8 @@ export function projectPage({ user, project, settings, today, cycle, assignments
         <div><label for="ex-to">Last day</label><input type="date" id="ex-to" name="to_date" required max="${esc(today)}"></div>
       </div>
       <label for="ex-reason">Reason</label><input type="text" id="ex-reason" name="reason" maxlength="500" placeholder="For example: forgot to log on Monday">
-      <button>Allow these days</button></form>`;
+      <button>Allow these days</button></form>
+    <p class="small" style="padding:0 8px 8px;margin:0"><a href="/admin/time/exceptions">See the exceptions of all projects</a></p>`;
 
   const closeForm = app ? `<div class="card"><form method="post" action="${here}/${project.active ? 'close' : 'reopen'}"
       ${project.active ? 'data-confirm="Close this project? It stops showing on the Projects page and for its VAs. Nothing is deleted."' : ''}>

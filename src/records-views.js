@@ -9,6 +9,7 @@ import { emailsSection } from './email-views.js';
 import { tagChips, recordTagsRow, tagPicker, PICKER_SCRIPT } from './tags-views.js';
 import { listHead, listTools, bulkBar, listFields, LIST_SCRIPT } from './lists-views.js';
 import { cellValue } from './lists.js';
+import { vaTimeBox } from './timeadmin-views.js';
 
 const TONE = { Current: 'good', Active: 'good', Paused: 'warn', 'On Deck': 'info', Offboarded: 'muted', 'n/a': 'muted', Hired: 'good', Declined: 'muted', Ghosted: 'muted' };
 const tone = (status) => TONE[status] || (STEPS.includes(status) ? 'info' : 'muted');
@@ -498,7 +499,7 @@ function loginBox(record, login) {
   });
 }
 
-export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, mail, edit, tags, message, tempPassword = null }) {
+export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, mail, edit, tags, time = null, message, tempPassword = null }) {
   const d = record.data;
   const mod = MODULES[key];
   const here = `/admin/${key}/${record.id}`;
@@ -538,6 +539,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
   }
   if (key === 'vas') {
     related += loginBox(record, login);
+    related += vaTimeBox(time);
     related += section({
       title: 'Clients and projects', count: login?.projects.length || 0, key: 'projects',
       hint: login?.user && !login.user.is_va && login.projects.length ? "Not Active: these projects are kept for their history, but they don't check in for them and the Projects page doesn't list them." : '',

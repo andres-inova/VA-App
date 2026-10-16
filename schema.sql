@@ -617,6 +617,7 @@ CREATE TABLE IF NOT EXISTS time_logs (
 CREATE INDEX IF NOT EXISTS time_logs_project ON time_logs (project_id, work_date);
 CREATE INDEX IF NOT EXISTS time_logs_user ON time_logs (user_id, work_date);
 CREATE INDEX IF NOT EXISTS time_logs_type ON time_logs (task_type_id);
+CREATE INDEX IF NOT EXISTS time_logs_date ON time_logs (work_date);  -- admin Time page: all VAs in a date range
 CREATE UNIQUE INDEX IF NOT EXISTS time_logs_zoho ON time_logs (zoho_log_id);
 
 -- Files attached to a time log, kept in the SOP_FILES storage under time-logs/.

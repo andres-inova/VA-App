@@ -16,6 +16,7 @@ import { loadTags, tagsByRecord, tagsOn, forgetRecordTags, recordTagChange } fro
 import { tagIndex } from './tags-views.js';
 import * as lists from './lists.js';
 import * as rv from './records-views.js';
+import { vaTimeSummary } from './timeadmin.js';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -51,7 +52,7 @@ async function projectsByClient(env) {
 // conflict: another login that already has the record's email (so this VA can't get a login with it).
 async function vaLogins(env) {
   const { results: users } = await env.DB.prepare(
-    `SELECT id, name, email, zoho_id, record_id, is_va, is_admin, invited_at, last_login_at, exempt, affiliation, slack_user_id,
+    `SELECT id, name, email, zoho_id, record_id, is_va, is_admin, invited_at, last_login_at, exempt, affiliation, slack_user_id, time_zone,
        must_change_password, password_hash IS NOT NULL AS has_password FROM users`
   ).all();
   const { results: projects } = await env.DB.prepare(
@@ -385,7 +386,7 @@ async function showRecord(env, user, key, record, message, tempPassword = null) 
     env.DB.prepare('SELECT f.*, u.name AS user_name FROM record_files f LEFT JOIN users u ON u.id = f.uploaded_by WHERE f.record_id = ? ORDER BY f.uploaded_at DESC').bind(record.id).all(),
     env.DB.prepare('SELECT h.*, u.name AS user_name FROM record_history h LEFT JOIN users u ON u.id = h.user_id WHERE h.record_id = ? ORDER BY h.at DESC, h.id DESC LIMIT 100').bind(record.id).all(),
   ]);
-  const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null, va: null, training: null, mail: null, tags: null };
+  const extra = { contacts: [], projects: [], parent: null, referredHere: [], login: null, va: null, training: null, mail: null, tags: null, time: null };
   // Tags (VAs, applicants and clients): this record's, and all of them for the picker.
   if (key !== 'contacts') {
     const all = await loadTags(env);
@@ -414,6 +415,7 @@ async function showRecord(env, user, key, record, message, tempPassword = null) 
   if (key !== 'applicants') extra.mail = await recordEmails(env, user, [record.id, ...extra.contacts.map((c) => c.id)]);
   if (key === 'contacts' && record.parent_id) extra.parent = await getRecord(env, 'clients', record.parent_id);
   if (key === 'vas') extra.login = (await vaLogins(env))(record);
+  if (key === 'vas' && extra.login?.user) extra.time = await vaTimeSummary(env, extra.login.user);
   // "Clients referred" / "VAs referred": records that list this one under "Referred by".
   const refField = allFields(key).find((x) => x.type === 'lookups');
   if (refField) {

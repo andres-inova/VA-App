@@ -21,6 +21,7 @@ import { searchRoutes } from './search.js';
 import { fieldRoutes } from './field-editor.js';
 import { tagRoutes } from './tags.js';
 import { projectRoutes, projectLog, PID } from './projects.js';
+import { adminTimeRoutes } from './timeadmin.js';
 import { emailRoutes } from './email.js';
 import { trainingRoutes, adminTrainingRoutes, myTrainings, lateTrainings, ONBOARDING } from './training.js';
 import * as views from './views.js';
@@ -159,6 +160,8 @@ async function handle(request, env) {
       const res = await projectRoutes(env, user, path, method, field, fieldAll, message);
       if (res) return res;
     }
+    // Time (admin): totals across VAs and projects, packages, past-date exceptions, missed time.
+    if (path === '/admin/time' || path === '/admin/time.csv' || path.startsWith('/admin/time/')) return adminTimeRoutes(env, user, path, method, field, message, url);
     // Search everything (the box at the top of the menu).
     if (path === '/admin/search') { await loadFieldLayouts(env); return searchRoutes(env, user, url, message); }
     if (path === '/admin/training' || path.startsWith('/admin/training/')) return adminTrainingRoutes(env, user, path, method, field, message, url);

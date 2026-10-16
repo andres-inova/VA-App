@@ -220,9 +220,9 @@ Projects are moving from Zoho Projects into the app. VAs now log their time in t
 - **Project settings**: click a project, then **Project settings** (the address is /admin/projects/&lt;id&gt;). It works for Zoho projects too.
   - **Time zone** (PST, MST, CST or EST): time logged counts on the day it is in this time zone. If left on Default, it is the client record's "Time zone", else the first VA's.
   - **Billing day of the month** (1st to 28th): a billing cycle runs from that day to the day before it next month (for example the 16th to the 15th). Default: the first choice in the client's "Invoice date", else the 1st.
-  - **Package**: hours per billing cycle. Each change has a **Takes effect on** date, so a new package can start at the next billing cycle while the current one still counts. The page shows the package now, upcoming changes (which can be removed before they start) and earlier ones. When no package is set yet, the box is filled in from the client's "Package hours".
+  - **Package**: hours per billing cycle. Under it: **Hours this cycle** and **Last cycle** (time of every VA on the project, plus the client's coverage projects, with a bar; see [Time (admin)](#time-admin) for the colours). Each change has a **Takes effect on** date, so a new package can start at the next billing cycle while the current one still counts. The page shows the package now, upcoming changes (which can be removed before they start) and earlier ones. When no package is set yet, the box is filled in from the client's "Package hours".
   - **VAs**: add, change (start time, time zone, work days) or remove VAs, the same as on the Projects page.
-  - **Past-date exceptions**: VAs can log time only for today. Here an admin can allow one VA to add or change time for earlier days in this project: choose the VA, the first and last day (not in the future) and a reason. The admin's name and the time are saved with it. **Remove** takes it back. (A fuller exceptions page comes later.)
+  - **Past-date exceptions**: VAs can log time only for today. Here an admin can allow one VA to add or change time for earlier days in this project: choose the VA, the first and last day (not in the future) and a reason. The admin's name and the time are saved with it. **Remove** takes it back. The exceptions of all projects are also on **Time → Exceptions**.
   - **History**: every change to the project (who and when).
   - **Close project** (projects made in the app only): it stops showing on the Projects page and for its VAs. Nothing is deleted, and it can be reopened from its page.
 - Projects made in the app have ids like "p-1", "p-2"; Zoho projects keep their Zoho ids (long numbers).
@@ -245,7 +245,7 @@ VAs open **Time** in the menu (on phones, in the bottom bar). Time is saved in t
 - **Today's list** (under the buttons): each log with its task type, description, time, files and a stamp such as "Entered 2:14 PM CST by Ana Pérez" (in the project's time zone). The stamp is set by the app and can never be changed, not even by an admin.
 - **Change or delete**: tap a log to change its task type, description, time or files, or to delete it. This works only while the log's day is still today (or an allowed earlier day). Every change and delete is kept in the log's history (who, when, what changed); a deleted log is kept, only hidden.
 - Attachments open only for the VA who logged the time and for admins.
-- The admin views (charts across VAs, package use, missed time) come in the next steps.
+- Admins see everyone's time on the admin **Time** page (see [Time (admin)](#time-admin)).
 
 ## My hours (VA)
 
@@ -259,6 +259,25 @@ On the Time page, tap **My hours** at the top (next to **Log time**). It shows t
 - **History**: every log in the range, newest first, grouped by day, with project, task type, description, time, files and the fixed stamp. 100 at a time, with **Show more**. Tap a log to open it; changes still follow the Log time rules (only on the day it is for).
 - **Download my hours (CSV)**: all logs of the range in a spreadsheet file (date, project, task type, description, time, hours, minutes, when entered, time zone, who entered it, files).
 - Days are counted in each project's time zone. With "All projects", "today", "this week" and so on start from the VA's own time zone.
+
+## Time (admin)
+
+Admins open **Time** in the menu (under Clients). It has four buttons at the top: **Time**, **Packages**, **Exceptions** and **Missed time**. Admins can look at every log here but not change them: logs are changed only by the VA, on the day they are for (or on days allowed under Exceptions).
+
+- **Time**: everyone's time for a range.
+  - **Filters**: VA, project, client (the client's coverage projects count for that client) and task type. They can be combined, for example one VA for one client. **Clear filters** shows everything again.
+  - **Range buttons**: Today, This pay period, Last pay period (with the pay day), This week (Monday to Sunday), This month and Choose dates (up to one year). **This billing cycle** appears when one project is chosen. The page opens on This pay period.
+  - **Totals**: the total time and number of logs, then time and share (%) **by VA**, **by project**, **by client** and **by task type**, with bars, and hours per day (per week over a month, per month over 4 months).
+  - **Time logs**: every log in the range, newest first, grouped by day: VA, task type, project, description, time, files and the fixed stamp. 100 at a time, with **Show more**. Click a log to open it (read-only) with all its changes (who, when, what changed); a deleted log says when and by whom.
+  - **Logs (CSV)** downloads the logs of the range and filters (up to 10,000 at a time); **Summary (CSV)** downloads the totals by VA, project, client, task type and day/week/month.
+- **Packages**: one row per active project with a package: client, project, VA(s), the current billing cycle (each project has its own billing day), the package hours and the hours used, with a bar and %. Most used first.
+  - Hours used = the time of every VA on the project in this cycle. Time on the client's **coverage** projects counts too, shown as "incl. coverage". If a client has more than one project with a package, coverage time counts for the oldest one.
+  - The package that counts is the one in effect on the cycle's first day (a change that starts mid-cycle counts from the next cycle). A project whose first package started during this cycle uses that package, with a note.
+  - Colours: under 80% normal, 80% to 100% yellow ("2h left"), over 100% red ("Over by 3h 10m").
+  - The same numbers (this cycle and the last one) are on each project's page, under Package.
+- **Exceptions**: every past-date exception of every project, newest first: VA, project, days, reason, who allowed it and when, and whether it is in use (or the project is closed or the VA is no longer on it). **Allow a VA to log earlier days** adds one (VA, project, first and last day, reason; the VA must be on the project and the days can't be in the future). **Remove** takes one back. An exception stays until it is removed. The project page's own list stays and links here.
+- **Missed time**: the days a VA logged less than the daily minimum (1 hour) in a project: date, VA, project, time logged against the minimum, and whether the VA was notified. Filters for VA, project and range, a count per VA (for example "Missed 3 days this pay period") and a CSV download. It is filled in each day once the daily check starts (the next step); until then it is empty.
+- **VA pages** (Team → VAs → a VA): a **Time** box shows their hours this pay period and last, with a link to the Time page filtered to that VA.
 
 ## Put the app on a phone or computer
 

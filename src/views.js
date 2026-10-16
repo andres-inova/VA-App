@@ -391,6 +391,8 @@ button.busy::after{content:"";width:14px;height:14px;border-radius:50%;border:2p
 .hs-day{display:flex;justify-content:space-between;gap:10px;font-size:15px;margin:14px 0 2px;padding:6px 8px;background:var(--surface-2);border-radius:10px}
 .hs-row .title{color:var(--text);text-decoration:underline;text-decoration-color:var(--line);display:inline-block;min-height:32px}.hs-files{display:flex;flex-wrap:wrap;gap:4px 12px}
 .hs-files a{display:inline-flex;align-items:center;gap:4px;min-height:36px;overflow-wrap:anywhere;font-size:14px}.hs-files .ic,.hs-row .stamp .ic{width:14px;height:14px}
+.hb-fill.u-warn{background:var(--warn)}.hb-fill.u-bad{background:var(--bad)}.bad-text{color:var(--bad)}.warn-text{color:var(--warn)}.usage{margin-top:6px}
+.ta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:0 16px}.ta-grid>.card{min-width:0}.ta-ranges{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}.pk-pct{flex:none;font-weight:800}
 a.item.pick{display:block;color:inherit;text-decoration:none;border-radius:12px}a.item.pick:hover{background:var(--surface-2)}a.item.pick .item-head{cursor:pointer}
 .proj-tabs{margin:0 0 12px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:2px 2px 8px}.proj-tabs::-webkit-scrollbar{display:none}.proj-tabs .chip{flex:none}.proj-tabs .chip{text-decoration:none;font-size:14px;padding:7px 14px;box-shadow:var(--shadow)}.proj-tabs .chip.on{background:var(--accent);color:#fff}
 .inline-add{display:flex;gap:8px;align-items:center;padding:8px}.inline-add input{flex:1}.inline-add button{margin:0}
@@ -648,7 +650,7 @@ export function layout({ title, user, active, message, body }) {
   if (user.is_admin) {
     groups.push(['Daily', [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/calendar', 'Calendar', 'calendar']]]);
     groups.push(['Team', [['/admin/vas', 'VAs', 'va'], ['/admin/training', 'Training', 'training'], ['/admin/applicants', 'Applicants', 'applicant'], ['/admin/people', 'People', 'people']]]);
-    groups.push(['Clients', [['/admin/clients', 'Clients', 'building'], ['/admin/contacts', 'Contacts', 'people'], ['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'Coverage SOPs', 'doc']]]);
+    groups.push(['Clients', [['/admin/clients', 'Clients', 'building'], ['/admin/contacts', 'Contacts', 'people'], ['/admin/projects', 'Projects', 'projects'], ['/admin/time', 'Time', 'timer'], ['/admin/sops', 'Coverage SOPs', 'doc']]]);
   }
   const link = ([href, label, ic, badge]) =>
     `<a class="side-link ${href === active ? 'on' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${badge ? `<span class="badge">${badge}</span>` : ''}</a>`;

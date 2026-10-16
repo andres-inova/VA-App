@@ -8,6 +8,7 @@
 import { redirect, page, isDate, isTime } from './util.js';
 import { ZONES, partsIn, addDays } from './time.js';
 import * as pv from './projects-views.js';
+import { projectUsage } from './timeadmin.js';
 
 // The part of an address that is a project id.
 export const PID = '(\\d+|p-\\d+)';
@@ -64,6 +65,31 @@ export async function projectSettings(env, project) {
   return { saved, client, zone, zoneFrom, billingDay, billingFrom, packageHint, createdBy: saved?.created_by, createdAt: saved?.created_at };
 }
 
+// Past-date exceptions (the project page and the admin Time > Exceptions page). Adds one from the form fields
+// user_id, from_date, to_date and reason; false when the VA is not on the project or the dates are wrong.
+export async function addException(env, user, project, field, now) {
+  const settings = await projectSettings(env, project);
+  const today = partsIn(ZONES[settings.zone]).date;
+  const va = await env.DB.prepare('SELECT u.id, u.name FROM assignments a JOIN users u ON u.id = a.user_id WHERE a.project_id = ? AND u.id = ? AND u.is_va = 1')
+    .bind(project.id, Number(field('user_id')) || 0).first();
+  const from = field('from_date'), to = field('to_date'), reason = field('reason').slice(0, 500);
+  if (!va || !isDate(from) || !isDate(to) || to < from || to > today) return false;
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO log_exceptions (project_id, user_id, from_date, to_date, reason, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(project.id, va.id, from, to, reason || null, user.id, now),
+    projectLog(env, project.id, user.id, `Allowed ${va.name} to log time for ${from} to ${to}${reason ? ` (${reason})` : ''}`, now),
+  ]);
+  return true;
+}
+
+// Removes an exception of this project (written in the project's history).
+export async function removeException(env, user, project, id, now) {
+  const row = await env.DB.prepare('SELECT e.*, u.name FROM log_exceptions e JOIN users u ON u.id = e.user_id WHERE e.id = ? AND e.project_id = ?').bind(id, project.id).first();
+  if (row) await env.DB.batch([env.DB.prepare('DELETE FROM log_exceptions WHERE id = ?').bind(row.id),
+    projectLog(env, project.id, user.id, `Removed the past-date exception for ${row.name} (${row.from_date} to ${row.to_date})`, now)]);
+  return Boolean(row);
+}
+
 async function projectPage(env, user, project, message) {
   const settings = await projectSettings(env, project);
   const today = partsIn(ZONES[settings.zone]).date;
@@ -83,9 +109,10 @@ async function projectPage(env, user, project, message) {
      LEFT JOIN users a ON a.id = e.approved_by WHERE e.project_id = ? ORDER BY e.to_date DESC, e.id DESC LIMIT 50`
   ).bind(project.id).all();
   const creator = settings.createdBy ? await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(settings.createdBy).first() : null;
+  const usage = packages.length ? await projectUsage(env, project, packages, today, settings.billingDay) : null;
   return page(pv.projectPage({
     user, project, settings, today, cycle: billingCycle(today, settings.billingDay), assignments: assignments.filter((a) => a.is_va), vas,
-    packages, history, exceptions, creator: creator?.name, message,
+    packages, history, exceptions, creator: creator?.name, message, usage,
   }));
 }
 
@@ -102,23 +129,11 @@ export async function projectRoutes(env, user, path, method, field, fieldAll, me
     if (!project) return redirect('/admin/projects');
     const here = `/admin/projects/${project.id}`;
     if (m[2]) {
-      const row = await env.DB.prepare('SELECT e.*, u.name FROM log_exceptions e JOIN users u ON u.id = e.user_id WHERE e.id = ? AND e.project_id = ?').bind(Number(m[2]), project.id).first();
-      if (row) await env.DB.batch([env.DB.prepare('DELETE FROM log_exceptions WHERE id = ?').bind(row.id),
-        projectLog(env, project.id, user.id, `Removed the past-date exception for ${row.name} (${row.from_date} to ${row.to_date})`, now)]);
+      await removeException(env, user, project, Number(m[2]), now);
       return redirect(`${here}?msg=removed#exceptions`);
     }
-    const settings = await projectSettings(env, project);
-    const today = partsIn(ZONES[settings.zone]).date;
-    const va = await env.DB.prepare('SELECT u.id, u.name FROM assignments a JOIN users u ON u.id = a.user_id WHERE a.project_id = ? AND u.id = ? AND u.is_va = 1')
-      .bind(project.id, Number(field('user_id')) || 0).first();
-    const from = field('from_date'), to = field('to_date'), reason = field('reason').slice(0, 500);
-    if (!va || !isDate(from) || !isDate(to) || to < from || to > today) return redirect(`${here}?msg=exception-bad#exceptions`);
-    await env.DB.batch([
-      env.DB.prepare('INSERT INTO log_exceptions (project_id, user_id, from_date, to_date, reason, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .bind(project.id, va.id, from, to, reason || null, user.id, now),
-      projectLog(env, project.id, user.id, `Allowed ${va.name} to log time for ${from} to ${to}${reason ? ` (${reason})` : ''}`, now),
-    ]);
-    return redirect(`${here}?msg=exception-added#exceptions`);
+    const ok = await addException(env, user, project, field, now);
+    return redirect(`${here}?msg=${ok ? 'exception-added' : 'exception-bad'}#exceptions`);
   }
 
   if ((m = path.match(new RegExp(`^/admin/projects/${PID}(?:/(settings|package|close|reopen)|/package/(\\d+)/delete)?$`)))) {

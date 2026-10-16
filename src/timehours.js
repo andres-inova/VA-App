@@ -24,10 +24,10 @@ const MAX_CSV = 10000;        // rows in one CSV file
 const MAX_WINDOWS = 30;       // projects with their own billing cycle in one query (3 values each; D1 takes 100)
 
 const pad = (n) => String(n).padStart(2, '0');
-const daysBetween = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
+export const daysBetween = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
 
 // The billing day of a project row: saved, else the client's first Invoice date, else the 1st.
-function billingDayOf(row) {
+export function billingDayOf(row) {
   if (row.billing_day >= 1 && row.billing_day <= 28) return row.billing_day;
   let value = row.invoice_date;
   if (typeof value === 'string' && value.startsWith('[')) { try { value = JSON.parse(value); } catch { /* plain text */ } }
@@ -35,7 +35,7 @@ function billingDayOf(row) {
 }
 
 // The dates of a range kind, counted from "today". Returns { from, to, note? } or { none: text }.
-function simpleRange(kind, today, periods, from, to) {
+export function simpleRange(kind, today, periods, from, to) {
   if (kind === 'today') return { from: today, to: today };
   if (kind === 'week') {  // Monday to Sunday
     const start = addDays(today, -((weekdayIndex(weekdayOf(today)) + 6) % 7));
@@ -129,10 +129,10 @@ const historySql = (where) => `SELECT l.id, l.project_id, l.task_type_id, l.desc
   FROM time_logs l LEFT JOIN task_types tt ON tt.id = l.task_type_id LEFT JOIN users u ON u.id = l.entered_by
   WHERE ${where} ORDER BY l.work_date DESC, l.entered_at DESC, l.id DESC LIMIT ?`;
 
-const filesOfRow = (row) => { try { return JSON.parse(row.files || '[]').filter((f) => f && f.id); } catch { return []; } };
+export const filesOfRow = (row) => { try { return JSON.parse(row.files || '[]').filter((f) => f && f.id); } catch { return []; } };
 
 // Chart buckets: every day of a range up to 31 days, else weeks (from Monday) up to 4 months, else months.
-function buckets(from, to, byDay) {
+export function buckets(from, to, byDay) {
   const days = daysBetween(from, to) + 1;
   const size = days <= 31 ? 'day' : days <= 124 ? 'week' : 'month';
   const keyOf = (d) => (size === 'day' ? d : size === 'week' ? addDays(d, -((weekdayIndex(weekdayOf(d)) + 6) % 7)) : d.slice(0, 7));

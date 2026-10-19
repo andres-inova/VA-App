@@ -5,7 +5,7 @@
 import { esc } from './util.js';
 import { layout, icon, avatar, chip, section, empty, zohoTime } from './views.js';
 import { formatDate, formatTimeIn, partsIn, ZONES } from './time.js';
-import { duration, stamp } from './timelog-views.js';
+import { duration, stamp, zohoBox } from './timelog-views.js';
 import { RANGE_LABELS, shortDate, span, shareRow, columns } from './timehours-views.js';
 
 export const hm = (minutes) => duration(minutes);
@@ -128,7 +128,7 @@ export function timePage({ user, message, s, sum, logs, more, show, query }) {
 const FIELD_WORDS = { task_type: 'Task type', description: 'Description', minutes: 'Time', file: 'File', deleted: 'Deleted' };
 const changeValue = (c, v) => (v === null || v === undefined || v === '' ? '(empty)' : c.f === 'minutes' ? duration(v) : c.f === 'deleted' ? 'yes' : String(v));
 
-export function logPage({ user, message, log, files, history, zone, backTo }) {
+export function logPage({ user, message, log, files, history, zone, backTo, zoho = null }) {
   const z = ZONES[zone] || ZONES.EST;
   const when = (iso) => `${formatDate(partsIn(z, new Date(iso)).date, true)}, ${formatTimeIn(iso, z)} ${zone}`;
   const project = { client: log.client, name: log.project_name, is_coverage: log.is_coverage, active: log.active };
@@ -150,6 +150,7 @@ export function logPage({ user, message, log, files, history, zone, backTo }) {
       <p class="stamp">${icon('lock')} ${esc(stamp(log, zone))}</p>
       ${log.started_at && log.ended_at ? `<p class="small" style="margin:4px 0 0">Timer ran ${esc(formatTimeIn(log.started_at, z))} – ${esc(formatTimeIn(log.ended_at, z))} ${esc(zone)}</p>` : ''}
       ${log.description ? `<div class="bubble">${esc(log.description)}</div>` : '<p class="small">No description.</p>'}
+      ${zohoBox(zoho)}
       ${fileList ? `<label>Attachments</label>${fileList}` : ''}
       <p class="small">Read-only: time is changed only by the VA, on the day it is for. To let them fix an earlier day, add an <a href="/admin/time/exceptions">exception</a>.</p>
       <p style="margin:12px 0 0"><a href="${esc(backTo)}">&larr; Back</a></p></div>

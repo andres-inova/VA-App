@@ -17,6 +17,14 @@ export const duration = (min) => {
 const projectName = (p) => `${p.client || p.name || 'Project'}${p.is_coverage ? ' (coverage)' : ''}`;
 const typeName = (x) => x.type_name || x.task_name || 'General';
 
+// What Zoho Projects had on a copied log (read-only). z = a time_log_zoho row, or none for logs made in the app.
+export function zohoBox(z) {
+  if (!z) return '';
+  const row = (label, value) => (value && value !== '-' ? `<p class="small" style="margin:2px 0"><b>${esc(label)}:</b> ${esc(value)}</p>` : '');
+  return `<div class="zoho-info"><p class="meta" style="margin:12px 0 4px"><b>From Zoho Projects</b></p>
+    ${row('Task', z.task_name)}${row('Task list', z.task_list)}${row('Task ID', z.task_id)}${row('Project key', z.project_key)}${row('Billing', z.billing_type)}${row('Time of day', z.time_range)}${row('Added by', z.added_by)}</div>`;
+}
+
 // "Entered 2:14 PM CST by Ana Pérez" in the project's time zone (with the date when it is not the log's day).
 export function stamp(log, zone) {
   const z = ZONES[zone] || ZONES.EST;
@@ -164,7 +172,7 @@ const FIELD_WORDS = { task_type: 'Task type', description: 'Description', minute
 const changeValue = (c, v) => (v === null || v === undefined || v === '' ? '(empty)' : c.f === 'minutes' ? duration(v) : c.f === 'deleted' ? 'yes' : String(v));
 
 // One time log: change or delete it while its day is still today (or an allowed date).
-export function entryPage({ user, log, project, backTo = '', zone, types, files, editable, error, message, history }) {
+export function entryPage({ user, log, project, backTo = '', zone, types, files, editable, error, message, history, zoho = null }) {
   const historyList = history?.length ? section({
     title: 'Changes', count: history.length, open: false, key: 'changes',
     body: history.map((h) => {
@@ -181,7 +189,7 @@ export function entryPage({ user, log, project, backTo = '', zone, types, files,
       <h2 style="margin:0">${esc(log.type_name || 'General')} · ${esc(duration(log.minutes))}</h2>
       <p class="stamp">${icon('lock')} ${esc(stamp(log, zone))}</p>`;
   const body = editable
-    ? `${head}${fileList ? `<label>Attachments</label>${fileList}` : ''}
+    ? `${head}${zohoBox(zoho)}${fileList ? `<label>Attachments</label>${fileList}` : ''}
       <form method="post" action="/va/time/entry/${log.id}" enctype="multipart/form-data">
         ${typeSelect(types, log.task_type_id)}
         ${describe(log.description)}
@@ -190,7 +198,7 @@ export function entryPage({ user, log, project, backTo = '', zone, types, files,
         <button class="big-btn">${icon('check')} Save changes</button>
       </form>
       <form method="post" action="/va/time/entry/${log.id}/delete" data-confirm="Delete this time log?" style="margin-top:8px"><button class="danger sm">${icon('trash')} Delete</button></form>`
-    : `${head}${log.description ? `<div class="bubble">${esc(log.description)}</div>` : ''}${fileList}
+    : `${head}${log.description ? `<div class="bubble">${esc(log.description)}</div>` : ''}${zohoBox(zoho)}${fileList}
       <p class="small">This log can’t be changed any more: time can be changed only on the day it is for. Ask an admin if something is wrong.</p>`;
   return layout({
     title: 'Time log', user, active: '/va/time', message,

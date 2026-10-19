@@ -633,6 +633,20 @@ CREATE TABLE IF NOT EXISTS time_log_files (
 );
 CREATE INDEX IF NOT EXISTS time_log_files_log ON time_log_files (log_id);
 
+-- What Zoho Projects had on a copied log besides the fields every log has (shown read-only on the log).
+-- source_row = the log's row number in the Zoho export, so a copy can be re-run without doubling.
+CREATE TABLE IF NOT EXISTS time_log_zoho (
+  log_id INTEGER PRIMARY KEY REFERENCES time_logs(id),
+  source_row INTEGER NOT NULL UNIQUE,
+  task_name TEXT,        -- the task name exactly as Zoho showed it
+  task_list TEXT,        -- Zoho "Task List/Module" (for example Administrative Tasks)
+  task_id TEXT,          -- Zoho task id (for example T-2-T5)
+  project_key TEXT,      -- Zoho project key (for example IN-7)
+  billing_type TEXT,     -- Billable or Non Billable
+  time_range TEXT,       -- the clock time range Zoho had, for example (09:00 AM - 09:30 AM)
+  added_by TEXT          -- who added the log in Zoho
+);
+
 -- Changes to a time log. changes: JSON [{ "f": field, "from": ..., "to": ... }].
 CREATE TABLE IF NOT EXISTS time_log_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

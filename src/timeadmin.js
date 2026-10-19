@@ -259,14 +259,15 @@ async function logView(env, user, id, url, message) {
      LEFT JOIN users v ON v.id = l.user_id LEFT JOIN users d ON d.id = l.deleted_by LEFT JOIN projects p ON p.id = l.project_id WHERE l.id = ?`
   ).bind(id).first();
   if (!log) return redirect('/admin/time?msg=time-log-gone');
-  const [{ results: files }, { results: history }] = await env.DB.batch([
+  const [{ results: files }, { results: history }, { results: zohoRows }] = await env.DB.batch([
     env.DB.prepare('SELECT id, file_name, file_size FROM time_log_files WHERE log_id = ? ORDER BY id').bind(log.id),
     env.DB.prepare('SELECT h.*, u.name AS user_name FROM time_log_history h LEFT JOIN users u ON u.id = h.user_id WHERE h.log_id = ? ORDER BY h.id DESC LIMIT 100').bind(log.id),
+    env.DB.prepare('SELECT * FROM time_log_zoho WHERE log_id = ?').bind(log.id),
   ]);
   const zone = (await projectZones(env, [log.project_id])).get(String(log.project_id)) || 'EST';
   const back = url.searchParams.get('back') || '';
   const backTo = /^\/admin\/time(\/[a-z]+)?(\?[\w=&%.+-]*)?$/.test(back) ? back : '/admin/time';
-  return page(av.logPage({ user, message, log, files, history, zone, backTo }));
+  return page(av.logPage({ user, message, log, files, history, zone, backTo, zoho: zohoRows[0] || null }));
 }
 
 // ---- Packages: hours used in each project's current billing cycle ----

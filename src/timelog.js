@@ -296,12 +296,13 @@ export async function timeRoutes(env, user, request, path, method, field, form, 
     const backTo = url.searchParams.get('from') === 'hours' ? '/va/time/hours' : '';
     const files = (await filesOf(env, [log.id])).get(log.id) || [];
     const types = await allTypes(env);
-    const show = (error, status = 200) => page(tv.entryPage({ user, log, project: shown, backTo, zone: zones.get(String(log.project_id)) || 'EST', types, files, editable, error, history: null }), status);
+    const zoho = await env.DB.prepare('SELECT * FROM time_log_zoho WHERE log_id = ?').bind(log.id).first();
+    const show = (error, status = 200) => page(tv.entryPage({ user, log, project: shown, backTo, zone: zones.get(String(log.project_id)) || 'EST', types, files, editable, error, history: null, zoho }), status);
     if (method === 'GET' && !m[2] && !m[3]) {
       const { results: history } = await env.DB.prepare(
         'SELECT h.*, u.name AS user_name FROM time_log_history h LEFT JOIN users u ON u.id = h.user_id WHERE h.log_id = ? ORDER BY h.id DESC LIMIT 50'
       ).bind(log.id).all();
-      return page(tv.entryPage({ user, log, project: shown, backTo, zone: zones.get(String(log.project_id)) || 'EST', types, files, editable, message, history }));
+      return page(tv.entryPage({ user, log, project: shown, backTo, zone: zones.get(String(log.project_id)) || 'EST', types, files, editable, message, history, zoho }));
     }
     if (method !== 'POST') return redirect(`/va/time/entry/${log.id}`);
     if (!editable) return show('This log can no longer be changed: time can be changed only on the day it was logged for. Ask an admin if something is wrong.', 403);

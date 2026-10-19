@@ -561,6 +561,13 @@ CREATE TABLE IF NOT EXISTS task_types (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS task_types_name ON task_types (name COLLATE NOCASE);
+-- Task types per project. A project with rows here offers exactly these task types; a project with no rows
+-- offers the company-wide list (the task types that are not hidden).
+CREATE TABLE IF NOT EXISTS project_task_types (
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  task_type_id INTEGER NOT NULL REFERENCES task_types(id),
+  PRIMARY KEY (project_id, task_type_id)
+);
 INSERT INTO task_types (name, position)
   SELECT column1, column2 FROM (VALUES ('Phones and inbound calls', 1), ('Scheduling', 2), ('Email and inbox', 3),
     ('Follow-ups', 4), ('Sales and leads', 5), ('Billing and invoicing', 6), ('Admin', 7), ('Meetings', 8),

@@ -108,11 +108,17 @@ async function projectPage(env, user, project, message) {
     `SELECT e.*, u.name AS va_name, a.name AS approved_by_name FROM log_exceptions e JOIN users u ON u.id = e.user_id
      LEFT JOIN users a ON a.id = e.approved_by WHERE e.project_id = ? ORDER BY e.to_date DESC, e.id DESC LIMIT 50`
   ).bind(project.id).all();
+  const { results: typeRows } = await env.DB.prepare(
+    `SELECT t.id, t.name, t.hidden, l.task_type_id IS NOT NULL AS linked FROM task_types t
+     LEFT JOIN project_task_types l ON l.project_id = ? AND l.task_type_id = t.id ORDER BY t.position, t.id`
+  ).bind(project.id).all();
+  const ownTypes = typeRows.some((t) => t.linked);
+  const taskTypes = typeRows.map((t) => ({ id: t.id, name: t.name, on: ownTypes ? Boolean(t.linked) : !t.hidden }));
   const creator = settings.createdBy ? await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(settings.createdBy).first() : null;
   const usage = packages.length ? await projectUsage(env, project, packages, today, settings.billingDay) : null;
   return page(pv.projectPage({
     user, project, settings, today, cycle: billingCycle(today, settings.billingDay), assignments: assignments.filter((a) => a.is_va), vas,
-    packages, history, exceptions, creator: creator?.name, message, usage,
+    packages, history, exceptions, creator: creator?.name, message, usage, taskTypes, ownTypes,
   }));
 }
 
@@ -122,6 +128,23 @@ export async function projectRoutes(env, user, path, method, field, fieldAll, me
   let m;
 
   if (path === '/admin/projects/new' && method === 'POST') return createProject(env, user, field, fieldAll, now);
+
+  // Task types of one project: the chosen list (VAs pick only from it), or back to the company-wide list.
+  if ((m = path.match(new RegExp(`^/admin/projects/${PID}/task-types$`))) && method === 'POST') {
+    const project = await env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(m[1]).first();
+    if (!project) return redirect('/admin/projects');
+    const here = `/admin/projects/${project.id}`;
+    const { results: all } = await env.DB.prepare('SELECT id, name FROM task_types').all();
+    const reset = field('op') === 'reset';
+    const chosen = all.filter((t) => fieldAll('type').includes(String(t.id)));
+    if (!reset && !chosen.length) return redirect(`${here}?msg=types-none#task-types`);
+    const statements = [env.DB.prepare('DELETE FROM project_task_types WHERE project_id = ?').bind(project.id)];
+    if (!reset) statements.push(...chosen.map((t) => env.DB.prepare('INSERT INTO project_task_types (project_id, task_type_id) VALUES (?, ?)').bind(project.id, t.id)));
+    statements.push(projectLog(env, project.id, user.id, reset ? 'Task types: back to the company-wide list'
+      : `Task types set to ${chosen.length}: ${chosen.map((t) => t.name).join(', ')}`, now));
+    await env.DB.batch(statements);
+    return redirect(`${here}?msg=saved#task-types`);
+  }
 
   // Past-date exceptions: an admin allows a VA to add or change time for some earlier days in this project.
   if ((m = path.match(new RegExp(`^/admin/projects/${PID}/exceptions(?:/(\\d+)/delete)?$`))) && method === 'POST') {

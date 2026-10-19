@@ -27,6 +27,8 @@ export function zohoBox(z) {
 
 // "Entered 2:14 PM CST by Ana Pérez" in the project's time zone (with the date when it is not the log's day).
 export function stamp(log, zone) {
+  // A log copied from Zoho Projects has no real entry time (it only has the day).
+  if (log.source === 'zoho') return `Copied from Zoho Projects${log.entered_by_name ? ` · added by ${log.entered_by_name}` : ''}`;
   const z = ZONES[zone] || ZONES.EST;
   const day = partsIn(z, new Date(log.entered_at)).date;
   const when = `${day === log.work_date ? '' : `${formatDate(day)}, `}${formatTimeIn(log.entered_at, z)} ${zone}`;

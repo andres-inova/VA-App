@@ -84,8 +84,14 @@ export async function loadTimers(env, userId) {
   return results;
 }
 
-const activeTypes = async (env) => (await env.DB.prepare('SELECT id, name FROM task_types WHERE hidden = 0 ORDER BY position, id').all()).results;
-const allTypes = async (env) => (await env.DB.prepare('SELECT id, name, hidden FROM task_types ORDER BY position, id').all()).results;
+// The task types of a project: all of them, with hidden = 1 for the ones the project does not offer. A project with
+// its own list (project_task_types) offers exactly that list; otherwise the company-wide list (not hidden).
+const allTypes = async (env, projectId) => (await env.DB.prepare(
+  `SELECT t.id, t.name, CASE WHEN EXISTS (SELECT 1 FROM project_task_types x WHERE x.project_id = ?1)
+       THEN (CASE WHEN l.task_type_id IS NULL THEN 1 ELSE 0 END) ELSE t.hidden END AS hidden
+   FROM task_types t LEFT JOIN project_task_types l ON l.project_id = ?1 AND l.task_type_id = t.id ORDER BY t.position, t.id`
+).bind(String(projectId)).all()).results;
+const activeTypes = async (env, projectId) => (await allTypes(env, projectId)).filter((t) => !t.hidden);
 
 // Hours + minutes boxes -> minutes (1 minute to 24 hours), or null.
 function readMinutes(field) {
@@ -188,7 +194,7 @@ export async function timeRoutes(env, user, request, path, method, field, form, 
     const project = byId(method === 'POST' ? field('project') : url.searchParams.get('project'));
     if (!project) return home('', 'time-no-project');
     if (!todayOk(project)) return home(project.id, 'time-not-covering');
-    const types = await activeTypes(env);
+    const types = await activeTypes(env, project.id);
     if (method === 'GET') return page(tv.startPage({ user, project, types, message }));
     const type = types.find((t) => t.id === Number(field('task_type')));
     if (!type) return page(tv.startPage({ user, project, types, description: field('description'), message: ['bad', 'Please tap what you are working on.'] }), 400);
@@ -227,7 +233,7 @@ export async function timeRoutes(env, user, request, path, method, field, form, 
     if (!timer.stopped_at) return home(projectId);
     const timerMinutes = minutesBetween(timer.started_at, timer.stopped_at);
     const workDate = partsIn(ZONES[zone], new Date(timer.started_at)).date;
-    const types = await allTypes(env);
+    const types = await allTypes(env, projectId);
     const show = (error, status = 200) => page(tv.savePage({
       user, timer, zone, workDate, timerMinutes, types, error,
       values: error ? { description: field('description'), minutes: readMinutes(field), task_type: Number(field('task_type')) } : null,
@@ -260,7 +266,7 @@ export async function timeRoutes(env, user, request, path, method, field, form, 
     const project = byId(method === 'POST' ? field('project') : url.searchParams.get('project'));
     if (!project) return home('', 'time-no-project');
     if (!todayOk(project) && !project.allowed.length) return home(project.id, 'time-not-covering');
-    const types = await activeTypes(env);
+    const types = await activeTypes(env, project.id);
     const show = (error, status = 200) => page(tv.logPage({
       user, project, types, todayOk: todayOk(project), error,
       values: error ? { description: field('description'), minutes: readMinutes(field), task_type: Number(field('task_type')), date: field('date') } : null,
@@ -295,7 +301,7 @@ export async function timeRoutes(env, user, request, path, method, field, form, 
     if (!zones.has(String(log.project_id))) for (const [id, z] of await projectZones(env, [log.project_id])) zones.set(id, z);
     const backTo = url.searchParams.get('from') === 'hours' ? '/va/time/hours' : '';
     const files = (await filesOf(env, [log.id])).get(log.id) || [];
-    const types = await allTypes(env);
+    const types = await allTypes(env, log.project_id);
     const zoho = await env.DB.prepare('SELECT * FROM time_log_zoho WHERE log_id = ?').bind(log.id).first();
     const show = (error, status = 200) => page(tv.entryPage({ user, log, project: shown, backTo, zone: zones.get(String(log.project_id)) || 'EST', types, files, editable, error, history: null, zoho }), status);
     if (method === 'GET' && !m[2] && !m[3]) {

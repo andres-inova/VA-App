@@ -52,6 +52,7 @@ const MESSAGES = {
   'missed-excused': ['good', 'Excused. This day no longer counts as missed.'],
   'missed-unexcused': ['good', 'Excuse taken back. This day counts as missed again.'],
   'missed-not-found': ['bad', 'That missed day was not found.'],
+  'types-none': ['bad', 'Please tick at least one task type.'],
   'exception-bad': ['bad', 'Please choose a VA of this project, a first day and a last day (the last day not before the first, and not in the future).'],
   'sop-unreadable': ['bad', 'The SOP could not be saved. Please try again.'],
   'sop-empty': ['bad', 'Saved, but not marked complete yet: please fill in your steps first.'],

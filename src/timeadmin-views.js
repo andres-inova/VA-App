@@ -213,7 +213,45 @@ export function exceptionsPage({ user, message, exceptions, vas, projects, today
 
 // ---- Missed time ----
 
-export function missedPage({ user, message, s, rows, more, perVa, everAny, query }) {
+const CHECK_MODES = [['off', 'Off'], ['log', 'Log only'], ['send', 'Log and send Slack DMs']];
+
+// The daily time check switch: what it is set to, since when, what the last check did, and the form to change it.
+function timeCheckCard(check, back, myZone) {
+  const zone = ZONES[myZone] || ZONES.EST;
+  const label = CHECK_MODES.find(([k]) => k === check.mode)[1];
+  const tone = check.mode === 'off' ? 'muted' : check.mode === 'log' ? 'info' : 'good';
+  const since = check.mode !== 'off' && check.since ? ` · checking days from <b>${esc(formatDate(partsIn(zone, new Date(check.since)).date, true))}</b>` : '';
+  const l = check.last;
+  const last = l ? `Last check: ${esc(formatDate(l.date, true))} (${esc(l.zone)} projects), ran ${esc(formatDate(partsIn(zone, new Date(l.at)).date))} at ${esc(formatTimeIn(l.at, zone))} ${esc(myZone || 'EST')}
+      · ${l.holiday ? `holiday (${esc(l.holiday)}), nothing checked` : `${l.checked} VA project-day${l.checked === 1 ? '' : 's'} checked, ${l.missed} missed`}`
+    : check.mode === 'off' ? 'Not checked yet.' : 'Not checked yet. The first check runs after 12:30 AM tonight (project time).';
+  const opts = CHECK_MODES.map(([k, t]) => `<option value="${k}" ${k === check.mode ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  return `<div class="card" id="time-check"><h2>${icon('timer')} Daily time check ${chip(label, tone)}</h2>
+    <p class="meta" style="margin:0">Each night, after 12:30 AM in each project’s time zone, the app checks the day before: every VA must log at least 1 hour in each project on their workdays for it.${since}</p>
+    <p class="small" style="margin:6px 0 0">${last}</p>
+    <form method="post" action="/admin/time/check" class="actions" data-confirm="Change the daily time check?">
+      <input type="hidden" name="back" value="${esc(back)}">
+      <select id="tc-mode" name="mode" aria-label="Daily time check" style="flex:1 1 220px;width:auto">${opts}</select>
+      <button class="sm">Save</button></form>
+    <p class="small" style="margin:6px 0 0"><b>Log only</b>: missed days are added here, VAs get nothing. <b>Log and send Slack DMs</b>: the VA also gets a Slack message about each missed day (a few per minute). Turning it on never checks days before today.</p></div>`;
+}
+
+// Excuse a missed day (with a note), or take the excuse back.
+function excuseForm(r, back) {
+  if (r.excused_at) {
+    return `<form method="post" action="/admin/time/missed/${r.id}/unexcuse" class="actions" style="margin:4px 0 0"><input type="hidden" name="back" value="${esc(back)}">
+      <span class="small">Excused by ${esc(r.excused_by_name || 'an admin')} on ${esc(zohoTime(r.excused_at))}${r.excuse_note ? `: ${esc(r.excuse_note)}` : ''}</span>
+      <button class="sm plain" style="margin:0">Undo excuse</button></form>`;
+  }
+  return `<details style="margin:4px 0 0"><summary class="small" style="cursor:pointer">Excuse this day</summary>
+    <form method="post" action="/admin/time/missed/${r.id}/excuse" class="actions" style="margin:4px 0 0"><input type="hidden" name="back" value="${esc(back)}">
+      <input type="text" name="note" maxlength="500" placeholder="Note, for example: client closed that day" aria-label="Note" style="flex:1 1 200px;width:auto">
+      <button class="sm" style="margin:0">Excuse</button></form></details>`;
+}
+
+const DM_CHIPS = { sent: ['VA notified', 'good'], due: ['Slack DM waiting', 'info'], sending: ['Sending Slack DM', 'info'], failed: ['Slack DM failed', 'bad'], no_slack: ['No Slack ID', 'warn'] };
+
+export function missedPage({ user, message, s, rows, more, perVa, everAny, query, check, back }) {
   const base = '/admin/time/missed';
   const link = linker(base, s, query);
   const { form, buttons, custom } = filterParts(s, link, base, { types: false, clients: false, cycle: false });
@@ -225,16 +263,18 @@ export function missedPage({ user, message, s, rows, more, perVa, everAny, query
     return `<div class="item flat"><div class="item-head">${avatar(r.va_name || '?')}<div class="grow">
       <div class="title">${esc(r.va_name || 'Someone')} · ${esc(formatDate(r.work_date, true))}</div>
       <div class="sub">${esc(p ? projectName(p) : `Project ${r.project_id}`)}</div>
-      <div class="sub">Logged <b>${esc(hm(r.minutes_logged))}</b> of the ${esc(hm(r.minimum))} minimum</div></div>
-      ${r.notified_at ? chip('VA notified', 'good') : chip('Not notified', 'muted')}</div></div>`;
+      <div class="sub">Logged <b>${esc(hm(r.minutes_logged))}</b> of the ${esc(hm(r.minimum))} minimum</div>
+      ${excuseForm(r, back)}</div>
+      <span class="chips side-chips">${r.excused_at ? chip('Excused', 'muted') : ''}${r.notified_at ? chip('VA notified', 'good') : DM_CHIPS[r.dm] ? chip(...DM_CHIPS[r.dm]) : chip('Not notified', 'muted')}</span></div></div>`;
   }).join('');
   const csv = link({}).replace(base, '/admin/time/missed.csv');
   return layout({
     title: 'Missed time', user, active: '/admin/time', message,
     body: `${adminTimeTabs(base)}
-      ${everAny ? '' : '<div class="card"><p class="meta" style="margin:0"><b>Nothing here yet.</b> Filled in each day once the daily check starts (next step).</p></div>'}
+      ${timeCheckCard(check, back, s.myZone)}
+      ${everAny ? '' : `<div class="card"><p class="meta" style="margin:0"><b>Nothing here yet.</b> ${check.mode === 'off' ? 'The daily time check is off, so no days are added. Turn it on above (Log only first, to see what it finds).' : 'Missed days appear here the morning after.'}</p></div>`}
       ${form}${buttons}${custom}
-      <div class="card">${rangeLine(s)}<p class="small" style="margin:6px 0 0">A day counts as missed when a VA logged less than the daily minimum (1 hour) in a project on one of their workdays. Approved time off, holidays and emergencies don’t count.</p>
+      <div class="card">${rangeLine(s)}<p class="small" style="margin:6px 0 0">A day counts as missed when a VA logged less than the daily minimum (1 hour) in a project on one of their workdays. Approved time off, holidays and emergencies don’t count, and neither do excused days.</p>
         ${rows.length ? `<div class="actions"><a class="btn sm plain" href="${esc(csv)}" download>${icon('download')} Download (CSV)</a></div>` : ''}</div>
       <div class="card"><h2>By VA</h2>${counts}</div>
       <div class="card"><h2>Days</h2>${list || empty('No missed days in this range.')}${more ? '<p class="small">Showing the newest 1,000. Choose a shorter range, or download the CSV.</p>' : ''}</div>`,

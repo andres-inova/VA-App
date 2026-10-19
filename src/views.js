@@ -47,6 +47,11 @@ const MESSAGES = {
   'time-no-project': ['bad', 'That project is not one of yours. Please choose one of your projects.'],
   'time-not-covering': ['bad', 'You can log time for a coverage project only on days you cover that client.'],
   'exception-added': ['good', 'Allowed. The VA can now add or change time for those days in this project.'],
+  'time-check-saved': ['good', 'Saved. The daily time check uses this from its next run.'],
+  'time-check-bad': ['bad', 'Please choose Off, Log only or Log and send Slack DMs.'],
+  'missed-excused': ['good', 'Excused. This day no longer counts as missed.'],
+  'missed-unexcused': ['good', 'Excuse taken back. This day counts as missed again.'],
+  'missed-not-found': ['bad', 'That missed day was not found.'],
   'exception-bad': ['bad', 'Please choose a VA of this project, a first day and a last day (the last day not before the first, and not in the future).'],
   'sop-unreadable': ['bad', 'The SOP could not be saved. Please try again.'],
   'sop-empty': ['bad', 'Saved, but not marked complete yet: please fill in your steps first.'],
@@ -1393,13 +1398,14 @@ function pauseCard(paused, back) {
         <button class="plain sm">${icon('stop')} Pause all check-ins</button></form>`;
 }
 
-export function settingsPage({ user, grace, emailError, admins, recipients, message, paused = false }) {
+export function settingsPage({ user, grace, emailError, admins, recipients, message, paused = false, timeCheck = 'Off' }) {
   return layout({
     title: 'Settings', user, active: '/admin/settings', message,
     body: `${pageTabs(SETTINGS_TABS, '/admin/settings')}${paused ? pauseCard(true, '/admin/settings') : ''}${section({
       title: 'Check-ins', open: false,
       hint: 'Pause everything while VAs are not using the app yet, or during a company break.',
-      body: `<div style="padding:0 8px 8px">${paused ? '<p class="meta">Check-ins are paused (see above).</p>' : pauseCard(false, '/admin/settings')}</div>`,
+      body: `<div style="padding:0 8px 8px">${paused ? '<p class="meta">Check-ins are paused (see above).</p>' : pauseCard(false, '/admin/settings')}
+        <p class="meta">Daily time check (1 hour per project per workday): <b>${esc(timeCheck)}</b>. <a href="/admin/time/missed#time-check">Change it on Time → Missed time</a></p></div>`,
     })}
     ${section({
       title: 'My notifications', open: true,

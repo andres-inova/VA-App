@@ -22,6 +22,7 @@ import { fieldRoutes } from './field-editor.js';
 import { tagRoutes } from './tags.js';
 import { projectRoutes, projectLog, PID } from './projects.js';
 import { adminTimeRoutes } from './timeadmin.js';
+import { getTimeCheck, MODES } from './timecheck.js';
 import { emailRoutes } from './email.js';
 import { trainingRoutes, adminTrainingRoutes, myTrainings, lateTrainings, ONBOARDING } from './training.js';
 import * as views from './views.js';
@@ -43,7 +44,10 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runEveryMinute(env, new Date(event.scheduledTime)));
+    // TEST_CLOCK is set only when testing on this computer: the job then runs at the time saved in settings
+    // "test_clock" (so a test can check what happens after midnight). Never set in Cloudflare.
+    const clock = env.TEST_CLOCK ? (await env.DB.prepare("SELECT value FROM settings WHERE key = 'test_clock'").first())?.value : null;
+    ctx.waitUntil(runEveryMinute(env, new Date(clock || event.scheduledTime)));
   },
 };
 
@@ -666,7 +670,7 @@ async function adminRoutes(env, user, path, method, field, message, url, fieldAl
     const emailError = row ? JSON.parse(row.value) : null;
     const { results: admins } = await env.DB.prepare('SELECT name, email FROM users WHERE is_admin = 1 ORDER BY name').all();
     const recipients = await getReportRecipients(env);
-    return page(views.settingsPage({ user, grace: await getGraceMinutes(env), emailError, admins, recipients, message, paused: (await checkinPause(env)).paused }));
+    return page(views.settingsPage({ user, grace: await getGraceMinutes(env), emailError, admins, recipients, message, paused: (await checkinPause(env)).paused, timeCheck: MODES[(await getTimeCheck(env)).mode] }));
   }
 
   if (path === '/admin/settings/notifications' && method === 'POST') {

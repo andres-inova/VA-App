@@ -1,7 +1,8 @@
 // The admin side of time logging (piece T4): the admin Time page (totals and charts across VAs, projects, clients
 // and task types for a chosen range, the list of logs, CSV files), Packages (hours used in each project's current
 // billing cycle), Exceptions (every past-date exception in one place) and Missed time (the missed_time table, filled
-// each day from piece T5). Also the small "Time" box on a VA's record page and the package numbers on a project page.
+// each night by the daily time check in timecheck.js, with its Off / Log only / Send switch and Excuse).
+// Also the small "Time" box on a VA's record page and the package numbers on a project page.
 //
 // - Read-only for time logs: admins look at logs here; VAs change them on their Time page.
 // - Days are work_date (the day in the project's time zone). "Today", "this week" ... count from the chosen project's
@@ -16,6 +17,7 @@ import { billingCycle, packageOn, addException, removeException } from './projec
 import { RANGES, billingDayOf, simpleRange, filesOfRow, buckets } from './timehours.js';
 import { toCsv } from './lists.js';
 import * as av from './timeadmin-views.js';
+import { getTimeCheck, setTimeCheck } from './timecheck.js';
 
 const PAGE_SIZE = 100;     // log rows per "Show more"
 const MAX_SHOW = 2000;     // log rows on one page at most
@@ -340,25 +342,57 @@ async function missedPage(env, user, path, url, message) {
   else { where += ' AND m.work_date BETWEEN ? AND ?'; binds.push(s.range.from, s.range.to); }
   if (s.va) { where += ' AND m.user_id = ?'; binds.push(s.va.id); }
   if (s.project) { where += ' AND m.project_id = ?'; binds.push(s.project.id); }
-  const listSql = `SELECT m.*, u.name AS va_name FROM missed_time m LEFT JOIN users u ON u.id = m.user_id WHERE ${where}
+  const listSql = `SELECT m.*, u.name AS va_name, st.dm, st.dm_error, st.excused_at, st.excuse_note, eb.name AS excused_by_name
+    FROM missed_time m LEFT JOIN users u ON u.id = m.user_id LEFT JOIN missed_time_state st ON st.missed_id = m.id LEFT JOIN users eb ON eb.id = st.excused_by WHERE ${where}
     ORDER BY m.work_date DESC, u.name COLLATE NOCASE LIMIT ?`;
   if (path === '/admin/time/missed.csv') {
     const { results } = await env.DB.prepare(listSql).bind(...binds, MAX_CSV).all();
     return csvResponse(toCsv([
-      ['Date', 'VA', 'Project', 'Minutes logged', 'Minimum (minutes)', 'Short by (minutes)', 'VA notified'],
+      ['Date', 'VA', 'Project', 'Minutes logged', 'Minimum (minutes)', 'Short by (minutes)', 'VA notified', 'Excused'],
       ...results.map((r) => {
         const p = s.byProject.get(String(r.project_id));
-        return [r.work_date, r.va_name || '', p ? av.projectName(p) : String(r.project_id), r.minutes_logged, r.minimum, Math.max(0, r.minimum - r.minutes_logged), r.notified_at ? `Yes (${r.notified_at.slice(0, 16).replace('T', ' ')} UTC)` : 'No'];
+        return [r.work_date, r.va_name || '', p ? av.projectName(p) : String(r.project_id), r.minutes_logged, r.minimum, Math.max(0, r.minimum - r.minutes_logged), r.notified_at ? `Yes (${r.notified_at.slice(0, 16).replace('T', ' ')} UTC)` : 'No',
+          r.excused_at ? `Yes${r.excuse_note ? `: ${r.excuse_note}` : ''}` : 'No'];
       }),
     ]), `missed-time-${rangeName(s.range)}.csv`);
   }
   const [{ results: rows }, { results: perVa }, total] = await env.DB.batch([
     env.DB.prepare(listSql).bind(...binds, MAX_MISSED + 1),
+    // Excused days don't count.
     env.DB.prepare(`SELECT m.user_id, u.name AS va_name, COUNT(DISTINCT m.work_date) AS days, COUNT(*) AS n FROM missed_time m LEFT JOIN users u ON u.id = m.user_id
-      WHERE ${where} GROUP BY m.user_id ORDER BY days DESC, u.name COLLATE NOCASE`).bind(...binds),
+      LEFT JOIN missed_time_state st ON st.missed_id = m.id
+      WHERE ${where} AND st.excused_at IS NULL GROUP BY m.user_id ORDER BY days DESC, u.name COLLATE NOCASE`).bind(...binds),
     env.DB.prepare('SELECT COUNT(*) AS n FROM missed_time'),
   ]);
-  return page(av.missedPage({ user, message, s, rows: rows.slice(0, MAX_MISSED), more: rows.length > MAX_MISSED, perVa, everAny: total.results[0]?.n > 0, query: url.searchParams }));
+  const check = await getTimeCheck(env);
+  return page(av.missedPage({ user, message, s, rows: rows.slice(0, MAX_MISSED), more: rows.length > MAX_MISSED, perVa, everAny: total.results[0]?.n > 0, query: url.searchParams, check, back: backOf(url) }));
+}
+
+// The Missed time page with its filters (without the message), to come back to after a change.
+function backOf(url) {
+  const q = new URLSearchParams(url.searchParams);
+  q.delete('msg');
+  const qs = q.toString();
+  return `/admin/time/missed${qs ? `?${qs}` : ''}`;
+}
+
+// The daily time check switch, and excusing a missed day (or taking the excuse back). back = the Missed time page
+// with its filters.
+async function missedChange(env, user, path, field) {
+  const back = (field('back') || '').startsWith('/admin/time/missed') && !(field('back') || '').startsWith('/admin/time/missed.') ? field('back') : '/admin/time/missed';
+  const to = (msg, hash = '') => redirect(`${back}${back.includes('?') ? '&' : '?'}msg=${msg}${hash}`);
+  if (path === '/admin/time/check') return to((await setTimeCheck(env, field('mode'))) ? 'time-check-saved' : 'time-check-bad', '#time-check');
+  const m = path.match(/^\/admin\/time\/missed\/(\d+)\/(excuse|unexcuse)$/);
+  const row = m && (await env.DB.prepare('SELECT id FROM missed_time WHERE id = ?').bind(Number(m[1])).first());
+  if (!row) return to('missed-not-found');
+  if (m[2] === 'excuse') {
+    await env.DB.prepare(`INSERT INTO missed_time_state (missed_id, excused_at, excused_by, excuse_note) VALUES (?1, ?2, ?3, ?4)
+      ON CONFLICT (missed_id) DO UPDATE SET excused_at = ?2, excused_by = ?3, excuse_note = ?4`)
+      .bind(row.id, new Date().toISOString(), user.id, (field('note') || '').trim().slice(0, 500) || null).run();
+    return to('missed-excused');
+  }
+  await env.DB.prepare('UPDATE missed_time_state SET excused_at = NULL, excused_by = NULL, excuse_note = NULL WHERE missed_id = ?').bind(row.id).run();
+  return to('missed-unexcused');
 }
 
 // Handles /admin/time, /admin/time.csv and /admin/time/... (admins only; checked in index.js).
@@ -368,6 +402,7 @@ export async function adminTimeRoutes(env, user, path, method, field, message, u
   if ((m = path.match(/^\/admin\/time\/log\/(\d+)$/))) return logView(env, user, Number(m[1]), url, message);
   if (path === '/admin/time/packages') return packagesPage(env, user, message);
   if (path === '/admin/time/exceptions' || /^\/admin\/time\/exceptions\/\d+\/delete$/.test(path)) return exceptionsPage(env, user, path, method, field, message);
+  if (method === 'POST' && (path === '/admin/time/check' || /^\/admin\/time\/missed\/\d+\/(excuse|unexcuse)$/.test(path))) return missedChange(env, user, path, field);
   if (path === '/admin/time/missed' || path === '/admin/time/missed.csv') return missedPage(env, user, path, url, message);
   return redirect('/admin/time');
 }

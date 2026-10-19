@@ -13,7 +13,8 @@ export async function postToSlack(env, channel, text, blocks) {
     console.log(`[Slack not set up] #${channel}: ${text}${blocks ? ` (+${blocks.length} blocks)` : ''}`);
     return false;
   }
-  const res = await fetch('https://slack.com/api/chat.postMessage', {
+  // SLACK_API_URL is only set when testing on this computer (a fake Slack server).
+  const res = await fetch(`${env.SLACK_API_URL || 'https://slack.com/api'}/chat.postMessage`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${env.SLACK_BOT_TOKEN.trim()}`,

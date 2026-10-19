@@ -13,7 +13,7 @@ const logList = (log) => (log.length ? log.map((l) => `<div class="item flat"><d
 
 // ---- A project's page ----
 
-export function projectPage({ user, project, settings, today, cycle, assignments, vas, packages, history, exceptions = [], creator, message, usage = null, taskTypes = [], ownTypes = false }) {
+export function projectPage({ user, project, settings, today, cycle, assignments, vas, packages, history, exceptions = [], creator, message, usage = null, taskTypes = [], ownTypes = false, inhouse = false }) {
   const app = isAppProject(project);
   const here = `/admin/projects/${esc(project.id)}`;
   const client = settings.client;
@@ -108,7 +108,9 @@ export function projectPage({ user, project, settings, today, cycle, assignments
       <p class="meta" style="margin:0">${project.active ? 'Close the project when the work for this client ends. Nothing is deleted, and it can be reopened from this page.' : 'This project is closed.'}</p>
       <button class="${project.active ? 'danger' : ''} sm">${project.active ? 'Close project' : 'Reopen project'}</button></form></div>` : '';
 
-  const typesBody = `<form method="post" action="${here}/task-types" style="padding:0 8px 8px">
+  const typesBody = inhouse ? `<div style="padding:0 8px 8px"><ul class="plainlist">${taskTypes.filter((t) => t.on).map((t) => `<li>${esc(t.name)}</li>`).join('')}</ul>
+      <p class="small">${icon('lock')} The in-house project is shared by every VA. They log on it without being assigned, and this task type list is fixed: it can't be changed here.</p></div>`
+    : `<form method="post" action="${here}/task-types" style="padding:0 8px 8px">
       <div class="checks">${taskTypes.map((t) => `<label class="check"><input type="checkbox" name="type" value="${t.id}" ${t.on ? 'checked' : ''}> ${esc(t.name)}</label>`).join('')}</div>
       <p class="small">${ownTypes ? 'This project has its own list: VAs pick only from the ticked task types.' : 'This project uses the company-wide list (Settings > Task types). Save to give it its own list.'}
         Logs already saved keep their task type.</p>
@@ -120,7 +122,7 @@ export function projectPage({ user, project, settings, today, cycle, assignments
     body: `${top}
     ${section({ title: 'Settings', open: true, key: 'settings', body: settingsForm })}
     ${section({ title: 'Package', open: true, key: 'package', count: packages.length || undefined, hint: 'How many hours the client buys per billing cycle. A change can start on a later date.', body: packageBody })}
-    ${section({ title: 'VAs', count: assignments.length, open: true, key: 'vas', hint: project.is_coverage ? 'Coverage project: the start time is used only on days the VA covers this client.' : 'Start time and work days of each VA on this project (same as on the Projects page).', body: `${assignments.length ? assignments.map(vaRow).join('') : empty('No VA on this project yet.')}${addVa}` })}
+    ${section({ title: 'VAs', count: assignments.length, open: true, key: 'vas', hint: inhouse ? 'Every VA can log time on the in-house project without being added here.' : project.is_coverage ? 'Coverage project: the start time is used only on days the VA covers this client.' : 'Start time and work days of each VA on this project (same as on the Projects page).', body: `${assignments.length ? assignments.map(vaRow).join('') : empty('No VA on this project yet.')}${addVa}` })}
     ${section({ title: 'Task types', count: taskTypes.filter((t) => t.on).length, open: false, key: 'task-types', hint: 'What VAs can choose when they log time on this project.', body: typesBody })}
     ${section({ title: 'Past-date exceptions', count: exceptions.length || undefined, open: exceptions.length > 0, key: 'exceptions', hint: `VAs log time only for today (${esc(settings.zone)}). Here you can allow a VA to add or change time for earlier days in this project.`, body: exceptionBody })}
     ${section({ title: 'History', count: history.length, open: false, key: 'history', hint: 'Changes to this project, newest first (the last 50).', body: logList(history) })}

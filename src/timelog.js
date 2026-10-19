@@ -29,8 +29,10 @@ const cookieOf = (request, name) => (request.headers.get('Cookie') || '').split(
 // The VA's projects for the Time page, each with its time zone, its "today" and the past dates an admin allowed.
 export async function myProjects(env, user, now = new Date()) {
   const { results: rows } = await env.DB.prepare(
-    `SELECT p.id, p.client, p.client_record_id, p.name, p.is_coverage FROM assignments a JOIN projects p ON p.id = a.project_id
-     WHERE a.user_id = ? AND p.active = 1 ORDER BY p.is_coverage, p.client`
+    `SELECT p.id, p.client, p.client_record_id, p.name, p.is_coverage FROM projects p
+     WHERE p.active = 1 AND (EXISTS (SELECT 1 FROM assignments a WHERE a.project_id = p.id AND a.user_id = ?1)
+       OR p.id = (SELECT value FROM settings WHERE key = 'inhouse_project_id'))
+     ORDER BY p.is_coverage, p.client`
   ).bind(user.id).all();
   if (!rows.length) return [];
   const zones = await projectZones(env, rows.map((p) => p.id));

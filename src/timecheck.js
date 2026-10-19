@@ -6,7 +6,7 @@
 //   the day it was switched on are checked, never older days.
 // - A project-day is checked once, after 12:30 AM the next day in the project's time zone (sent_log key
 //   "timecheck:<zone>:<date>"). One zone-day per run, so each run stays small.
-// - Skipped: days that are not the VA's workdays for the project, approved time off (whole day or that project),
+// - Skipped: the in-house project (everyone's, setting inhouse_project_id), days that are not the VA's workdays for the project, approved time off (whole day or that project),
 //   emergencies, holidays, closed projects, VAs exempt from check-ins, and the days up to and including the day
 //   the VA joined the project (assignment_starts). Coverage projects count only on the days the VA covers.
 // - Minutes = all saved logs of the VA in the project for that day (work_date is already in the project's zone).
@@ -100,7 +100,8 @@ async function checkZoneDay(env, { zone, date, key }, tc, now) {
       `SELECT a.project_id, a.user_id, a.days, p.is_coverage, p.client, p.client_record_id, u.zoho_id, u.exempt, u.affiliation, s.first_seen
        FROM assignments a JOIN projects p ON p.id = a.project_id JOIN users u ON u.id = a.user_id
        LEFT JOIN assignment_starts s ON s.project_id = a.project_id AND s.user_id = a.user_id
-       WHERE p.active = 1 AND u.is_va = 1`
+       WHERE p.active = 1 AND u.is_va = 1
+         AND p.id != COALESCE((SELECT value FROM settings WHERE key = 'inhouse_project_id'), '')`
     ),
     env.DB.prepare('SELECT name FROM holidays WHERE date = ?').bind(date),
     env.DB.prepare("SELECT user_id, project_ids FROM time_off_requests WHERE status = 'approved' AND ? BETWEEN start_date AND end_date").bind(date),

@@ -289,6 +289,6 @@ export function vaTimeBox(t) {
   const line = (label, p) => (p ? `<div class="hb-row"><div class="hb-text"><span class="hb-name">${esc(label)}<small>${esc(span(p.from, p.to))}${p.payDay ? ` · paid ${esc(shortDate(p.payDay))}` : ''}</small></span><span class="hb-val">${esc(hm(p.minutes))}</span></div></div>` : '');
   const body = `<div style="padding:0 8px 8px">${line('This pay period', t.cur)}${line('Last pay period', t.prev)}${!t.cur && !t.prev ? '<p class="meta">No pay periods around today (Settings > Pay periods).</p>' : ''}
     <div class="actions"><a class="btn sm plain" href="/admin/time?va=${t.userId}">${icon('timer')} See all their time</a></div></div>`;
-  return section({ title: 'Time', key: 'time', open: true, hint: 'Hours logged in all projects (deleted logs not counted).', body });
+  return section({ title: 'Time', key: 'time', open: false, hint: 'Hours logged in all projects (deleted logs not counted).', body });
 }
 

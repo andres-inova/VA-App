@@ -112,15 +112,19 @@ async function projectPage(env, user, project, message) {
     `SELECT t.id, t.name, t.hidden, l.task_type_id IS NOT NULL AS linked FROM task_types t
      LEFT JOIN project_task_types l ON l.project_id = ? AND l.task_type_id = t.id ORDER BY t.position, t.id`
   ).bind(project.id).all();
+  const inhouse = (await inhouseId(env)) === String(project.id);
   const ownTypes = typeRows.some((t) => t.linked);
   const taskTypes = typeRows.map((t) => ({ id: t.id, name: t.name, on: ownTypes ? Boolean(t.linked) : !t.hidden }));
   const creator = settings.createdBy ? await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(settings.createdBy).first() : null;
   const usage = packages.length ? await projectUsage(env, project, packages, today, settings.billingDay) : null;
   return page(pv.projectPage({
     user, project, settings, today, cycle: billingCycle(today, settings.billingDay), assignments: assignments.filter((a) => a.is_va), vas,
-    packages, history, exceptions, creator: creator?.name, message, usage, taskTypes, ownTypes,
+    packages, history, exceptions, creator: creator?.name, message, usage, taskTypes, ownTypes, inhouse,
   }));
 }
+
+// The in-house project (setting inhouse_project_id): every VA can log on it, and its task types are fixed.
+export const inhouseId = async (env) => (await env.DB.prepare("SELECT value FROM settings WHERE key = 'inhouse_project_id'").first())?.value || null;
 
 // Handles the project pages and Settings > Task types / Pay periods. Returns null for addresses it doesn't own.
 export async function projectRoutes(env, user, path, method, field, fieldAll, message) {
@@ -134,6 +138,7 @@ export async function projectRoutes(env, user, path, method, field, fieldAll, me
     const project = await env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(m[1]).first();
     if (!project) return redirect('/admin/projects');
     const here = `/admin/projects/${project.id}`;
+    if ((await inhouseId(env)) === String(project.id)) return redirect(`${here}?msg=types-locked#task-types`);
     const { results: all } = await env.DB.prepare('SELECT id, name FROM task_types').all();
     const reset = field('op') === 'reset';
     const chosen = all.filter((t) => fieldAll('type').includes(String(t.id)));
@@ -268,7 +273,8 @@ const typeLog = (env, user, summary, now) =>
 
 async function taskTypes(env, user, method, field, message, now) {
   const load = async () => (await env.DB.prepare(
-    `SELECT t.*, (SELECT COUNT(*) FROM time_logs l WHERE l.task_type_id = t.id) + (SELECT COUNT(*) FROM work_timers w WHERE w.task_type_id = t.id) AS used
+    `SELECT t.*, (SELECT COUNT(*) FROM time_logs l WHERE l.task_type_id = t.id) + (SELECT COUNT(*) FROM work_timers w WHERE w.task_type_id = t.id) AS used,
+       (SELECT COUNT(*) FROM project_task_types x WHERE x.task_type_id = t.id) AS linked
      FROM task_types t ORDER BY t.position, t.id`
   ).all()).results;
   const show = async (error = null, status = 200) => {
@@ -310,6 +316,7 @@ async function taskTypes(env, user, method, field, message, now) {
       typeLog(env, user, `${op === 'hide' ? 'Hid' : 'Showed again'} the task type "${type.name}"`, now));
   } else if (op === 'delete') {
     if (type.used) return show(`"${type.name}" has time logged with it, so it can't be deleted. Hide it instead: it then can't be picked for new time.`, 400);
+    if (type.linked) return show(`"${type.name}" is on the task type list of ${type.linked === 1 ? 'a project' : `${type.linked} projects`}, so it can't be deleted. Hide it instead.`, 400);
     statements.push(env.DB.prepare('DELETE FROM task_types WHERE id = ?').bind(type.id), typeLog(env, user, `Deleted the task type "${type.name}"`, now));
   }
   if (statements.length) await env.DB.batch(statements);

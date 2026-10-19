@@ -52,6 +52,7 @@ const MESSAGES = {
   'missed-excused': ['good', 'Excused. This day no longer counts as missed.'],
   'missed-unexcused': ['good', 'Excuse taken back. This day counts as missed again.'],
   'missed-not-found': ['bad', 'That missed day was not found.'],
+  'types-locked': ['bad', 'The in-house project has a fixed task type list that can’t be changed.'],
   'types-none': ['bad', 'Please tick at least one task type.'],
   'exception-bad': ['bad', 'Please choose a VA of this project, a first day and a last day (the last day not before the first, and not in the future).'],
   'sop-unreadable': ['bad', 'The SOP could not be saved. Please try again.'],
@@ -239,15 +240,15 @@ export const empty = (text) => `<div class="empty">${text}</div>`;
 // ---- Styles ----
 
 const CSS = `
-:root{--bg:#efeae2;--surface:#fff;--surface-2:#f6f5f3;--text:#111b21;--muted:#54656f;--line:#e6e2dc;
---brand:#008069;--accent:#00a884;--accent-ink:#fff;--accent-soft:#d9fdd3;
---side:#0f2f2a;--side-ink:#d7ece7;--side-muted:#8fb3ab;--side-hover:#18413a;
---good:#067647;--good-bg:#dcfae6;--warn:#935f00;--warn-bg:#fef0c7;--bad:#b42318;--bad-bg:#fee4e2;--info:#175cd3;--info-bg:#e0eaff;--muted-bg:#eef0f2;
---shadow:0 1px 2px rgba(17,27,33,.06),0 2px 8px rgba(17,27,33,.05);--radius:16px}
-@media (prefers-color-scheme:dark){:root{--bg:#0b141a;--surface:#111b21;--surface-2:#1a252c;--text:#e9edef;--muted:#8696a0;--line:#233138;
---brand:#00a884;--accent:#00a884;--accent-ink:#04211b;--accent-soft:#0b3d34;--side:#0b1d1a;--side-ink:#d7ece7;--side-muted:#7fa39b;--side-hover:#14302b;
---good:#75e0a7;--good-bg:#0f3321;--warn:#fdb022;--warn-bg:#3b2a07;--bad:#fda29b;--bad-bg:#3d1512;--info:#84adff;--info-bg:#15254d;--muted-bg:#233138;
---shadow:0 1px 2px rgba(0,0,0,.4)}}
+:root{--bg:#f4f5f6;--surface:#fff;--surface-2:#f8f9fa;--text:#1d2428;--muted:#5b6770;--line:#e4e7ea;
+--brand:#2a6f67;--accent:#2f7a70;--accent-ink:#fff;--accent-soft:#e3efed;
+--side:#1f2a2d;--side-ink:#dde5e7;--side-muted:#8b999f;--side-hover:#2b373b;
+--good:#1f6b45;--good-bg:#e4f2ea;--warn:#8a5a00;--warn-bg:#faf0d6;--bad:#a52a22;--bad-bg:#fbe8e6;--info:#2f5ea8;--info-bg:#e6edf8;--muted-bg:#eceff1;
+--shadow:0 1px 2px rgba(20,30,35,.05),0 1px 6px rgba(20,30,35,.04);--radius:14px}
+@media (prefers-color-scheme:dark){:root{--bg:#12181b;--surface:#1a2226;--surface-2:#212b30;--text:#e6ebed;--muted:#8e9ba2;--line:#2b373c;
+--brand:#5bb5a6;--accent:#3f9a8d;--accent-ink:#0c1a18;--accent-soft:#16312d;--side:#161d20;--side-ink:#dde5e7;--side-muted:#7f8d93;--side-hover:#222d31;
+--good:#7ddcab;--good-bg:#123424;--warn:#f0b64a;--warn-bg:#3a2b0a;--bad:#f5a39b;--bad-bg:#3d1a17;--info:#8fb3f2;--info-bg:#18284a;--muted-bg:#27323a;
+--shadow:0 1px 2px rgba(0,0,0,.35)}}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 "Nunito Sans","Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
 a{color:var(--brand)}.ic{width:20px;height:20px;flex:none}
@@ -259,7 +260,7 @@ a{color:var(--brand)}.ic{width:20px;height:20px;flex:none}
 .logo{width:38px;height:38px;border-radius:12px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:800}
 .side-group{margin-top:10px}.side-label{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--side-muted);padding:4px 10px}
 .side-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;color:var(--side-ink);text-decoration:none;font-weight:600}
-.side-link:hover{background:var(--side-hover)}.side-link.on{background:var(--accent);color:#fff}
+.side-link:hover{background:var(--side-hover)}.side-link.on{background:var(--side-hover);color:#fff;box-shadow:inset 3px 0 0 #6cc3b4}
 .side-link .badge{margin-left:auto}.badge{background:#e53935;color:#fff;border-radius:99px;font-size:12px;font-weight:800;padding:1px 8px;min-width:22px;text-align:center}
 .side-user{margin-top:auto;border-top:1px solid var(--side-hover);padding-top:10px}
 .side-user .me{display:flex;align-items:center;gap:10px;padding:6px 8px}.side-user .me small{display:block;color:var(--side-muted)}
@@ -288,7 +289,7 @@ details.item>summary{cursor:pointer;border-radius:12px}details.item>summary:hove
 .item .title{font-weight:700}.item .sub{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
 .item-body{padding:4px 12px 14px 60px}.item.flat .item-head{cursor:default}
 .grow{flex:1;min-width:0}
-.avatar{--h:160;width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:800;font-size:14px;color:#fff;background:hsl(var(--h) 45% 42%)}
+.avatar{width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:700;font-size:14px;color:var(--brand);background:var(--accent-soft)}
 .avatar.lg{width:56px;height:56px;font-size:18px}
 .chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:99px;font-size:13px;font-weight:700;white-space:nowrap}
 .good{background:var(--good-bg);color:var(--good)}.warn{background:var(--warn-bg);color:var(--warn)}.bad{background:var(--bad-bg);color:var(--bad)}.info{background:var(--info-bg);color:var(--info)}.muted{background:var(--muted-bg);color:var(--muted)}
@@ -539,6 +540,23 @@ const SCRIPT = `<script type="speculationrules">{"prefetch":[{"where":{"href_mat
       f.querySelectorAll('.busy').forEach(function (b) { b.classList.remove('busy'); });
     });
   });
+  // A link to a box on the same page (for example "Notes" at the top of a VA's page) opens the box if it is closed.
+  function openTarget() {
+    var t = location.hash.length > 1 && document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (t && t.tagName === 'DETAILS') { t.open = true; t.scrollIntoView(); }
+  }
+  window.addEventListener('hashchange', openTarget); openTarget();
+  document.addEventListener('click', function (e) { var l = e.target.closest && e.target.closest('a[href^="#"]'); if (l) setTimeout(openTarget, 0); });
+  // A page with a running timer must never show an old state: after the Back button (the browser may hand back the
+  // page as it was, timer still counting although it was stopped) or after the tab was hidden for a while, reload it.
+  var hiddenAt = 0;
+  function hasTimers() { return document.querySelector('[data-since], .timerbar'); }
+  window.addEventListener('pageshow', function (e) { if (e.persisted && hasTimers()) location.reload(); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (hiddenAt && Date.now() - hiddenAt > 20000 && hasTimers()) location.reload();
+    hiddenAt = 0;
+  });
   // Success messages fade away; the message is removed from the address so a refresh doesn't repeat it.
   var toast = document.querySelector('.toast.good[role=status], .toast.info[role=status]');
   if (toast) setTimeout(function () { toast.classList.add('hide'); }, 5000);
@@ -636,7 +654,7 @@ export function layout({ title, user, active, message, body }) {
   const msg = Array.isArray(message) ? message : MESSAGES[message];
   const toast = msg ? `<div class="toast ${msg[0]}" role="status">${msg[0] === 'good' ? icon('check') : ''}${esc(msg[1])}</div>` : '';
   const head = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#008069"><link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2a6f67"><link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="InoVA"><meta name="apple-mobile-web-app-status-bar-style" content="default"><title>${esc(title)} · InoVA Local</title>

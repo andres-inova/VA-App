@@ -493,7 +493,7 @@ function loginBox(record, login) {
       ${can ? `<div class="actions">${u.is_va ? c.button : ''}${loginButtons(u, base)}</div>` : ''}`;
   }
   return section({
-    title: 'Login', key: 'login', tone: active && (!u || !u.is_va) ? 'attention' : '',
+    title: 'Login', key: 'login', tone: active && (!u || !u.is_va) ? 'attention' : '', open: active && (!u || !u.is_va),
     hint: 'Their email on this record is the email they log in with. Changing it keeps the same login and history.',
     body: `<div style="padding:0 8px 8px">${body}</div>`,
   });
@@ -541,7 +541,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     related += loginBox(record, login);
     related += vaTimeBox(time);
     related += section({
-      title: 'Clients and projects', count: login?.projects.length || 0, key: 'projects',
+      title: 'Clients and projects', count: login?.projects.length || 0, key: 'projects', open: false,
       hint: login?.user && !login.user.is_va && login.projects.length ? "Not Active: these projects are kept for their history, but they don't check in for them and the Projects page doesn't list them." : '',
       body: login?.projects.length ? login.projects.map((p) => `<div class="item flat"><div class="item-head">${avatar(p.client)}
         <div class="grow"><div class="title">${esc(p.client)}</div><div class="sub">${esc(p.name)}</div></div>
@@ -583,10 +583,11 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     if (s.score) {
       // Score sections always show, with a link to fill them in.
       const editLink = `<a class="btn sm plain" href="${here}/edit#edit-${esc(encodeURIComponent(s.title))}">${icon('edit')} ${filled ? 'Change the scores' : 'Fill in the scores'}</a>`;
-      return section({ title: s.title, count: filled || undefined, key: `sec-${s.title}`,
+      return section({ title: s.title, count: filled || undefined, key: `sec-${s.title}`, open: key !== 'vas',
         body: `${scoreSummary(s.score, d) || '<p class="meta">Not scored yet.</p>'}${list}<div class="actions">${editLink}</div>` });
     }
-    return section({ title: s.title, count: filled, key: `sec-${s.title}`, tone: filled ? '' : 'sec-empty', body: list });
+    // A VA's page opens only the first box (the VA information); the others open with a click, so the page stays short.
+    return section({ title: s.title, count: filled, key: `sec-${s.title}`, open: key !== 'vas' || n === 0, tone: filled ? '' : 'sec-empty', body: list });
   }).join('');
   const nothing = !/class="section (?!sec-empty)/.test(sections);
   const extra = d._extra ? section({
@@ -606,8 +607,8 @@ export function recordPage({ user, key, record, names, notes, files, history, co
       <button type="button" class="sm plain fe-toggle"><span class="when-hidden">Show empty fields</span><span class="when-shown">Hide empty fields</span></button>` : ''}</p>
     ${extra}
     ${mail ? emailsSection({ user, record, ...mail }) : ''}
-    ${section({ title: 'Notes', count: notes.length, key: 'notes', body: notesHtml(key, record, notes, user) })}
-    ${section({ title: 'Files', count: files.length, key: 'files', body: filesHtml(key, record, files) })}
+    ${section({ title: 'Notes', count: notes.length, key: 'notes', open: key !== 'vas', body: notesHtml(key, record, notes, user) })}
+    ${section({ title: 'Files', count: files.length, key: 'files', open: key !== 'vas', body: filesHtml(key, record, files) })}
     ${section({ title: 'History', count: history.length, open: false, key: 'history', hint: 'Who changed what, newest first.', body: historyHtml(key, history, names) })}
     ${tags ? tagPicker(key, tags.all, tags.ids) : ''}
     <script>${FIELD_SCRIPT}</script>${tags ? `<script>${PICKER_SCRIPT}</script>` : ''}`,

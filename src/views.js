@@ -73,6 +73,8 @@ const MESSAGES = {
   'project-closed': ['good', 'Project closed. It no longer shows on the Projects page or for its VAs.'],
   'project-reopened': ['good', 'Project reopened.'],
   'package-saved': ['good', 'Package saved.'],
+  'billing-saved': ['good', 'Billing details saved.'],
+  'billing-bad': ['bad', 'Please enter numbers of 0 or more (hourly rate up to 1000, hours up to 1000).'],
   'package-bad': ['bad', 'Please enter the hours (0 or more) and the date the package starts.'],
   'package-deleted': ['good', 'Upcoming package change removed.'],
   'record-created-training-linked': ['good', 'Added. This applicant is already in an Onboarding Training (same email), so the two are now linked.'],
@@ -669,7 +671,7 @@ export function layout({ title, user, active, message, body }) {
   const sopsToDo = user.sops_todo?.length || 0;
   // Trainers and trainees get a Training link while their training runs; new hires in training see only that.
   const training = user.trainings?.length ? ['/training', user.in_training ? 'My training' : 'Training', 'training'] : null;
-  if (user.is_client && !user.is_admin && !user.is_va) groups.push(['My account', [['/client', 'Overview', 'building'], ['/client/time', 'Time', 'timer']]]);
+  if (user.is_client && !user.is_admin && !user.is_va) groups.push(['My account', [['/client', 'Overview', 'building'], ['/client/time', 'Time', 'timer'], ['/client/calendar', 'Time off', 'calendar']]]);
   else if (user.in_training) groups.push(['Me', [training]]);
   else if (user.is_va) groups.push(['Me', [['/va', 'My day', 'sun'], ['/va/time', 'Time', 'timer'], ['/va/sops', 'Coverage SOPs', 'doc', sopsToDo], training].filter(Boolean)]);
   else if (training && !user.is_admin) groups.push(['Me', [training]]);
@@ -695,7 +697,7 @@ export function layout({ title, user, active, message, body }) {
   // Phone bottom bar: the most-used pages, plus "Menu" for the rest.
   const tabs = user.is_admin
     ? [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'SOPs', 'doc'], ['/admin/people', 'People', 'people']]
-    : user.is_client && !user.is_va ? [['/client', 'Overview', 'building'], ['/client/time', 'Time', 'timer']]
+    : user.is_client && !user.is_va ? [['/client', 'Overview', 'building'], ['/client/time', 'Time', 'timer'], ['/client/calendar', 'Time off', 'calendar']]
     : user.in_training || !user.is_va ? [training || ['/training', 'Training', 'training']]
     : [['/va', 'My day', 'sun'], ['/va/time', 'Time', 'timer'], ['/va/sops', 'SOPs', 'doc', sopsToDo], training].filter(Boolean);
   const tabbar = `<nav class="tabbar" aria-label="Main pages">${tabs.map(([href, label, ic, badge]) =>

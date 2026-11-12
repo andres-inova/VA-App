@@ -739,3 +739,15 @@ INSERT OR IGNORE INTO users (email, name, is_admin) VALUES
   ('pratap@inovalocal.com', 'Pratap', 1),
   ('kelli@inovalocal.com', 'Kelli', 1),
   ('stephany@inovalocal.com', 'Stephany Baldwin', 1);
+
+-- Billing details per project: hourly rate, and training / credit hours not billed in the billing cycle they were set in.
+CREATE TABLE IF NOT EXISTS project_billing (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id),
+  hourly_rate REAL,
+  training_hours REAL NOT NULL DEFAULT 0,
+  credit_hours REAL NOT NULL DEFAULT 0,
+  credit_note TEXT,
+  adjust_set_on TEXT,     -- YYYY-MM-DD: the day the training/credit hours were set (they apply to that billing cycle only)
+  updated_by INTEGER REFERENCES users(id),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

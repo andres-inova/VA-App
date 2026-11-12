@@ -116,10 +116,11 @@ async function projectPage(env, user, project, message) {
   const ownTypes = typeRows.some((t) => t.linked);
   const taskTypes = typeRows.map((t) => ({ id: t.id, name: t.name, on: ownTypes ? Boolean(t.linked) : !t.hidden }));
   const creator = settings.createdBy ? await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(settings.createdBy).first() : null;
+  const billing = await env.DB.prepare('SELECT * FROM project_billing WHERE project_id = ?').bind(project.id).first();
   const usage = packages.length ? await projectUsage(env, project, packages, today, settings.billingDay) : null;
   return page(pv.projectPage({
     user, project, settings, today, cycle: billingCycle(today, settings.billingDay), assignments: assignments.filter((a) => a.is_va), vas,
-    packages, history, exceptions, creator: creator?.name, message, usage, taskTypes, ownTypes, inhouse,
+    packages, history, exceptions, creator: creator?.name, message, usage, taskTypes, ownTypes, inhouse, billing,
   }));
 }
 
@@ -164,7 +165,7 @@ export async function projectRoutes(env, user, path, method, field, fieldAll, me
     return redirect(`${here}?msg=${ok ? 'exception-added' : 'exception-bad'}#exceptions`);
   }
 
-  if ((m = path.match(new RegExp(`^/admin/projects/${PID}(?:/(settings|package|close|reopen)|/package/(\\d+)/delete)?$`)))) {
+  if ((m = path.match(new RegExp(`^/admin/projects/${PID}(?:/(settings|package|billing|close|reopen)|/package/(\\d+)/delete)?$`)))) {
     const project = await env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(m[1]).first();
     if (!project) return redirect('/admin/projects');
     const here = `/admin/projects/${project.id}`;
@@ -205,6 +206,28 @@ export async function projectRoutes(env, user, path, method, field, fieldAll, me
         projectLog(env, project.id, user.id, `Package set to ${rounded} hours per billing cycle, starting ${from}`, now),
       ]);
       return redirect(`${here}?msg=package-saved#package`);
+    }
+
+    if (m[2] === 'billing') {
+      const num = (name, max) => { const raw = field(name); const n = raw === '' ? 0 : Number(raw); return Number.isFinite(n) && n >= 0 && n <= max ? Math.round(n * 100) / 100 : null; };
+      const rate = field('hourly_rate') === '' ? null : num('hourly_rate', 1000);
+      const training = num('training_hours', 1000), credit = num('credit_hours', 1000);
+      if ((field('hourly_rate') !== '' && rate === null) || training === null || credit === null) return redirect(`${here}?msg=billing-bad#billing`);
+      const before = await env.DB.prepare('SELECT * FROM project_billing WHERE project_id = ?').bind(project.id).first();
+      const settings = await projectSettings(env, project);
+      const today = partsIn(ZONES[settings.zone]).date;
+      // Training and credit hours count for the billing cycle they are set in; unchanged hours keep their cycle.
+      const same = before && before.training_hours === training && before.credit_hours === credit;
+      const setOn = training || credit ? (same && before.adjust_set_on ? before.adjust_set_on : today) : null;
+      const note = field('credit_note').slice(0, 200) || null;
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO project_billing (project_id, hourly_rate, training_hours, credit_hours, credit_note, adjust_set_on, updated_by, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (project_id) DO UPDATE SET hourly_rate = excluded.hourly_rate, training_hours = excluded.training_hours,
+          credit_hours = excluded.credit_hours, credit_note = excluded.credit_note, adjust_set_on = excluded.adjust_set_on, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+          .bind(project.id, rate, training, credit, note, setOn, user.id, now),
+        projectLog(env, project.id, user.id, `Billing details saved: hourly rate ${rate === null ? 'not set' : `$${rate}`}, training hours ${training}, credit hours ${credit}`, now),
+      ]);
+      return redirect(`${here}?msg=billing-saved#billing`);
     }
 
     // Only a change that has not started yet can be removed (past packages are history).

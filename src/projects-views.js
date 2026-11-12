@@ -13,7 +13,7 @@ const logList = (log) => (log.length ? log.map((l) => `<div class="item flat"><d
 
 // ---- A project's page ----
 
-export function projectPage({ user, project, settings, today, cycle, assignments, vas, packages, history, exceptions = [], creator, message, usage = null, taskTypes = [], ownTypes = false, inhouse = false, billing = null }) {
+export function projectPage({ user, project, settings, today, cycle, assignments, vas, packages, history, exceptions = [], creator, message, usage = null, taskTypes = [], ownTypes = false, inhouse = false, billing = null, pairWith = '', pairChoices = [] }) {
   const app = isAppProject(project);
   const here = `/admin/projects/${esc(project.id)}`;
   const client = settings.client;
@@ -124,6 +124,8 @@ export function projectPage({ user, project, settings, today, cycle, assignments
         <div><label for="bl-credit">Credit hours not billed</label><input type="number" id="bl-credit" name="credit_hours" min="0" max="1000" step="0.5" inputmode="decimal" value="${billing?.credit_hours || ''}" placeholder="0"></div>
       </div>
       <label for="bl-note">Credit note (the client sees it)</label><input type="text" id="bl-note" name="credit_note" maxlength="200" value="${esc(billing?.credit_note || '')}" placeholder="For example: Credit for the missed Monday">
+      ${pairChoices.length ? `<label for="bl-pair">Billed together with</label><select id="bl-pair" name="pair_with"><option value="">Not billed together</option>${pairChoices.map((c) => `<option value="${esc(c.id)}" ${String(c.id) === pairWith ? 'selected' : ''}>${esc(c.name)}${c.active ? '' : ' (closed)'}</option>`).join('')}</select>
+      <p class="small">Billed together: on the client's Projected bill page the two projects are one line (hours added up, the higher hourly rate). Time logs and packages stay per project.</p>` : ''}
       <p class="small">Training and credit hours are taken off the hours billed for <b>this billing cycle only</b> (${esc(formatDate(cycle.start, false))} – ${esc(formatDate(cycle.end, true))}); they stop showing by themselves when the next cycle starts. Saving the same hours again keeps them in the cycle they were set in. The client sees these hours on their Time off page.</p>
       <button>Save billing details</button></form>`;
 
@@ -132,7 +134,7 @@ export function projectPage({ user, project, settings, today, cycle, assignments
     body: `${top}
     ${section({ title: 'Settings', open: true, key: 'settings', body: settingsForm })}
     ${section({ title: 'Package', open: true, key: 'package', count: packages.length || undefined, hint: 'How many hours the client buys per billing cycle. A change can start on a later date.', body: packageBody })}
-    ${project.is_coverage || inhouse ? '' : section({ title: 'Billing', open: Boolean(billing?.training_hours || billing?.credit_hours), key: 'billing', hint: 'Hourly rate, and training or credit hours that are not billed this cycle.', body: billingBody })}
+    ${inhouse ? '' : section({ title: 'Billing', open: Boolean(billing?.training_hours || billing?.credit_hours), key: 'billing', hint: 'Hourly rate, and training or credit hours that are not billed this cycle.', body: billingBody })}
     ${section({ title: 'VAs', count: assignments.length, open: true, key: 'vas', hint: inhouse ? 'Every VA can log time on the in-house project without being added here.' : project.is_coverage ? 'Coverage project: the start time is used only on days the VA covers this client.' : 'Start time and work days of each VA on this project (same as on the Projects page).', body: `${assignments.length ? assignments.map(vaRow).join('') : empty('No VA on this project yet.')}${addVa}` })}
     ${section({ title: 'Task types', count: taskTypes.filter((t) => t.on).length, open: false, key: 'task-types', hint: 'What VAs can choose when they log time on this project.', body: typesBody })}
     ${section({ title: 'Past-date exceptions', count: exceptions.length || undefined, open: exceptions.length > 0, key: 'exceptions', hint: `VAs log time only for today (${esc(settings.zone)}). Here you can allow a VA to add or change time for earlier days in this project.`, body: exceptionBody })}

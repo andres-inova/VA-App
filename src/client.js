@@ -6,6 +6,7 @@ import { layout, section, empty, chip, avatar } from './views.js';
 import { esc, page, redirect } from './util.js';
 import { clientTimeRoutes } from './client-time.js';
 import { clientCalendarRoutes } from './client-calendar.js';
+import { clientBillRoutes } from './client-bill.js';
 
 // The client record this login belongs to, or null (no contact linked, contact has no client, or offboarded).
 export async function clientOf(env, user) {
@@ -37,10 +38,11 @@ export async function clientRoutes(env, user, path, method, field, message, url)
   }
   if (path === '/client/time' || path.startsWith('/client/time/')) return method === 'GET' ? clientTimeRoutes(env, user, client, path, url, message) : redirect('/client/time');
   if (path === '/client/calendar') return method === 'GET' ? clientCalendarRoutes(env, user, client, path, message) : redirect('/client/calendar');
+  if (path === '/client/bill') return method === 'GET' ? clientBillRoutes(env, user, client, message) : redirect('/client/bill');
   if (path === '/client' && method === 'GET') {
     const projects = await clientProjects(env, client.id);
     const body = `<div class="card"><h2>${esc(client.name)}</h2>
-      <p class="lead">Welcome, ${esc(user.name.split(' ')[0])}. See the hours your VAs log on the <a href="/client/time">Time</a> page. See your VAs’ upcoming <a href="/client/calendar">time off</a>, holidays and credits. Your projected bill and invoices are coming soon.</p></div>
+      <p class="lead">Welcome, ${esc(user.name.split(' ')[0])}. See the hours your VAs log on the <a href="/client/time">Time</a> page. See your VAs’ upcoming <a href="/client/calendar">time off</a>, holidays and credits. See your <a href="/client/bill">projected bill</a> for this billing cycle. Invoices are coming soon.</p></div>
       ${section({ title: 'Your projects', count: projects.length, open: true, body: projects.length
         ? projects.map((p) => `<div class="item flat"><div class="item-head">${avatar(p.vas[0] || p.name)}<div class="grow"><div class="title">${esc(p.name)}</div>
             <div class="sub">${p.vas.length ? esc(p.vas.join(', ')) : 'No VA assigned yet'}</div></div>${chip('Active', 'good')}</div></div>`).join('')

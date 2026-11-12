@@ -751,3 +751,11 @@ CREATE TABLE IF NOT EXISTS project_billing (
   updated_by INTEGER REFERENCES users(id),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Projects billed together: one line on the client's Projected bill page (hours added up, the higher hourly rate).
+CREATE TABLE IF NOT EXISTS billing_pairs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id_a TEXT NOT NULL REFERENCES projects(id),
+  project_id_b TEXT NOT NULL REFERENCES projects(id),
+  UNIQUE (project_id_a, project_id_b)
+);

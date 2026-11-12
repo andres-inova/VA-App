@@ -117,10 +117,15 @@ async function projectPage(env, user, project, message) {
   const taskTypes = typeRows.map((t) => ({ id: t.id, name: t.name, on: ownTypes ? Boolean(t.linked) : !t.hidden }));
   const creator = settings.createdBy ? await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(settings.createdBy).first() : null;
   const billing = await env.DB.prepare('SELECT * FROM project_billing WHERE project_id = ?').bind(project.id).first();
+  const pairRow = await env.DB.prepare('SELECT project_id_a AS a, project_id_b AS b FROM billing_pairs WHERE project_id_a = ?1 OR project_id_b = ?1').bind(project.id).first();
+  const pairWith = pairRow ? String(pairRow.a) === String(project.id) ? String(pairRow.b) : String(pairRow.a) : '';
+  const { results: pairChoices } = project.client_record_id
+    ? await env.DB.prepare('SELECT id, name, active FROM projects WHERE client_record_id = ? AND id != ? ORDER BY active DESC, name COLLATE NOCASE').bind(project.client_record_id, project.id).all()
+    : { results: [] };
   const usage = packages.length ? await projectUsage(env, project, packages, today, settings.billingDay) : null;
   return page(pv.projectPage({
     user, project, settings, today, cycle: billingCycle(today, settings.billingDay), assignments: assignments.filter((a) => a.is_va), vas,
-    packages, history, exceptions, creator: creator?.name, message, usage, taskTypes, ownTypes, inhouse, billing,
+    packages, history, exceptions, creator: creator?.name, message, usage, taskTypes, ownTypes, inhouse, billing, pairWith, pairChoices,
   }));
 }
 
@@ -220,12 +225,22 @@ export async function projectRoutes(env, user, path, method, field, fieldAll, me
       const same = before && before.training_hours === training && before.credit_hours === credit;
       const setOn = training || credit ? (same && before.adjust_set_on ? before.adjust_set_on : today) : null;
       const note = field('credit_note').slice(0, 200) || null;
+      // Billed together with another project of the same client (one line on the client's Projected bill page).
+      const withId = field('pair_with');
+      const partner = withId ? await env.DB.prepare('SELECT id FROM projects WHERE id = ? AND client_record_id = ? AND client_record_id IS NOT NULL AND id != ?').bind(withId, project.client_record_id, project.id).first() : null;
+      if (withId && !partner) return redirect(`${here}?msg=billing-bad#billing`);
+      const pairStatements = [env.DB.prepare('DELETE FROM billing_pairs WHERE project_id_a = ?1 OR project_id_b = ?1').bind(project.id)];
+      if (partner) {
+        pairStatements.push(env.DB.prepare('DELETE FROM billing_pairs WHERE project_id_a = ?1 OR project_id_b = ?1').bind(String(partner.id)));
+        pairStatements.push(env.DB.prepare('INSERT INTO billing_pairs (project_id_a, project_id_b) VALUES (?, ?)').bind(project.id, String(partner.id)));
+      }
       await env.DB.batch([
         env.DB.prepare(`INSERT INTO project_billing (project_id, hourly_rate, training_hours, credit_hours, credit_note, adjust_set_on, updated_by, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (project_id) DO UPDATE SET hourly_rate = excluded.hourly_rate, training_hours = excluded.training_hours,
           credit_hours = excluded.credit_hours, credit_note = excluded.credit_note, adjust_set_on = excluded.adjust_set_on, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
           .bind(project.id, rate, training, credit, note, setOn, user.id, now),
-        projectLog(env, project.id, user.id, `Billing details saved: hourly rate ${rate === null ? 'not set' : `$${rate}`}, training hours ${training}, credit hours ${credit}`, now),
+        projectLog(env, project.id, user.id, `Billing details saved: hourly rate ${rate === null ? 'not set' : `$${rate}`}, training hours ${training}, credit hours ${credit}${partner ? `, billed together with project ${partner.id}` : ''}`, now),
+        ...pairStatements,
       ]);
       return redirect(`${here}?msg=billing-saved#billing`);
     }

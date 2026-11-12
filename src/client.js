@@ -4,6 +4,7 @@
 
 import { layout, section, empty, chip, avatar } from './views.js';
 import { esc, page, redirect } from './util.js';
+import { clientTimeRoutes } from './client-time.js';
 
 // The client record this login belongs to, or null (no contact linked, contact has no client, or offboarded).
 export async function clientOf(env, user) {
@@ -33,10 +34,11 @@ export async function clientRoutes(env, user, path, method, field, message, url)
     return page(layout({ title: 'Your account', user, active: '/client', message, body:
       '<div class="card"><h1>Your account</h1><p class="lead">Your login is not linked to an active client right now. Please contact your InoVA Local team.</p></div>' }));
   }
+  if (path === '/client/time' || path.startsWith('/client/time/')) return method === 'GET' ? clientTimeRoutes(env, user, client, path, url, message) : redirect('/client/time');
   if (path === '/client' && method === 'GET') {
     const projects = await clientProjects(env, client.id);
     const body = `<div class="card"><h2>${esc(client.name)}</h2>
-      <p class="lead">Welcome, ${esc(user.name.split(' ')[0])}. Time logs, time off, holidays, your projected bill and invoices are coming to this page soon.</p></div>
+      <p class="lead">Welcome, ${esc(user.name.split(' ')[0])}. See the hours your VAs log on the <a href="/client/time">Time</a> page. Time off, holidays, your projected bill and invoices are coming soon.</p></div>
       ${section({ title: 'Your projects', count: projects.length, open: true, body: projects.length
         ? projects.map((p) => `<div class="item flat"><div class="item-head">${avatar(p.vas[0] || p.name)}<div class="grow"><div class="title">${esc(p.name)}</div>
             <div class="sub">${p.vas.length ? esc(p.vas.join(', ')) : 'No VA assigned yet'}</div></div>${chip('Active', 'good')}</div></div>`).join('')

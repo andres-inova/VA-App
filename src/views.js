@@ -669,7 +669,7 @@ export function layout({ title, user, active, message, body }) {
   const sopsToDo = user.sops_todo?.length || 0;
   // Trainers and trainees get a Training link while their training runs; new hires in training see only that.
   const training = user.trainings?.length ? ['/training', user.in_training ? 'My training' : 'Training', 'training'] : null;
-  if (user.is_client && !user.is_admin && !user.is_va) groups.push(['My account', [['/client', 'Overview', 'building']]]);
+  if (user.is_client && !user.is_admin && !user.is_va) groups.push(['My account', [['/client', 'Overview', 'building'], ['/client/time', 'Time', 'timer']]]);
   else if (user.in_training) groups.push(['Me', [training]]);
   else if (user.is_va) groups.push(['Me', [['/va', 'My day', 'sun'], ['/va/time', 'Time', 'timer'], ['/va/sops', 'Coverage SOPs', 'doc', sopsToDo], training].filter(Boolean)]);
   else if (training && !user.is_admin) groups.push(['Me', [training]]);
@@ -695,7 +695,7 @@ export function layout({ title, user, active, message, body }) {
   // Phone bottom bar: the most-used pages, plus "Menu" for the rest.
   const tabs = user.is_admin
     ? [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'SOPs', 'doc'], ['/admin/people', 'People', 'people']]
-    : user.is_client && !user.is_va ? [['/client', 'Overview', 'building']]
+    : user.is_client && !user.is_va ? [['/client', 'Overview', 'building'], ['/client/time', 'Time', 'timer']]
     : user.in_training || !user.is_va ? [training || ['/training', 'Training', 'training']]
     : [['/va', 'My day', 'sun'], ['/va/time', 'Time', 'timer'], ['/va/sops', 'SOPs', 'doc', sopsToDo], training].filter(Boolean);
   const tabbar = `<nav class="tabbar" aria-label="Main pages">${tabs.map(([href, label, ic, badge]) =>

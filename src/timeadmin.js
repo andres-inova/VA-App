@@ -68,7 +68,7 @@ export async function windowMinutes(env, windows) {
 }
 
 // The usage numbers of one cycle: { start, end, hours, own, coverage, used, pct, tone, fromNote }.
-function usageOf(cycle, packages, mins, today) {
+export function usageOf(cycle, packages, mins, today) {
   let pkg = packageOn(packages, cycle.start), fromNote = '';
   // A package that started during the cycle (none on its first day) still counts, with a note.
   if (!pkg) {

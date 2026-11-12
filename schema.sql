@@ -759,3 +759,41 @@ CREATE TABLE IF NOT EXISTS billing_pairs (
   project_id_b TEXT NOT NULL REFERENCES projects(id),
   UNIQUE (project_id_a, project_id_b)
 );
+
+-- FreshBooks invoices for the client portal (see src/freshbooks.js).
+CREATE TABLE IF NOT EXISTS freshbooks_connection (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  account_id TEXT NOT NULL,
+  business_name TEXT,
+  token TEXT,                          -- encrypted refresh token (FreshBooks gives a new one every time it is used)
+  access TEXT,                         -- encrypted short-lived access token and when it ends
+  connected_by INTEGER REFERENCES users(id),
+  connected_at TEXT,
+  last_sync_at TEXT,
+  last_error TEXT,
+  last_error_at TEXT
+);
+CREATE TABLE IF NOT EXISTS freshbooks_links (
+  client_record_id INTEGER PRIMARY KEY REFERENCES records(id),
+  fb_client_id TEXT NOT NULL,
+  fb_name TEXT,
+  linked_by INTEGER REFERENCES users(id),
+  linked_at TEXT,
+  synced_at TEXT
+);
+CREATE TABLE IF NOT EXISTS freshbooks_invoices (
+  fb_invoice_id TEXT PRIMARY KEY,
+  fb_client_id TEXT NOT NULL,
+  invoice_number TEXT,
+  create_date TEXT,
+  due_date TEXT,
+  amount REAL NOT NULL DEFAULT 0,
+  paid REAL NOT NULL DEFAULT 0,
+  outstanding REAL NOT NULL DEFAULT 0,
+  currency TEXT,
+  status TEXT,
+  link TEXT,
+  updated TEXT,
+  synced_at TEXT
+);
+CREATE INDEX IF NOT EXISTS freshbooks_invoices_client ON freshbooks_invoices (fb_client_id, create_date);

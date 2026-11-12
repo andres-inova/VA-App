@@ -61,7 +61,7 @@ const fromBinary = (bin) => {
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 };
-async function seal(env, text) {
+export async function seal(env, text) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await aesKey(env), new TextEncoder().encode(text)));
   const all = new Uint8Array(12 + ct.length);
@@ -69,7 +69,7 @@ async function seal(env, text) {
   all.set(ct, 12);
   return toBase64(all);
 }
-async function unseal(env, text) {
+export async function unseal(env, text) {
   const all = fromBinary(atob(text));
   const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: all.subarray(0, 12) }, await aesKey(env), all.subarray(12));
   return new TextDecoder().decode(plain);

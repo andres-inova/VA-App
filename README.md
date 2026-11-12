@@ -285,6 +285,27 @@ Admins open **Time** in the menu (under Clients). It has four buttons at the top
   - The chip on each day: "VA notified", "Slack DM waiting", "Slack DM failed" (Slack refused it), "No Slack ID" (the VA record has no Slack ID) or "Not notified" (Log only).
 - **VA pages** (Team → VAs → a VA): a **Time** box shows their hours this pay period and last, with a link to the Time page filtered to that VA.
 
+## Client portal
+
+A client's contact can log in and see only that client's pages (they can never open VA or admin pages).
+
+- **Giving a login:** open the contact's page (Clients, then the contact) and use the "Client login" box: "Give a client login and send invite". The contact's email is the email they log in with. "Remove client login" ends access.
+- **Overview:** the client's active projects and their VAs.
+- **Time:** hours used against each project's package this billing cycle, every time log (VA, task type, time), totals and bars, and a page for each log with its description. No attachments or change history.
+- **Time off:** credits and training credits on the upcoming invoice, the approved time off of the VAs on their projects for the next 60 days (no reasons, with who covers), and InoVA Local holidays for the next 12 months.
+- **Projected bill:** for the current billing cycle, by project. Billable hours so far = hours logged minus training hours and credit hours; projected hours = that, divided by the weekdays (Monday to Friday) passed, times the weekdays in the cycle; projected bill = projected hours times the hourly rate. Projects billed together (a pair, set on the project page under Billing) are one line: hours added up and the higher hourly rate is used.
+- **Invoices:** the client's FreshBooks invoices (see below).
+- **Billing details (admin):** on each project's page, the Billing section holds the hourly rate, training hours and credit hours (these count only for the billing cycle they were set in), a credit note the client sees, and "Billed together with".
+
+## FreshBooks invoices
+
+The app copies each linked client's invoices (not drafts) from FreshBooks about once an hour, read-only. Set up once:
+
+1. In FreshBooks, open developer.freshbooks.com and create an app. As the redirect address use `https://inova-va-app.andres-261.workers.dev/admin/freshbooks/callback` and allow only `user:profile:read`, `user:invoices:read` and `user:clients:read`.
+2. Save the Client ID and Client Secret in Cloudflare (never in files or chat): `npx wrangler secret put FRESHBOOKS_CLIENT_ID` and `npx wrangler secret put FRESHBOOKS_CLIENT_SECRET`. (`EMAIL_TOKEN_KEY`, already set for Gmail, also encrypts the FreshBooks key.)
+3. Settings > FreshBooks: click Connect FreshBooks, then for each client record choose its FreshBooks client (a match is suggested when the names or emails look alike) and save. The first copy runs right away; "Sync now" copies again.
+4. A client sees only the invoices of the FreshBooks client linked to their client record, on the Invoices page. If the FreshBooks connection ends, the page shows a message and the last copied invoices stay.
+
 ## Put the app on a phone or computer
 
 The app can be installed like a regular app, with its own icon, and opens without the browser bars. It is named **InoVA Local** (on a phone's home screen the short name **InoVA** shows under the icon). A copy installed before October 13, 2026 may keep its old name, InoVA Check-in, until it is removed and installed again; it works the same either way.

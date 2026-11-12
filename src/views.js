@@ -115,6 +115,19 @@ const MESSAGES = {
   'day-signed': ['good', 'Day signed off.'],
   'module-finished': ['good', 'Module marked finished.'],
   'module-not-finished': ['good', 'Module marked not finished.'],
+  'freshbooks-not-set-up': ['bad', 'FreshBooks is not set up yet (a secret is missing in Cloudflare). Follow the steps on this page.'],
+  'freshbooks-bad-state': ['bad', 'That FreshBooks sign-in could not be checked (it may have taken too long). Please click Connect FreshBooks again.'],
+  'freshbooks-cancelled': ['info', 'FreshBooks was not connected: the sign-in was cancelled.'],
+  'freshbooks-failed': ['bad', 'FreshBooks did not accept the connection. Please try Connect FreshBooks again.'],
+  'freshbooks-no-business': ['bad', 'No FreshBooks business was found for that sign-in.'],
+  'freshbooks-connected': ['good', 'FreshBooks connected. Now link each client below to its FreshBooks client.'],
+  'freshbooks-disconnected': ['good', 'FreshBooks disconnected and the copied invoices were deleted.'],
+  'freshbooks-synced': ['good', 'Invoices copied from FreshBooks.'],
+  'freshbooks-sync-problem': ['bad', 'The copy from FreshBooks had a problem. See the message on this page.'],
+  'freshbooks-linked': ['good', 'Client linked and its invoices copied.'],
+  'freshbooks-linked-problem': ['bad', 'Client linked, but copying the invoices had a problem. See the message on this page.'],
+  'freshbooks-unlinked': ['good', 'Client unlinked.'],
+  'freshbooks-taken': ['bad', 'That FreshBooks client is already linked to another client record.'],
   'email-not-set-up': ['bad', 'Connect Gmail is not set up yet (a secret is missing in Cloudflare). See README, "Shared email (Connect Gmail)".'],
   'email-choose-share': ['bad', 'Please choose Shared with the team or Private first.'],
   'email-bad-state': ['bad', 'That Google sign-in did not match a Connect Gmail click on this page (it was too old, or came from somewhere else). Nothing was saved. Please click Connect Gmail again.'],
@@ -209,7 +222,7 @@ export const chip = (label, tone = 'muted') => `<span class="chip ${tone}">${esc
 const pageTabs = (tabs, on) => `<div class="chips proj-tabs">${tabs.map(([href, label]) =>
   `<a class="chip ${href === on ? 'on' : 'muted'}" href="${href}">${esc(label)}</a>`).join('')}</div>`;
 const CALENDAR_TABS = [['/admin/calendar', 'Time off calendar'], ['/admin/history', 'Check-in history']];
-const SETTINGS_TABS = [['/admin/settings', 'Settings'], ['/admin/email', 'Email'], ['/admin/holidays', 'Holidays'], ['/admin/settings/fields', 'Fields'], ['/admin/settings/tags', 'Tags'],
+const SETTINGS_TABS = [['/admin/settings', 'Settings'], ['/admin/email', 'Email'], ['/admin/freshbooks', 'FreshBooks'], ['/admin/holidays', 'Holidays'], ['/admin/settings/fields', 'Fields'], ['/admin/settings/tags', 'Tags'],
   ['/admin/settings/task-types', 'Task types'], ['/admin/settings/pay-periods', 'Pay periods']];
 export const settingsTabs = (on) => pageTabs(SETTINGS_TABS, on);
 
@@ -671,7 +684,7 @@ export function layout({ title, user, active, message, body }) {
   const sopsToDo = user.sops_todo?.length || 0;
   // Trainers and trainees get a Training link while their training runs; new hires in training see only that.
   const training = user.trainings?.length ? ['/training', user.in_training ? 'My training' : 'Training', 'training'] : null;
-  if (user.is_client && !user.is_admin && !user.is_va) groups.push(['My account', [['/client', 'Overview', 'building'], ['/client/time', 'Time', 'timer'], ['/client/calendar', 'Time off', 'calendar'], ['/client/bill', 'Projected bill', 'doc']]]);
+  if (user.is_client && !user.is_admin && !user.is_va) groups.push(['My account', [['/client', 'Overview', 'building'], ['/client/time', 'Time', 'timer'], ['/client/calendar', 'Time off', 'calendar'], ['/client/bill', 'Projected bill', 'doc'], ['/client/invoices', 'Invoices', 'mail']]]);
   else if (user.in_training) groups.push(['Me', [training]]);
   else if (user.is_va) groups.push(['Me', [['/va', 'My day', 'sun'], ['/va/time', 'Time', 'timer'], ['/va/sops', 'Coverage SOPs', 'doc', sopsToDo], training].filter(Boolean)]);
   else if (training && !user.is_admin) groups.push(['Me', [training]]);
@@ -697,7 +710,7 @@ export function layout({ title, user, active, message, body }) {
   // Phone bottom bar: the most-used pages, plus "Menu" for the rest.
   const tabs = user.is_admin
     ? [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/projects', 'Projects', 'projects'], ['/admin/sops', 'SOPs', 'doc'], ['/admin/people', 'People', 'people']]
-    : user.is_client && !user.is_va ? [['/client', 'Overview', 'building'], ['/client/time', 'Time', 'timer'], ['/client/calendar', 'Time off', 'calendar'], ['/client/bill', 'Bill', 'doc']]
+    : user.is_client && !user.is_va ? [['/client', 'Overview', 'building'], ['/client/time', 'Time', 'timer'], ['/client/calendar', 'Time off', 'calendar'], ['/client/bill', 'Bill', 'doc'], ['/client/invoices', 'Invoices', 'mail']]
     : user.in_training || !user.is_va ? [training || ['/training', 'Training', 'training']]
     : [['/va', 'My day', 'sun'], ['/va/time', 'Time', 'timer'], ['/va/sops', 'SOPs', 'doc', sopsToDo], training].filter(Boolean);
   const tabbar = `<nav class="tabbar" aria-label="Main pages">${tabs.map(([href, label, ic, badge]) =>

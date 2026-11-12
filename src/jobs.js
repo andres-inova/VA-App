@@ -6,6 +6,7 @@ import { postToSlack, sendEmail, slackSafe } from './notify.js';
 import { syncVAsAndProjects } from './zoho.js';
 import { syncEmail } from './email.js';
 import { runTimeCheck } from './timecheck.js';
+import { syncFreshbooks } from './freshbooks.js';
 import { esc, sameClient } from './util.js';
 import * as messages from './messages.js';
 
@@ -307,6 +308,8 @@ export async function runEveryMinute(env, now = new Date()) {
   if (now.getUTCMinutes() !== 0) await safely('Email sync', () => syncEmail(env, now));
   // The daily time check (1 hour per project per workday; Off unless an admin turned it on). Also not on the hour.
   if (now.getUTCMinutes() !== 0) await safely('Time check', () => runTimeCheck(env, now));
+  // FreshBooks invoices of the linked clients, once an hour (half past, away from the Zoho Projects sync on the hour).
+  if (now.getUTCMinutes() === 30) await safely('FreshBooks sync', () => syncFreshbooks(env));
 }
 
 // A timer stops by itself after 8 hours, or at 11:59 PM in the project's time zone (whichever comes first).

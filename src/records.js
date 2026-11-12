@@ -8,6 +8,7 @@ import { MODULES, allFields, formFields, nameOf, statusOf, searchOf, plainValue,
 import { FILE_TYPES, MAX_FILE } from './sops.js';
 import { applyVaRecords, linkProjectClients } from './zoho.js';
 import { sendInvite, newTemporaryPassword } from './invites.js';
+import { endAllSessions } from './auth.js';
 import { wufooState } from './wufoo.js';
 import { applicantTrainings, linkApplicantToTraining } from './training.js';
 import { recordEmails, forgetRecordEmails } from './email.js';
@@ -415,6 +416,7 @@ async function showRecord(env, user, key, record, message, tempPassword = null) 
   if (key !== 'applicants') extra.mail = await recordEmails(env, user, [record.id, ...extra.contacts.map((c) => c.id)]);
   if (key === 'contacts' && record.parent_id) extra.parent = await getRecord(env, 'clients', record.parent_id);
   if (key === 'vas') extra.login = (await vaLogins(env))(record);
+  if (key === 'contacts') extra.login = await contactLogin(env, record);
   if (key === 'vas' && extra.login?.user) extra.time = await vaTimeSummary(env, extra.login.user);
   // "Clients referred" / "VAs referred": records that list this one under "Referred by".
   const refField = allFields(key).find((x) => x.type === 'lookups');
@@ -448,6 +450,54 @@ async function vaLoginAction(env, user, recordId, what, field) {
   const password = await newTemporaryPassword(env, person);
   if (person.id === user.id) return redirect('/login');
   return showRecord(env, user, 'vas', record, null, { name: person.name, password });
+}
+
+// A client contact's login (the users row linked to the contact record). conflict: someone else already has the
+// contact's email as a login.
+async function contactLogin(env, record) {
+  const user = await env.DB.prepare(
+    `SELECT id, name, email, is_client, is_va, is_admin, invited_at, last_login_at, must_change_password, password_hash IS NOT NULL AS has_password
+     FROM users WHERE record_id = ?`).bind(record.id).first();
+  const email = (record.email || '').toLowerCase();
+  const conflict = !user && email ? await env.DB.prepare('SELECT id, name, is_admin FROM users WHERE lower(email) = ?').bind(email).first() : null;
+  return { user: user || null, conflict };
+}
+
+// The Login box on a contact's page: give the contact a client login (they see only their client's time, time off,
+// holidays, bill and invoices), send an invite, show a temporary password, or remove the login.
+async function contactLoginAction(env, user, recordId, what) {
+  const record = await getRecord(env, 'contacts', recordId);
+  if (!record) return redirect('/admin/contacts');
+  const here = `/admin/contacts/${record.id}`;
+  let person = await env.DB.prepare('SELECT * FROM users WHERE record_id = ?').bind(record.id).first();
+  if (what === 'remove') {
+    if (person && person.is_client) {
+      await env.DB.prepare('UPDATE users SET is_client = 0 WHERE id = ?').bind(person.id).run();
+      await endAllSessions(env, person.id);
+    }
+    return redirect(`${here}?msg=saved#login`);
+  }
+  const bad = (text) => showRecord(env, user, 'contacts', record, ['bad', text]);
+  if (!person || !person.is_client) {
+    const email = (record.email || '').trim().toLowerCase();
+    if (!email) return bad(`${record.name} has no email, so they can't log in. Add one with Edit first.`);
+    if (!record.parent_id) return bad(`${record.name} has no client, so they can't log in. Choose their client with Edit first.`);
+    if (record.status === 'Offboarded') return bad(`${record.name} is Offboarded, so they can't get a login.`);
+    if (person) {
+      await env.DB.prepare('UPDATE users SET is_client = 1 WHERE id = ?').bind(person.id).run();
+    } else {
+      const other = await env.DB.prepare('SELECT name, is_admin FROM users WHERE lower(email) = ?').bind(email).first();
+      if (other) return bad(`${email} is already the login of ${other.name}${other.is_admin ? ' (an admin)' : ''}, so this contact can't get a client login with it. Give the contact a different email with Edit.`);
+      await env.DB.prepare('INSERT INTO users (email, name, is_client, record_id) VALUES (?, ?, 1, ?)').bind(email, record.name, record.id).run();
+    }
+    person = await env.DB.prepare('SELECT * FROM users WHERE record_id = ?').bind(record.id).first();
+  }
+  if (what === 'invite') {
+    const sent = await sendInvite(env, person);
+    return showRecord(env, user, 'contacts', record, null, { name: person.name, password: sent.password, emailed: sent.emailed, slacked: false, email: person.email });
+  }
+  const password = await newTemporaryPassword(env, person);
+  return showRecord(env, user, 'contacts', record, null, { name: person.name, password });
 }
 
 // ---- List pages ----
@@ -659,6 +709,10 @@ export async function recordRoutes(env, user, path, method, field, fieldAll, for
 
   if ((m = path.match(/^\/admin\/vas\/(\d+)\/login\/(invite|temp-password|exempt)$/)) && method === 'POST') {
     return vaLoginAction(env, user, Number(m[1]), m[2], field);
+  }
+
+  if ((m = path.match(/^\/admin\/contacts\/(\d+)\/login\/(invite|temp-password|remove)$/)) && method === 'POST') {
+    return contactLoginAction(env, user, Number(m[1]), m[2]);
   }
 
   m = path.match(/^\/admin\/(clients|vas|contacts|applicants)\/(\d+)(?:\/(edit|field|tags|delete|notes|files|step|checklist|hire)(?:\/(\d+)(?:\/(save|delete))?)?)?$/);

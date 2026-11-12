@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
   zoho_projects_user_id TEXT,  -- the VA's user ID in Zoho Projects (for time logs)
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   record_id INTEGER REFERENCES records(id),  -- the VA record this login belongs to (empty for admins and trainees)
-  last_login_at TEXT     -- when the person last logged in with their password
+  last_login_at TEXT,    -- when the person last logged in with their password
+  is_client INTEGER NOT NULL DEFAULT 0  -- 1 = a client contact's login (record_id = the contact record); sees only /client pages
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_record ON users (record_id);
 

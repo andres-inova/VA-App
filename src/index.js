@@ -24,6 +24,7 @@ import { projectRoutes, projectLog, PID } from './projects.js';
 import { adminTimeRoutes } from './timeadmin.js';
 import { getTimeCheck, MODES } from './timecheck.js';
 import { emailRoutes } from './email.js';
+import { clientRoutes } from './client.js';
 import { trainingRoutes, adminTrainingRoutes, myTrainings, lateTrainings, ONBOARDING } from './training.js';
 import * as views from './views.js';
 
@@ -104,6 +105,13 @@ async function handle(request, env) {
   if (path === '/account') return account(env, user, method, field, message);
   if (user.must_change_password) return redirect('/account');
 
+  // Client logins (a client's contact) see only the /client pages: nothing of the VA, admin or training pages.
+  if (user.is_client && !user.is_admin && !user.is_va) {
+    if (path === '/client' || path.startsWith('/client/')) return clientRoutes(env, user, path, method, field, message, url);
+    return redirect('/client');
+  }
+  if (path === '/client' || path.startsWith('/client/')) return redirect(homeOf(user));
+
   // Admins see how many time-off requests are waiting, as a badge in the menu.
   if (user.is_admin) {
     const waiting = await env.DB.prepare(
@@ -179,6 +187,7 @@ async function handle(request, env) {
 
 // Where a person lands: new hires in training go to their training; otherwise VAs to My day, admins to Today.
 function homeOf(user) {
+  if (user.is_client && !user.is_admin && !user.is_va) return '/client';
   if (user.in_training || (!user.is_va && !user.is_admin)) return '/training';
   return user.is_va ? '/va' : '/admin';
 }

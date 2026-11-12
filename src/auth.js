@@ -73,7 +73,7 @@ export async function checkLogin(env, email, password) {
       .bind(lockedUntil ? 0 : failed, lockedUntil, user.id).run();
     return { error: lockedUntil ? 'locked' : 'wrong' };
   }
-  if (!user.is_admin && !user.is_va && !(await env.DB.prepare(`SELECT 1 FROM users u WHERE u.id = ? AND ${IN_TRAINING}`).bind(user.id).first())) {
+  if (!user.is_admin && !user.is_va && !user.is_client && !(await env.DB.prepare(`SELECT 1 FROM users u WHERE u.id = ? AND ${IN_TRAINING}`).bind(user.id).first())) {
     return { error: 'inactive' };
   }
 
@@ -121,7 +121,7 @@ export async function currentUser(request, env) {
   const hash = await sha256(token);
   const user = await env.DB.prepare(
     `SELECT u.*, s.expires_at AS session_expires FROM sessions s JOIN users u ON u.id = s.user_id
-     WHERE s.token_hash = ? AND s.expires_at > ? AND (u.is_admin = 1 OR u.is_va = 1 OR ${IN_TRAINING})`
+     WHERE s.token_hash = ? AND s.expires_at > ? AND (u.is_admin = 1 OR u.is_va = 1 OR u.is_client = 1 OR ${IN_TRAINING})`
   ).bind(hash, new Date().toISOString()).first();
   // Extend a "keep me logged in" login once a day, so people who use the app are never logged out.
   // Short logins (12 hours) are never extended.

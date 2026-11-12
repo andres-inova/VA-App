@@ -499,6 +499,31 @@ function loginBox(record, login) {
   });
 }
 
+// The Login box on a contact's page: a client login lets the contact see only their client's time, time off, holidays,
+// projected bill and invoices.
+function clientLoginBox(record, login, parent) {
+  const u = login?.user && login.user.is_client ? login.user : null;
+  const base = `/admin/contacts/${record.id}/login`;
+  const email = record.data.Email;
+  const can = email && parent && record.status !== 'Offboarded';
+  const post = (what, label, plain, confirm) => `<form method="post" action="${base}/${what}"${confirm ? ` data-confirm="${esc(confirm)}"` : ''}><button class="sm ${plain ? 'plain' : ''}">${label}</button></form>`;
+  let body;
+  if (u) {
+    body = `<p class="meta">Logs in with <b>${esc(u.email)}</b> and sees only ${esc(parent?.name || 'their client')}'s pages.</p>
+      <div class="chips">${chip(loginText(u), u.has_password ? 'good' : 'muted')}</div>
+      <p class="meta">${esc(lastLoginText(u))} · ${u.invited_at ? `Invite sent ${esc(formatDate(u.invited_at.slice(0, 10), true))}` : 'No invite sent yet'}</p>
+      <div class="actions">${loginButtons(u, base)}${post('remove', 'Remove client login', true, `Remove ${record.name}'s client login? They will no longer be able to log in.`)}</div>`;
+  } else if (!can) {
+    body = `<p class="meta">${!email ? 'Add an email with Edit: the contact logs in with it.' : !parent ? 'Choose this contact\'s client with Edit first.' : 'Offboarded contacts cannot get a login.'}</p>`;
+  } else if (login?.conflict) {
+    body = `<div class="toast bad" style="display:block">${esc(email)} is already the login of ${esc(login.conflict.name)}${login.conflict.is_admin ? ' (an admin)' : ''}, so this contact can't get a client login with it. Give the contact a different email with <a href="/admin/contacts/${record.id}/edit">Edit</a>.</div>`;
+  } else {
+    body = `<p class="meta">No client login yet. A client login lets ${esc(record.name)} see ${esc(parent.name)}'s time logs and more. They log in with ${esc(email)}.</p>
+      <div class="actions">${post('invite', `${icon('send')} Give a client login and send invite`, false, `Give ${record.name} a client login and email them an invite with a temporary password?`)}</div>`;
+  }
+  return section({ title: 'Client login', key: 'login', open: !!u || (can && !login?.conflict), hint: 'Their email on this contact is the email they log in with.', body: `<div style="padding:0 8px 8px">${body}</div>` });
+}
+
 export function recordPage({ user, key, record, names, notes, files, history, contacts, projects, parent, referredHere, login, va, training, mail, edit, tags, time = null, message, tempPassword = null }) {
   const d = record.data;
   const mod = MODULES[key];
@@ -537,6 +562,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
         : empty('No active project is linked to this client. Link one on the <a href="/admin/projects">Projects page</a>.'),
     });
   }
+  if (key === 'contacts') related += clientLoginBox(record, login, parent);
   if (key === 'vas') {
     related += loginBox(record, login);
     related += vaTimeBox(time);

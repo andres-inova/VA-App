@@ -19,7 +19,9 @@ export function inviteMessage(env, person, password) {
   const first = person.name.split(' ')[0];
   const url = `${env.APP_URL}/login`;
   // person.in_training: a new hire starting Onboarding Training (set by training.js).
-  const role = person.in_training
+  const role = person.is_client
+    ? 'You will use it to see the hours your VAs log for you, when they have time off, InoVA Local holidays, and your invoices.'
+    : person.in_training
     ? "You will use it during your training: to see each day's checklist, keep your notes, and sign off each day with your trainer."
     : person.is_va
     ? 'You will use it to check in at the start of each work day, track your tasks and time, and see your time-off requests.'
@@ -33,7 +35,9 @@ export function inviteMessage(env, person, password) {
     'Add it to your phone: on iPhone, open the link in Safari, tap Share, then "Add to Home Screen". On Android, open it in Chrome, tap the three dots, then "Install app".',
     person.is_va && !person.in_training && person.slack_user_id ? 'You can also check in from Slack: type /checkin in any channel.' : '',
   ].filter(Boolean);
-  const footer = 'Questions? Ask your VA Lead on Slack. If you didn\'t expect this message, you can ignore it.';
+  const footer = person.is_client
+    ? 'Questions? Reply to this email or contact your InoVA Local team. If you didn\'t expect this message, you can ignore it.'
+    : 'Questions? Ask your VA Lead on Slack. If you didn\'t expect this message, you can ignore it.';
 
   const mail = messages.email({
     title: '👋 Welcome to InoVA Local',

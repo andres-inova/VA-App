@@ -541,6 +541,7 @@ export function recordPage({ user, key, record, names, notes, files, history, co
     <div class="actions rec-actions">
       <a class="btn sm" href="${here}/edit">${icon('edit')} Edit</a>
       ${key === 'clients' ? `<a class="btn sm plain" href="/admin/contacts/new?client=${record.id}">${icon('plus')} Add contact</a>` : ''}
+      ${key === 'clients' ? `<form method="post" action="/admin/view-as" style="display:inline"><input type="hidden" name="client_id" value="${record.id}"><button class="btn sm plain">${icon('building')} View as client</button></form>` : ''}
       <a class="btn sm plain" href="#notes">${icon('note')} Notes · ${notes.length}</a>
       <a class="btn sm plain" href="#files">${icon('doc')} Files · ${files.length}</a>
       ${mail ? `<a class="btn sm plain" href="#emails">${icon('mail')} Emails · ${mail.emails.length}${mail.more ? '+' : ''}</a>` : ''}

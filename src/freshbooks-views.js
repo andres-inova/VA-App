@@ -46,6 +46,7 @@ export function settingsPage({ user, conn, missing, redirectUri, clients, fbClie
       : c.fb_client_id ? `<p class="small" style="margin:0">Linked to ${esc(c.fb_name || c.fb_client_id)}</p>` : '<p class="small" style="margin:0">Connect FreshBooks to link.</p>';
     return `<div class="item flat"><div class="item-head"><div class="grow"><div class="title"><a href="/admin/clients/${c.id}">${esc(c.name)}</a></div>
       <div class="sub">${c.fb_client_id ? `Linked: ${esc(c.fb_name || c.fb_client_id)} · ${c.invoices} invoice${c.invoices === 1 ? '' : 's'} copied${c.synced_at ? ` · ${esc(zohoTime(c.synced_at))}` : ''}` : sug ? 'A FreshBooks client looks like a match (pre-selected).' : 'Not linked: this client sees no invoices yet.'}</div></div>
+      ${c.fb_client_id ? `<form method="post" action="/admin/view-as" style="margin:0"><input type="hidden" name="client_id" value="${c.id}"><input type="hidden" name="to" value="invoices"><button class="sm plain">View invoices as client</button></form>` : ''}
       ${c.fb_client_id ? chip('Linked', 'good') : chip('Not linked', 'muted')}</div>${form}</div>`;
   }).join('');
 

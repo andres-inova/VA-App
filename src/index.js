@@ -106,6 +106,24 @@ async function handle(request, env) {
   if (path === '/account') return account(env, user, method, field, message);
   if (user.must_change_password) return redirect('/account');
 
+  // "View as client": an admin opens a client's pages exactly as that client sees them, without logging in as the
+  // client. Read-only, and remembered in a cookie until the admin clicks Exit.
+  const viewCookie = (value, maxAge) => `view_as=${value}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+  const viewingId = Number(/(?:^|;\s*)view_as=(\d+)/.exec(request.headers.get('Cookie') || '')?.[1]) || 0;
+  if (user.is_admin && path === '/admin/view-as' && method === 'POST') {
+    const rec = await env.DB.prepare("SELECT id FROM records WHERE id = ? AND module = 'clients'").bind(Number(field('client_id'))).first();
+    return rec ? redirect(field('to') === 'invoices' ? '/client/invoices' : '/client', viewCookie(rec.id, 86400)) : redirect('/admin/clients');
+  }
+  if (user.is_admin && path === '/client/exit-view' && method === 'POST') {
+    return redirect(viewingId ? `/admin/clients/${viewingId}` : '/admin/clients', viewCookie('', 0));
+  }
+  if (user.is_admin && (path === '/client' || path.startsWith('/client/'))) {
+    const rec = viewingId ? await env.DB.prepare("SELECT id, name, status FROM records WHERE id = ? AND module = 'clients'").bind(viewingId).first() : null;
+    if (!rec) return redirect('/admin/clients');
+    const viewer = { ...user, is_admin: false, is_va: false, is_client: true, in_training: false, trainings: [], timers: [], view_client: rec, viewing: rec };
+    return clientRoutes(env, viewer, path, method, field, message, url);
+  }
+
   // Client logins (a client's contact) see only the /client pages: nothing of the VA, admin or training pages.
   if (user.is_client && !user.is_admin && !user.is_va) {
     if (path === '/client' || path.startsWith('/client/')) return clientRoutes(env, user, path, method, field, message, url);

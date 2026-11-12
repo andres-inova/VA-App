@@ -32,7 +32,7 @@ export async function clientProjects(env, clientId) {
 }
 
 export async function clientRoutes(env, user, path, method, field, message, url) {
-  const client = await clientOf(env, user);
+  const client = user.view_client || await clientOf(env, user);
   if (!client || client.status === 'Offboarded') {
     return page(layout({ title: 'Your account', user, active: '/client', message, body:
       '<div class="card"><h1>Your account</h1><p class="lead">Your login is not linked to an active client right now. Please contact your InoVA Local team.</p></div>' }));

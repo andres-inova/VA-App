@@ -721,7 +721,7 @@ export function layout({ title, user, active, message, body }) {
 <div class="app">${sidebar}<label for="nav-toggle" class="scrim" aria-hidden="true"></label>
   <div class="main-col">
     <header class="topbar"><label for="nav-toggle" class="menu" aria-label="Open menu">${icon('menu')}</label><h1>${esc(title)}</h1>${user.is_admin ? `<a class="top-search" href="/admin/search" aria-label="Search everything">${icon('search')}</a>` : ''}</header>
-    <main>${toast}${active === '/va/time' ? '' : timerBar(user)}${active === '/va/sops' ? '' : sopBanner(user, active)}${body}</main>
+    <main>${toast}${user.viewing ? `<div class="toast info" style="display:block;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap"><span>Viewing as <b>${esc(user.viewing.name)}</b>: this is what the client sees. Read-only.</span><form method="post" action="/client/exit-view" style="margin:0"><button class="sm">Exit client view</button></form></div>` : ''}${active === '/va/time' ? '' : timerBar(user)}${active === '/va/sops' ? '' : sopBanner(user, active)}${body}</main>
   </div>
 </div>${tabbar}${SCRIPT}</body></html>`;
 }

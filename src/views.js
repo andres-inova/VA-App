@@ -691,7 +691,7 @@ export function layout({ title, user, active, message, body }) {
   if (user.is_admin) {
     groups.push(['Daily', [['/admin', 'Today', 'today'], ['/admin/time-off', 'Time off', 'timeoff', pending], ['/admin/calendar', 'Calendar', 'calendar']]]);
     groups.push(['Team', [['/admin/vas', 'VAs', 'va'], ['/admin/training', 'Training', 'training'], ['/admin/applicants', 'Applicants', 'applicant'], ['/admin/people', 'People', 'people']]]);
-    groups.push(['Clients', [['/admin/clients', 'Clients', 'building'], ['/admin/contacts', 'Contacts', 'people'], ['/admin/projects', 'Projects', 'projects'], ['/admin/time', 'Time', 'timer'], ['/admin/sops', 'Coverage SOPs', 'doc']]]);
+    groups.push(['Clients', [['/admin/clients', 'Clients', 'building'], ['/admin/contacts', 'Contacts', 'people'], ['/admin/projects', 'Projects', 'projects'], ['/admin/time', 'Time', 'timer'], ['/admin/invoices', 'Invoices', 'mail'], ['/admin/sops', 'Coverage SOPs', 'doc']]]);
   }
   const link = ([href, label, ic, badge]) =>
     `<a class="side-link ${href === active ? 'on' : ''}" href="${href}">${icon(ic)}<span>${label}</span>${badge ? `<span class="badge">${badge}</span>` : ''}</a>`;

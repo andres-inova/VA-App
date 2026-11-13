@@ -26,6 +26,7 @@ import { getTimeCheck, MODES } from './timecheck.js';
 import { emailRoutes } from './email.js';
 import { clientRoutes } from './client.js';
 import { freshbooksRoutes } from './freshbooks.js';
+import { adminInvoicesRoutes } from './admin-invoices.js';
 import { trainingRoutes, adminTrainingRoutes, myTrainings, lateTrainings, ONBOARDING } from './training.js';
 import * as views from './views.js';
 
@@ -198,6 +199,8 @@ async function handle(request, env) {
     if (path === '/admin/training' || path.startsWith('/admin/training/')) return adminTrainingRoutes(env, user, path, method, field, message, url);
     // Shared email: Settings > Email (Connect Gmail), saved emails and their attachments.
     if (/^\/admin\/emails?(\/|$)/.test(path)) return emailRoutes(env, user, path, method, field, message, url);
+    // Invoices (admin): every copied FreshBooks invoice of the linked clients.
+    if (path === '/admin/invoices' || path === '/admin/invoices.csv') return adminInvoicesRoutes(env, user, path, url, message);
     // FreshBooks: Settings > FreshBooks (connect, link clients, sync).
     if (path === '/admin/freshbooks' || path.startsWith('/admin/freshbooks/')) return freshbooksRoutes(env, user, path, method, field, message, url);
     return adminRoutes(env, user, path, method, field, message, url, fieldAll);

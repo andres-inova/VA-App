@@ -200,7 +200,7 @@ async function handle(request, env) {
     // Shared email: Settings > Email (Connect Gmail), saved emails and their attachments.
     if (/^\/admin\/emails?(\/|$)/.test(path)) return emailRoutes(env, user, path, method, field, message, url);
     // Invoices (admin): every copied FreshBooks invoice of the linked clients.
-    if (path === '/admin/invoices' || path === '/admin/invoices.csv') return adminInvoicesRoutes(env, user, path, url, message);
+    if (path === '/admin/invoices' || path === '/admin/invoices.csv' || /^\/admin\/invoices\/\d+$/.test(path)) return adminInvoicesRoutes(env, user, path, url, message);
     // FreshBooks: Settings > FreshBooks (connect, link clients, sync).
     if (path === '/admin/freshbooks' || path.startsWith('/admin/freshbooks/')) return freshbooksRoutes(env, user, path, method, field, message, url);
     return adminRoutes(env, user, path, method, field, message, url, fieldAll);

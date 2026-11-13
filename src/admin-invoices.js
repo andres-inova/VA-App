@@ -3,7 +3,8 @@
 // hour (see freshbooks.js), and a client sees only their own on their Invoices page.
 
 import { layout, icon, chip, empty, zohoTime } from './views.js';
-import { esc, page } from './util.js';
+import { esc, page, redirect } from './util.js';
+import { invoicePage } from './freshbooks-views.js';
 import { ZONES, partsIn, formatDate } from './time.js';
 import { toCsv } from './lists.js';
 
@@ -12,6 +13,7 @@ const MAX_SHOW = 2000;
 const MAX_CSV = 10000;
 const STATUSES = [['all', 'All'], ['open', 'Open'], ['overdue', 'Overdue'], ['paid', 'Paid']];
 
+const link0 = (id) => `/admin/invoices?client=${id}`;
 const money = (n, code = 'USD') => `${code && code !== 'USD' ? `${code} ` : '$'}${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // Paid, Partly paid, Due or Overdue (same words as the client's page).
@@ -48,6 +50,15 @@ export async function adminInvoicesRoutes(env, user, path, url, message) {
   const listSql = `SELECT i.*, l.client_record_id, r.name AS client_name FROM freshbooks_invoices i
       JOIN freshbooks_links l ON l.fb_client_id = i.fb_client_id JOIN records r ON r.id = l.client_record_id
       WHERE ${where}${statusSql} ORDER BY i.create_date DESC, i.invoice_number DESC LIMIT ?`;
+
+  const one = /^\/admin\/invoices\/(\d{1,20})$/.exec(path);
+  if (one) {
+    const inv = await env.DB.prepare(
+      `SELECT i.*, l.client_record_id, r.name AS client_name FROM freshbooks_invoices i JOIN freshbooks_links l ON l.fb_client_id = i.fb_client_id
+       JOIN records r ON r.id = l.client_record_id WHERE i.fb_invoice_id = ?`).bind(one[1]).first();
+    if (!inv) return redirect('/admin/invoices');
+    return page(invoicePage({ user, client: { id: inv.client_record_id, name: inv.client_name }, invoice: inv, back: link0(inv.client_record_id), admin: true, message }));
+  }
 
   if (path === '/admin/invoices.csv') {
     const { results } = await env.DB.prepare(listSql).bind(...binds, ...statusBinds, MAX_CSV).all();
@@ -110,7 +121,7 @@ export async function adminInvoicesRoutes(env, user, path, url, message) {
   const row = (i) => {
     const [label, tone] = stateOf(i, today);
     return `<div class="item flat"><div class="item-head"><div class="grow">
-      <div class="title">${i.link ? `<a href="${esc(i.link)}" target="_blank" rel="noopener">Invoice ${esc(i.invoice_number || '')}</a>` : `Invoice ${esc(i.invoice_number || '')}`} · <a href="/admin/clients/${i.client_record_id}">${esc(i.client_name)}</a></div>
+      <div class="title"><a href="/admin/invoices/${esc(i.fb_invoice_id)}">Invoice ${esc(i.invoice_number || '')}</a> · <a href="/admin/clients/${i.client_record_id}">${esc(i.client_name)}</a></div>
       <div class="sub">${i.create_date ? `Issued ${esc(formatDate(i.create_date, true))}` : ''}${i.due_date ? ` · Due ${esc(formatDate(i.due_date, true))}` : ''}</div>
       ${i.outstanding > 0.004 && i.paid > 0 ? `<div class="sub">${esc(money(i.paid, i.currency))} paid · ${esc(money(i.outstanding, i.currency))} still due</div>` : ''}</div>
       <div style="text-align:right"><b>${esc(money(i.amount, i.currency))}</b><div>${chip(label, tone)}</div></div></div></div>`;

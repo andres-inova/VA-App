@@ -40,6 +40,8 @@ export async function clientRoutes(env, user, path, method, field, message, url)
   if (path === '/client/time' || path.startsWith('/client/time/')) return method === 'GET' ? clientTimeRoutes(env, user, client, path, url, message) : redirect('/client/time');
   if (path === '/client/calendar') return method === 'GET' ? clientCalendarRoutes(env, user, client, path, message) : redirect('/client/calendar');
   if (path === '/client/bill') return method === 'GET' ? clientBillRoutes(env, user, client, message) : redirect('/client/bill');
+  const oneInvoice = /^\/client\/invoices\/(\d{1,20})$/.exec(path);
+  if (oneInvoice) return method === 'GET' ? clientInvoicesRoutes(env, user, client, message, oneInvoice[1]) : redirect('/client/invoices');
   if (path === '/client/invoices') return method === 'GET' ? clientInvoicesRoutes(env, user, client, message) : redirect('/client/invoices');
   if (path === '/client' && method === 'GET') {
     const projects = await clientProjects(env, client.id);

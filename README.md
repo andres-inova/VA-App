@@ -304,6 +304,7 @@ The app copies each linked client's invoices (not drafts) from FreshBooks about 
 1. In FreshBooks, open developer.freshbooks.com and create an app. As the redirect address use `https://inova-va-app.andres-261.workers.dev/admin/freshbooks/callback` and allow only `user:profile:read`, `user:invoices:read` and `user:clients:read`.
 2. Save the Client ID and Client Secret in Cloudflare (never in files or chat): `npx wrangler secret put FRESHBOOKS_CLIENT_ID` and `npx wrangler secret put FRESHBOOKS_CLIENT_SECRET`. (`EMAIL_TOKEN_KEY`, already set for Gmail, also encrypts the FreshBooks key.)
 3. Settings > FreshBooks: click Connect FreshBooks, then for each client record choose its FreshBooks client (a match is suggested when the names or emails look alike) and save. The first copy runs right away; "Sync now" copies again.
+4. Clicking an invoice (client or admin Invoices page) opens a copy with its line items, taxes, notes and terms, plus a Print / Save as PDF button. A small notice on it says it is a copy and that the official invoice (the PDF) is in the FreshBooks email or in FreshBooks under Invoices; FreshBooks does not let apps download its PDF. Line items fill in on the next hourly copy or Sync now.
 4. A client sees only the invoices of the FreshBooks client linked to their client record, on the Invoices page. If the FreshBooks connection ends, the page shows a message and the last copied invoices stay.
 
 ## Put the app on a phone or computer

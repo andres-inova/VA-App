@@ -793,6 +793,7 @@ CREATE TABLE IF NOT EXISTS freshbooks_invoices (
   currency TEXT,
   status TEXT,
   link TEXT,
+  details TEXT,
   updated TEXT,
   synced_at TEXT
 );

@@ -107,12 +107,24 @@ export async function listFbClients(ctx) {
 
 const money = (v) => { const n = parseFloat(v?.amount ?? v); return Number.isFinite(n) ? n : 0; };
 
+// The line items, discount, taxes, notes and terms of one invoice, as JSON text for the invoice page.
+function detailsOf(i) {
+  const lines = (Array.isArray(i.lines) ? i.lines : []).map((l) => ({
+    name: String(l.name || '').slice(0, 300), description: String(l.description || '').slice(0, 2000),
+    qty: parseFloat(l.qty) || 0, unit: money(l.unit_cost), amount: money(l.amount),
+    taxes: [[l.taxName1, l.taxAmount1], [l.taxName2, l.taxAmount2]].filter(([n, a]) => n && money(a)).map(([n, a]) => [String(n), money(a)]),
+  }));
+  return JSON.stringify({
+    lines, discount: money(i.discount_total), notes: String(i.notes || '').slice(0, 4000), terms: String(i.terms || '').slice(0, 4000),
+  });
+}
+
 // Copies the invoices of one FreshBooks client into freshbooks_invoices (drafts and deleted ones are left out, and
 // removed from the copy if they were copied before).
 async function syncClient(ctx, link) {
   const rows = [];
   for (let p = 1; p <= MAX_PAGES; p++) {
-    const data = await apiGet(ctx, `/accounting/account/${encodeURIComponent(ctx.conn.account_id)}/invoices/invoices?search%5Bcustomerid%5D=${encodeURIComponent(link.fb_client_id)}&per_page=100&page=${p}&sort=create_date_desc`);
+    const data = await apiGet(ctx, `/accounting/account/${encodeURIComponent(ctx.conn.account_id)}/invoices/invoices?search%5Bcustomerid%5D=${encodeURIComponent(link.fb_client_id)}&include%5B%5D=lines&per_page=100&page=${p}&sort=create_date_desc`);
     const r = data?.response?.result || {};
     for (const i of r.invoices || []) {
       const status = String(i.v3_status || i.display_status || '').toLowerCase();
@@ -122,19 +134,19 @@ async function syncClient(ctx, link) {
       rows.push({
         id: String(i.id || i.invoiceid), number: i.invoice_number || '', created: i.create_date || '', due: i.due_date || '',
         amount: money(i.amount), paid: money(i.paid), outstanding: money(i.outstanding), currency: i.amount?.code || i.currency_code || 'USD',
-        status, link: open, updated: i.updated || '',
+        status, link: open, updated: i.updated || '', details: detailsOf(i),
       });
     }
     if (p >= (r.pages || 1)) break;
   }
   const now = new Date().toISOString();
   const statements = rows.map((r) => ctx.env.DB.prepare(
-    `INSERT INTO freshbooks_invoices (fb_invoice_id, fb_client_id, invoice_number, create_date, due_date, amount, paid, outstanding, currency, status, link, updated, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO freshbooks_invoices (fb_invoice_id, fb_client_id, invoice_number, create_date, due_date, amount, paid, outstanding, currency, status, link, details, updated, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (fb_invoice_id) DO UPDATE SET fb_client_id = excluded.fb_client_id, invoice_number = excluded.invoice_number, create_date = excluded.create_date,
        due_date = excluded.due_date, amount = excluded.amount, paid = excluded.paid, outstanding = excluded.outstanding, currency = excluded.currency,
-       status = excluded.status, link = excluded.link, updated = excluded.updated, synced_at = excluded.synced_at`
-  ).bind(r.id, link.fb_client_id, r.number, r.created, r.due, r.amount, r.paid, r.outstanding, r.currency, r.status, r.link, r.updated, now));
+       status = excluded.status, link = excluded.link, details = excluded.details, updated = excluded.updated, synced_at = excluded.synced_at`
+  ).bind(r.id, link.fb_client_id, r.number, r.created, r.due, r.amount, r.paid, r.outstanding, r.currency, r.status, r.link, r.details, r.updated, now));
   // Copied before, but not returned now (deleted or back to draft): remove from the copy.
   statements.push(ctx.env.DB.prepare(
     `DELETE FROM freshbooks_invoices WHERE fb_client_id = ? AND synced_at < ?`
@@ -314,8 +326,13 @@ export async function freshbooksRoutes(env, user, path, method, field, message, 
 
 // ---- The client's Invoices page ----
 
-export async function clientInvoicesRoutes(env, user, client, message) {
+export async function clientInvoicesRoutes(env, user, client, message, invoiceId = null) {
   const link = await env.DB.prepare('SELECT * FROM freshbooks_links WHERE client_record_id = ?').bind(client.id).first();
+  if (invoiceId) {
+    // One invoice page: only an invoice of the FreshBooks client linked to this client.
+    const inv = link ? await env.DB.prepare('SELECT * FROM freshbooks_invoices WHERE fb_invoice_id = ? AND fb_client_id = ?').bind(invoiceId, link.fb_client_id).first() : null;
+    return inv ? page(fv.invoicePage({ user, client, invoice: inv, back: '/client/invoices', admin: false, message })) : redirect('/client/invoices');
+  }
   const { results: invoices } = link
     ? await env.DB.prepare('SELECT * FROM freshbooks_invoices WHERE fb_client_id = ? ORDER BY create_date DESC, invoice_number DESC LIMIT 200').bind(link.fb_client_id).all()
     : { results: [] };

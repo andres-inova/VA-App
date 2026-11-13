@@ -77,7 +77,7 @@ export function invoicesPage({ user, client, linked, invoices, syncedAt, message
   const row = (i) => {
     const [label, tone] = state(i);
     return `<div class="item flat"><div class="item-head"><div class="grow">
-        <div class="title">${i.link ? `<a href="${esc(i.link)}" target="_blank" rel="noopener">Invoice ${esc(i.invoice_number || '')}</a>` : `Invoice ${esc(i.invoice_number || '')}`}</div>
+        <div class="title"><a href="/client/invoices/${esc(i.fb_invoice_id)}">Invoice ${esc(i.invoice_number || '')}</a></div>
         <div class="sub">${i.create_date ? `Issued ${esc(formatDate(i.create_date, true))}` : ''}${i.due_date ? ` · Due ${esc(formatDate(i.due_date, true))}` : ''}</div>
         ${i.outstanding > 0.004 && i.paid > 0 ? `<div class="sub">${esc(money(i.paid, i.currency))} paid · ${esc(money(i.outstanding, i.currency))} still due</div>` : ''}</div>
         <div style="text-align:right"><b>${esc(money(i.amount, i.currency))}</b><div>${chip(label, tone)}</div></div></div></div>`;
@@ -85,6 +85,43 @@ export function invoicesPage({ user, client, linked, invoices, syncedAt, message
   const body = !linked
     ? `<div class="card"><h2>Invoices</h2><p class="lead">Your invoices will appear here once your InoVA Local team connects your account. Questions? Reply to your latest invoice email.</p></div>`
     : `${summary}<div class="card"><h2>Your invoices</h2>${invoices.length ? invoices.map(row).join('') : empty('No invoices yet.')}
-        <p class="small" style="margin:8px 0 0">${syncedAt ? `Updated ${esc(zohoTime(syncedAt))}. ` : ''}This list refreshes about once an hour. Your FreshBooks email has the payment link.</p></div>`;
+        <p class="small" style="margin:8px 0 0">${syncedAt ? `Updated ${esc(zohoTime(syncedAt))}. ` : ''}This list refreshes about once an hour. Click an invoice to see its line items. The official invoice and the payment link are in your FreshBooks email.</p></div>`;
   return layout({ title: 'Invoices', user, active: '/client/invoices', message, body });
+}
+
+// ---- One invoice: line items copied from FreshBooks (client and admin) ----
+// Not the official invoice (FreshBooks makes that PDF and emails it), so a small notice says so and where it is.
+
+export function invoicePage({ user, client, invoice: i, back, admin, message }) {
+  const today = partsIn(ZONES.EST).date;
+  let d = null;
+  try { d = i.details ? JSON.parse(i.details) : null; } catch { d = null; }
+  const code = i.currency || 'USD';
+  const m = (n) => esc(money(n, code));
+  const [label, tone] = i.outstanding <= 0.004 ? ['Paid', 'good'] : i.due_date && i.due_date < today ? ['Overdue', 'bad'] : i.paid > 0 ? ['Partly paid', 'warn'] : ['Due', 'info'];
+  const lines = d?.lines || [];
+  const subtotal = lines.reduce((t, l) => t + l.amount, 0);
+  const taxes = new Map();
+  for (const l of lines) for (const [n, a] of l.taxes || []) taxes.set(n, (taxes.get(n) || 0) + a);
+  const num = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const rows = lines.map((l) => `<tr><td><b>${esc(l.name || 'Item')}</b>${l.description ? `<div class="small" style="white-space:pre-wrap">${esc(l.description)}</div>` : ''}</td>
+      <td class="num">${esc(num(l.qty))}</td><td class="num">${m(l.unit)}</td><td class="num">${m(l.amount)}</td></tr>`).join('');
+  const sumRow = (name, value, strong) => `<tr class="inv-sum${strong ? ' strong' : ''}"><td colspan="3">${esc(name)}</td><td class="num">${value}</td></tr>`;
+  const table = lines.length
+    ? `<div class="inv-scroll"><table class="inv"><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead><tbody>${rows}
+        ${sumRow('Subtotal', m(subtotal))}${d.discount > 0 ? sumRow('Discount', `−${m(d.discount)}`) : ''}${[...taxes].map(([n, a]) => sumRow(n, m(a))).join('')}
+        ${sumRow('Total', m(i.amount), true)}${i.paid > 0 ? sumRow('Paid', `−${m(i.paid)}`) : ''}${sumRow('Balance due', m(i.outstanding), true)}</tbody></table></div>`
+    : `<p class="meta">${d ? 'This invoice has no line items.' : 'The line items will appear after the next hourly update.'}</p>`;
+  const where = admin
+    ? 'The official invoice (PDF) is in FreshBooks, under Invoices.'
+    : 'The official invoice (PDF) is in the FreshBooks email you received.';
+  const notice = `<p class="small inv-notice">Copy for reference, not the official invoice. ${where}</p>`;
+  const body = `<div class="card inv-card"><p style="margin:0"><a class="noprint" href="${esc(back)}">← All invoices</a></p>
+      <h2 style="margin-top:6px">Invoice ${esc(i.invoice_number || '')} ${chip(label, tone)}</h2>
+      <p class="meta" style="margin:0">${esc(client.name)}${i.create_date ? ` · Issued ${esc(formatDate(i.create_date, true))}` : ''}${i.due_date ? ` · Due ${esc(formatDate(i.due_date, true))}` : ''}</p>
+      ${table}
+      ${d?.notes ? `<h3>Notes</h3><p style="white-space:pre-wrap;margin:0">${esc(d.notes)}</p>` : ''}${d?.terms ? `<h3>Terms</h3><p style="white-space:pre-wrap;margin:0">${esc(d.terms)}</p>` : ''}
+      ${notice}
+      <div class="actions noprint"><button class="sm plain" type="button" onclick="window.print()">${icon('download')} Print / Save as PDF</button>${i.link ? `<a class="btn sm plain" href="${esc(i.link)}" target="_blank" rel="noopener">Open in FreshBooks</a>` : ''}</div></div>`;
+  return layout({ title: `Invoice ${i.invoice_number || ''}`, user, active: admin ? '/admin/invoices' : '/client/invoices', message, body });
 }
